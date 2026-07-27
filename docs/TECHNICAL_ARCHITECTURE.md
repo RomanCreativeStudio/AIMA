@@ -181,7 +181,7 @@ Recommendations are optimized for **one developer, Apple-first, low operational 
 |---|---|---|
 | macOS + iPhone (+ future tvOS) app | **Swift + SwiftUI**, single shared codebase with platform targets | Native Apple integration (notifications, Shortcuts, iCloud), one codebase for three platforms, strong tooling, no cross-platform framework tax. |
 | Web dashboard | **Next.js (React) + TypeScript** | Mature, huge ecosystem, easy to deploy, good fit for a secondary/lighter-weight client; TypeScript keeps it consistent with a Node backend if chosen. |
-| Backend API | **Node.js (TypeScript) or Python (FastAPI)** | Both have first-class SDKs for LLM providers, fast to build in solo, huge community support. Pick whichever language the developer is most fluent in — the architecture doesn't depend on which. |
+| Backend API | **Node.js (TypeScript) + Express** — decided for the Foundation Sprint, see [ADR 0001](decisions/0001-backend-stack.md) | Both Node and Python were viable; Node was chosen to share TypeScript types with `ai-engine/` and the future web dashboard. |
 | Database | **PostgreSQL** (managed, e.g., Supabase or a managed Postgres host) | Relational integrity for workspace partitioning, mature, supports `pgvector` for embeddings — avoids running a separate vector database in the MVP. |
 | Object storage | **S3-compatible storage** (e.g., Supabase Storage, Cloudflare R2, or AWS S3) | Cheap, standard, works with any backend choice. |
 | Auth | **Managed auth provider** (e.g., Supabase Auth, Clerk, or Auth0) | Don't build auth in-house; get sessions, device management, and security best practices "for free." |

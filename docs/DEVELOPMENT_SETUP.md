@@ -46,8 +46,8 @@ AIMA is a long-lived, trust-critical system, not a prototype to be rewritten lat
 - **SF Symbols** app (optional) for consistent iconography across apps.
 
 ### Backend Development Tools
-- **Node.js (LTS)** or **Python 3.x** runtime, matching whichever language is chosen per the Technical Architecture (Section 8 of that document) — pick one and standardize; do not mix backend languages.
-- **Package manager**: `npm`/`pnpm` (Node) or `pip`/`poetry` (Python).
+- **Node.js 22 (LTS) + TypeScript** — decided for `backend/` and `ai-engine/` in the Foundation Sprint (see `docs/decisions/0001-backend-stack.md`). Use the version pinned in the repo's `.nvmrc`.
+- **npm** (workspaces) as the package manager — no separate monorepo tool.
 - **Docker** (optional but recommended) for running local dependencies (e.g., a local Postgres instance) consistently.
 
 ### Database Tools

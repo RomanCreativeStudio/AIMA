@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+npm-debug.log*
+*.log
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
+
+# Xcode (future apps/macos, apps/ios, apps/tvos)
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
