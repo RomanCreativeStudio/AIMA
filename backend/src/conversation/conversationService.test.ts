@@ -209,6 +209,37 @@ test('createConversation rejects an unknown workspaceId', async () => {
   });
 });
 
+test('listConversations returns the most recently active conversation first, scoped to the workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const first = await service.createConversation(a.workspaceId, 'First');
+    const second = await service.createConversation(a.workspaceId, 'Second');
+    await service.createConversation(b.workspaceId, 'Other workspace');
+
+    // Sending a message to the first conversation bumps its updated_at.
+    await service.sendMessage({ workspaceId: a.workspaceId, conversationId: first.id, content: 'hello again' });
+
+    const conversations = await service.listConversations(a.workspaceId);
+    assert.equal(conversations.length, 2);
+    assert.ok(conversations.every((conversation) => conversation.workspaceId === a.workspaceId));
+    assert.equal(conversations[0].id, first.id);
+    assert.equal(conversations[1].id, second.id);
+  });
+});
+
+test('listConversations rejects an unknown workspaceId', async () => {
+  await withTestTransaction(async (client) => {
+    const { service } = buildService(client, new RecordingAIProvider());
+    await assert.rejects(
+      () => service.listConversations('00000000-0000-0000-0000-000000000000'),
+      WorkspaceNotFoundError,
+    );
+  });
+});
+
 test('listMessages applies the history limit (context limit)', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'development');

@@ -70,6 +70,28 @@ export class ConversationService {
     return mapConversationRow(result.rows[0]);
   }
 
+  /**
+   * Most-recently-active conversation first (Phase 2.1, macOS Chat screen's
+   * conversation list). Ordered by the monotonic `sequence` column, not
+   * `updated_at` — under READ COMMITTED, `now()` is frozen at transaction
+   * start, so two conversations touched in the same transaction could tie
+   * on `updated_at` (the same problem `database/migrations/
+   * 0003_message_sequence.sql` solved for `messages`).
+   */
+  async listConversations(workspaceId: string): Promise<Conversation[]> {
+    await this.assertWorkspaceExists(workspaceId);
+
+    const result = await this.db.query(
+      `SELECT id, workspace_id, title, created_at, updated_at
+       FROM conversations
+       WHERE workspace_id = $1
+       ORDER BY sequence DESC`,
+      [workspaceId],
+    );
+
+    return result.rows.map(mapConversationRow);
+  }
+
   /** Most-recent-first is how it's queried; returned oldest-first, as a model expects conversation turns. */
   async listMessages(workspaceId: string, conversationId: string, limit: number = this.historyLimit): Promise<Message[]> {
     await this.assertConversationInWorkspace(workspaceId, conversationId);
@@ -97,6 +119,7 @@ export class ConversationService {
     const workspaceSlug = await this.assertConversationInWorkspace(input.workspaceId, input.conversationId);
 
     const userMessage = await this.saveMessage(input.workspaceId, input.conversationId, 'user', input.content);
+    await this.touchConversation(input.conversationId);
 
     try {
       const history = await this.listMessages(input.workspaceId, input.conversationId, this.historyLimit);
@@ -180,6 +203,13 @@ export class ConversationService {
     }
 
     return slug;
+  }
+
+  /** `sequence = DEFAULT` re-evaluates the column's nextval() default, bumping it — the actual signal `listConversations` orders by. */
+  private async touchConversation(conversationId: string): Promise<void> {
+    await this.db.query('UPDATE conversations SET updated_at = now(), sequence = DEFAULT WHERE id = $1', [
+      conversationId,
+    ]);
   }
 
   private async saveMessage(

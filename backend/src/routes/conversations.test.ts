@@ -138,6 +138,59 @@ test('POST .../conversations rejects an unknown workspaceId with 404', async () 
   });
 });
 
+test('GET /api/workspaces/:id/conversations lists conversations newest-active-first, scoped to the workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      const first = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'First' }),
+      });
+      const { conversation: firstConversation } = (await first.json()) as { conversation: { id: string } };
+
+      const second = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Second' }),
+      });
+      const { conversation: secondConversation } = (await second.json()) as { conversation: { id: string } };
+
+      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Other workspace' }),
+      });
+
+      // Sending a message to the first conversation should bump it back to the top.
+      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations/${firstConversation.id}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'hello again' }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { conversations: Array<{ id: string; workspaceId: string }> };
+      assert.equal(body.conversations.length, 2);
+      assert.ok(body.conversations.every((conversation) => conversation.workspaceId === a.workspaceId));
+      assert.equal(body.conversations[0].id, firstConversation.id);
+      assert.equal(body.conversations[1].id, secondConversation.id);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});
+
+test('GET .../conversations rejects an unknown workspaceId with 404', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/conversations`);
+    assert.equal(response.status, 404);
+  });
+});
+
 test('full pipeline: create conversation, send a message, read it back in history', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);

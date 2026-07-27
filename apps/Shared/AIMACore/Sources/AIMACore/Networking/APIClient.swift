@@ -1,0 +1,36 @@
+import Foundation
+
+/// Everything a view model needs from the backend (Phase 2.1, item 3–4).
+/// A protocol — not a concrete class — so views/view models depend on this
+/// abstraction, never on `URLSessionAPIClient` directly; `MockAPIClient`
+/// implements the same interface for SwiftUI previews and tests, mirroring
+/// the provider-abstraction pattern already used throughout `backend/` and
+/// `ai-engine/` (`AIProvider`, `EmbeddingProvider`, `IntentClassifier`).
+public protocol APIClient: Sendable {
+    func getHealth() async throws -> SystemHealth
+
+    func getUser(id: String) async throws -> UserProfile
+    func updateUserProfile(id: String, request: UpdateUserProfileRequest) async throws -> UserProfile
+
+    func createWorkspace(_ request: CreateWorkspaceRequest) async throws -> Workspace
+    func listWorkspaces(userId: String) async throws -> [Workspace]
+    func getWorkspace(id: String) async throws -> Workspace
+    func updateWorkspace(id: String, request: UpdateWorkspaceRequest) async throws -> Workspace
+
+    func createConversation(workspaceId: String, title: String?) async throws -> Conversation
+    func listConversations(workspaceId: String) async throws -> [Conversation]
+    func listMessages(workspaceId: String, conversationId: String, limit: Int?) async throws -> [Message]
+    func sendMessage(workspaceId: String, conversationId: String, content: String) async throws -> SendMessageResult
+
+    func listTasks(workspaceId: String, status: TaskStatus?) async throws -> [TaskItem]
+    func createTask(workspaceId: String, request: CreateTaskRequest) async throws -> TaskItem
+    func updateTask(workspaceId: String, taskId: String, request: UpdateTaskRequest) async throws -> TaskItem
+    func deleteTask(workspaceId: String, taskId: String) async throws
+
+    func listApprovals(workspaceId: String, status: ApprovalStatus?) async throws -> [PendingApproval]
+    func approveApproval(workspaceId: String, approvalId: String) async throws -> ApprovalDecision
+    func rejectApproval(workspaceId: String, approvalId: String) async throws -> ApprovalDecision
+
+    func listPreferences(workspaceId: String, category: PreferenceCategory?) async throws -> [Preference]
+    func setPreference(workspaceId: String, request: SetPreferenceRequest) async throws -> Preference
+}

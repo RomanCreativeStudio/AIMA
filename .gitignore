@@ -27,3 +27,7 @@ npm-debug.log*
 *.xcodeproj/xcuserdata/
 *.xcworkspace/xcuserdata/
 DerivedData/
+
+# Swift Package Manager build artifacts (apps/Shared/AIMACore, apps/macos, ...)
+.build/
+.swiftpm/

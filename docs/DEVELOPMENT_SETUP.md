@@ -44,6 +44,7 @@ AIMA is a long-lived, trust-critical system, not a prototype to be rewritten lat
 - **Xcode Command Line Tools**.
 - **Apple Developer Program membership** — required before any TestFlight distribution or device-specific testing (push notifications, APNs) can be configured; not required to begin local simulator development.
 - **SF Symbols** app (optional) for consistent iconography across apps.
+- **Swift toolchain (5.10+/6.x)** — the platform-agnostic `apps/Shared/AIMACore` package (Phase 2.1, `docs/decisions/0009-macos-experience-foundation.md`) has no SwiftUI/Combine dependency, so it also builds and runs its full test suite with `swift build`/`swift test` on a non-Apple machine with the [Linux Swift toolchain](https://www.swift.org/install/linux/) installed — useful for CI or a non-macOS contributor, though the `apps/macos`/`apps/ios`/`apps/tvos` SwiftUI executables themselves still require Xcode.
 
 ### Backend Development Tools
 - **Node.js 22 (LTS) + TypeScript** — decided for `backend/` and `ai-engine/` in the Foundation Sprint (see `docs/decisions/0001-backend-stack.md`). Use the version pinned in the repo's `.nvmrc`.
@@ -68,7 +69,9 @@ AIMA is developed as a single monorepo. This keeps the product's shared contract
 ```
 AIMA/
 ├── apps/           # All client applications (thin presentation layer)
-│   ├── macos/      # macOS app (SwiftUI)
+│   ├── Shared/AIMACore/  # Platform-agnostic Swift package: models, networking,
+│   │                     # view models — no SwiftUI/Combine dependency (Phase 2.1)
+│   ├── macos/      # macOS app (SwiftUI, depends on Shared/AIMACore)
 │   ├── ios/        # iPhone app (SwiftUI, shares code with macos/ where practical)
 │   ├── web/         # Web dashboard (Next.js/TypeScript)
 │   └── tvos/       # Future Apple TV companion (created when that sprint begins)
@@ -157,7 +160,7 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 2. **Install dependencies**
    - Backend/AI engine: run the package manager install command in `backend/` and `ai-engine/` (e.g., `npm install` or `poetry install`).
    - Web dashboard: run the install command in `apps/web/`.
-   - macOS/iOS: open the relevant `.xcodeproj`/`.xcodeproj`/Swift package in Xcode; dependencies resolve via Swift Package Manager automatically.
+   - macOS/iOS: open `apps/macos/Package.swift` (or the relevant app's `Package.swift`) directly in Xcode via "File > Open..." — there is no `.xcodeproj`; dependencies (including the local `apps/Shared/AIMACore` package) resolve via Swift Package Manager automatically.
 
 3. **Configure environment**
    - Copy each `.env.example` to `.env` in the corresponding folder and fill in local values (local database URL, a development-tier LLM API key, etc.).
@@ -182,7 +185,7 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 ### Unit Testing
 - Every non-trivial function in `backend/` and `ai-engine/` — especially permission tier logic, workspace scoping, and context assembly — should have unit test coverage.
 - Tooling: Node's built-in `node:test` runner via `tsx` (`npm test` in either package, or from the repo root to run both) — no test framework dependency beyond that, per the "avoid unnecessary complexity" rule (§9). Example: `backend/src/permissions/engine.test.ts`, `ai-engine/src/embeddings/MockEmbeddingProvider.test.ts`.
-- Swift code in `apps/` uses XCTest for logic that isn't purely presentational (e.g., view models).
+- Swift code in `apps/` uses XCTest for logic that isn't purely presentational (e.g., view models). `apps/Shared/AIMACore`'s suite (model decoding, `URLSessionAPIClient` against a stubbed `URLProtocol`, and every view model against `MockAPIClient`) runs via `swift test` and is verifiable without Xcode; the SwiftUI views in `apps/macos` themselves are only verifiable via Xcode Previews/builds on a real Mac.
 
 ### Integration Testing
 - Backend API endpoints and services are tested end-to-end against a **real local Postgres database** (`aima_test`, migrated per `database/README.md`) — not mocked. Set `TEST_DATABASE_URL` if your local database differs from the default. Service-level tests wrap each test in a transaction that's rolled back (`backend/src/testUtils/db.ts`); HTTP-level route tests seed and clean up their own rows.

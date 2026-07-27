@@ -34,6 +34,21 @@ export function conversationsRouter(deps: ConversationsRouterDependencies): Rout
     }
   });
 
+  router.get('/workspaces/:workspaceId/conversations', async (req, res, next) => {
+    try {
+      const { workspaceId } = req.params;
+      if (!isUuid(workspaceId)) {
+        res.status(400).json({ error: 'workspaceId must be a valid UUID' });
+        return;
+      }
+
+      const conversations = await deps.conversationService.listConversations(workspaceId);
+      res.json({ conversations });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
   router.get('/workspaces/:workspaceId/conversations/:conversationId/messages', async (req, res, next) => {
     try {
       const { workspaceId, conversationId } = req.params;
