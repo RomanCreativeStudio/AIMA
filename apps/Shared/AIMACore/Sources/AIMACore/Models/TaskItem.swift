@@ -1,11 +1,23 @@
 import Foundation
 
 /// Mirrors `backend/src/tasks/types.ts#TaskStatus`.
-public enum TaskStatus: String, Codable, CaseIterable, Sendable {
+public enum TaskStatus: String, Codable, CaseIterable, Identifiable, Sendable {
     case todo
     case inProgress = "in_progress"
     case done
     case cancelled
+
+    public var id: String { rawValue }
+
+    /// The display label used by the Tasks screen (Phase 2.2, item 4).
+    public var displayName: String {
+        switch self {
+        case .todo: return "To Do"
+        case .inProgress: return "In Progress"
+        case .done: return "Done"
+        case .cancelled: return "Cancelled"
+        }
+    }
 }
 
 /// Mirrors `backend/src/tasks/types.ts#TaskPriority`.

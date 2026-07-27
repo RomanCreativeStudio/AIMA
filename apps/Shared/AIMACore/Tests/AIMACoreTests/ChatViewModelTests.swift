@@ -68,6 +68,65 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.draftMessage, "hello", "the draft is preserved since nothing was sent")
     }
 
+    func testSendDraftMessageFetchesTheFullPendingApprovalWhenOneIsRequired() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        _ = await apiClient.forceNextMessageToRequireApproval(workspaceId: "mock-ws-rcs", actionType: "send_email")
+
+        viewModel.draftMessage = "Draft the client reply"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertEqual(viewModel.lastApprovalDecision?.state, "pending")
+        XCTAssertNotNil(viewModel.lastPendingApproval)
+        XCTAssertEqual(viewModel.lastPendingApproval?.actionType, "send_email")
+    }
+
+    func testApproveLastApprovalResolvesTheCardAndClearsIt() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        _ = await apiClient.forceNextMessageToRequireApproval(workspaceId: "mock-ws-rcs", actionType: "send_email")
+        viewModel.draftMessage = "Draft the client reply"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.approveLastApproval()
+
+        XCTAssertNil(viewModel.lastPendingApproval)
+        XCTAssertEqual(viewModel.lastApprovalDecision?.state, "approved")
+    }
+
+    func testRejectLastApprovalResolvesTheCardAndClearsIt() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        _ = await apiClient.forceNextMessageToRequireApproval(workspaceId: "mock-ws-rcs", actionType: "send_email")
+        viewModel.draftMessage = "Draft the client reply"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.rejectLastApproval()
+
+        XCTAssertNil(viewModel.lastPendingApproval)
+        XCTAssertEqual(viewModel.lastApprovalDecision?.state, "rejected")
+    }
+
+    func testSelectingAConversationClearsStaleIntentAndApprovalState() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await viewModel.startNewConversation(title: "Second thread")
+        _ = await apiClient.forceNextMessageToRequireApproval(workspaceId: "mock-ws-rcs", actionType: "send_email")
+        viewModel.draftMessage = "Draft the client reply"
+        await viewModel.sendDraftMessage()
+        XCTAssertNotNil(viewModel.lastPendingApproval, "sanity check: the card exists before switching")
+
+        await viewModel.selectConversation(viewModel.conversations.last!.id)
+
+        XCTAssertNil(viewModel.lastIntent)
+        XCTAssertNil(viewModel.lastApprovalDecision)
+        XCTAssertNil(viewModel.lastPendingApproval)
+    }
+
     func testSendingAMessageMovesItsConversationToTheTopOfTheList() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

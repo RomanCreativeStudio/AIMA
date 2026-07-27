@@ -57,4 +57,22 @@ public enum JSONValue: Codable, Equatable, Sendable {
         case .object, .array: return nil
         }
     }
+
+    /// A readable, recursive rendering for display purposes (e.g. an
+    /// approval's `payload` in the Approvals detail view, Phase 2.2) — not
+    /// meant to be valid JSON, just human-scannable text. Object keys are
+    /// sorted for stable, deterministic output.
+    public var displayString: String {
+        switch self {
+        case .string(let value): return value
+        case .number(let value): return String(value)
+        case .bool(let value): return String(value)
+        case .null: return "null"
+        case .object(let value):
+            let entries = value.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value.displayString)" }
+            return "{ " + entries.joined(separator: ", ") + " }"
+        case .array(let value):
+            return "[" + value.map { $0.displayString }.joined(separator: ", ") + "]"
+        }
+    }
 }

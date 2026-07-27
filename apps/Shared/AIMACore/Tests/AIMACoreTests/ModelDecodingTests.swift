@@ -103,6 +103,28 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(TaskStatus.cancelled.rawValue, "cancelled")
     }
 
+    func testJSONValueDisplayStringRendersNestedPayloadsReadably() {
+        let payload = JSONValue.object([
+            "to": .string("client@example.com"),
+            "cc": .array([.string("boss@example.com")]),
+            "urgent": .bool(true),
+            "retries": .number(2),
+            "note": .null,
+        ])
+
+        XCTAssertEqual(
+            payload.displayString,
+            #"{ cc: [boss@example.com], note: null, retries: 2.0, to: client@example.com, urgent: true }"#
+        )
+    }
+
+    func testTaskStatusDisplayNames() {
+        XCTAssertEqual(TaskStatus.todo.displayName, "To Do")
+        XCTAssertEqual(TaskStatus.inProgress.displayName, "In Progress")
+        XCTAssertEqual(TaskStatus.done.displayName, "Done")
+        XCTAssertEqual(TaskStatus.cancelled.displayName, "Cancelled")
+    }
+
     func testDecodesTaskItem() throws {
         let json = """
         {"id":"t1","workspaceId":"w1","title":"Ship it","description":null,"status":"in_progress","priority":"high","dueDate":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}

@@ -28,6 +28,7 @@ public protocol APIClient: Sendable {
     func deleteTask(workspaceId: String, taskId: String) async throws
 
     func listApprovals(workspaceId: String, status: ApprovalStatus?) async throws -> [PendingApproval]
+    func getApproval(workspaceId: String, approvalId: String) async throws -> PendingApproval
     func approveApproval(workspaceId: String, approvalId: String) async throws -> ApprovalDecision
     func rejectApproval(workspaceId: String, approvalId: String) async throws -> ApprovalDecision
 

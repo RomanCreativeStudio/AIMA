@@ -55,6 +55,14 @@ final class DependencyContainer {
         ChatViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }
 
+    func makeApprovalsViewModel(workspaceId: String) -> ApprovalsViewModel {
+        ApprovalsViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
+
+    func makeTasksViewModel(workspaceId: String) -> TasksViewModel {
+        TasksViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
+
     func makeSettingsViewModel() -> SettingsViewModel {
         SettingsViewModel(apiClient: apiClient, userId: userId, currentConfiguration: configuration)
     }

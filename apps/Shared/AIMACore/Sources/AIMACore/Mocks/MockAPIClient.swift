@@ -24,6 +24,12 @@ public actor MockAPIClient: APIClient {
     private var approvalsByWorkspace: [String: [PendingApproval]]
     private var preferencesByWorkspace: [String: [Preference]]
 
+    /// Set by `forceNextMessageToRequireApproval`, consumed by the next
+    /// `sendMessage` call — lets tests exercise the Chat screen's approval
+    /// card (Phase 2.2) without a real Tier 3 capability being promoted yet
+    /// (`backend/README.md`'s "what's intentionally not built yet").
+    private var forcedNextApprovalId: String?
+
     public init() {
         let now = ISO8601DateFormatter().string(from: Date())
         let userId = "mock-user"
@@ -187,14 +193,40 @@ public actor MockAPIClient: APIClient {
         messagesByConversation[conversationId, default: []].append(contentsOf: [userMessage, assistantMessage])
         touchConversation(conversationId)
 
+        let intent: IntentAnalysis
+        let approvalDecision: ApprovalDecision
+        if let approvalId = forcedNextApprovalId {
+            forcedNextApprovalId = nil
+            intent = IntentAnalysis(intent: "draft_email", confidence: 0.9, parameters: [:], approval: .approvalRequired, suggestedNextAction: "Awaiting your approval before drafting.")
+            approvalDecision = ApprovalDecision(state: ApprovalStatus.pending.rawValue, pendingApprovalId: approvalId)
+        } else {
+            intent = IntentAnalysis(intent: "chat", confidence: 0.5, parameters: [:], approval: .noApprovalNeeded, suggestedNextAction: "No action needed — this is a conversational response.")
+            approvalDecision = ApprovalDecision(state: "no_approval_needed", pendingApprovalId: nil)
+        }
+
         return SendMessageResult(
             userMessage: userMessage,
             assistantMessage: assistantMessage,
             retrievedMemories: [],
             retrievedDocumentChunks: [],
-            intent: IntentAnalysis(intent: "chat", confidence: 0.5, parameters: [:], approval: .noApprovalNeeded, suggestedNextAction: "No action needed — this is a conversational response."),
-            approvalDecision: ApprovalDecision(state: "no_approval_needed", pendingApprovalId: nil)
+            intent: intent,
+            approvalDecision: approvalDecision
         )
+    }
+
+    /// Test hook (Phase 2.2): makes the next `sendMessage` call return an
+    /// `ApprovalDecision` pointing at a real, freshly-seeded `PendingApproval`
+    /// — simulating a Tier 3 capability being triggered, which no shipped
+    /// capability default does yet. Returns the seeded approval's id.
+    public func forceNextMessageToRequireApproval(workspaceId: String, actionType: String) -> String {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let approval = PendingApproval(
+            id: UUID().uuidString, workspaceId: workspaceId, actionType: actionType,
+            payload: nil, status: .pending, createdAt: now, expiresAt: now, resolvedAt: nil
+        )
+        approvalsByWorkspace[workspaceId, default: []].append(approval)
+        forcedNextApprovalId = approval.id
+        return approval.id
     }
 
     public func listTasks(workspaceId: String, status: TaskStatus?) async throws -> [TaskItem] {
@@ -244,6 +276,14 @@ public actor MockAPIClient: APIClient {
         let all = approvalsByWorkspace[workspaceId] ?? []
         guard let status else { return all }
         return all.filter { $0.status == status }
+    }
+
+    public func getApproval(workspaceId: String, approvalId: String) async throws -> PendingApproval {
+        try await maybeFail()
+        guard let approval = (approvalsByWorkspace[workspaceId] ?? []).first(where: { $0.id == approvalId }) else {
+            throw APIError.server(statusCode: 404, message: "Approval not found: \(approvalId)")
+        }
+        return approval
     }
 
     public func approveApproval(workspaceId: String, approvalId: String) async throws -> ApprovalDecision {

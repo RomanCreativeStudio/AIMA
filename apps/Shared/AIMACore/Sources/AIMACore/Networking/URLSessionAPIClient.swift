@@ -129,6 +129,14 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).approvals
     }
 
+    public func getApproval(workspaceId: String, approvalId: String) async throws -> PendingApproval {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/approvals/\(approvalId)",
+            envelope: ApprovalEnvelope.self
+        ).approval
+    }
+
     public func approveApproval(workspaceId: String, approvalId: String) async throws -> ApprovalDecision {
         try await send(
             "POST",
@@ -260,6 +268,7 @@ private struct MessagesEnvelope: Decodable { let messages: [Message] }
 private struct TaskEnvelope: Decodable { let task: TaskItem }
 private struct TasksEnvelope: Decodable { let tasks: [TaskItem] }
 private struct ApprovalsEnvelope: Decodable { let approvals: [PendingApproval] }
+private struct ApprovalEnvelope: Decodable { let approval: PendingApproval }
 private struct DecisionEnvelope: Decodable { let decision: ApprovalDecision }
 private struct PreferenceEnvelope: Decodable { let preference: Preference }
 private struct PreferencesEnvelope: Decodable { let preferences: [Preference] }

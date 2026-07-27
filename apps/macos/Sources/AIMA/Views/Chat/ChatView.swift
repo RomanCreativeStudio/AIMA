@@ -36,6 +36,14 @@ struct ChatView: View {
                     IntentBanner(intent: intent, approvalDecision: viewModel.lastApprovalDecision)
                 }
 
+                if let pendingApproval = viewModel.lastPendingApproval {
+                    ApprovalCardView(
+                        approval: pendingApproval,
+                        onApprove: { Task { await viewModel.approveLastApproval() } },
+                        onReject: { Task { await viewModel.rejectLastApproval() } }
+                    )
+                }
+
                 MessageInputView(viewModel: viewModel)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

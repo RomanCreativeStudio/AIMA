@@ -20,6 +20,12 @@ public final class ChatViewModel {
     public private(set) var errorMessage: String?
     public private(set) var lastIntent: IntentAnalysis?
     public private(set) var lastApprovalDecision: ApprovalDecision?
+    /// The full approval record for `lastApprovalDecision`, when it refers to
+    /// a real one (Phase 2.2's chat approval card) — fetched separately
+    /// since `SendMessageResult.approvalDecision` only carries an id, not
+    /// the full `PendingApproval` (action type, payload, expiry) a card
+    /// needs to render.
+    public private(set) var lastPendingApproval: PendingApproval?
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -61,6 +67,12 @@ public final class ChatViewModel {
     public func selectConversation(_ conversationId: String) async {
         selectedConversationId = conversationId
         errorMessage = nil
+        // A different conversation means the previous turn's intent/approval
+        // banner and approval card no longer apply — leaving them in place
+        // would show stale, wrongly-scoped state over the newly loaded history.
+        lastIntent = nil
+        lastApprovalDecision = nil
+        lastPendingApproval = nil
         do {
             messages = try await apiClient.listMessages(workspaceId: workspaceId, conversationId: conversationId, limit: nil)
         } catch let error as APIError {
@@ -83,6 +95,10 @@ public final class ChatViewModel {
             messages.append(contentsOf: [result.userMessage, result.assistantMessage])
             lastIntent = result.intent
             lastApprovalDecision = result.approvalDecision
+            lastPendingApproval = nil
+            if let approvalId = result.approvalDecision.pendingApprovalId {
+                lastPendingApproval = try? await apiClient.getApproval(workspaceId: workspaceId, approvalId: approvalId)
+            }
             draftMessage = ""
 
             // A reply is the same "recently active" signal the backend
@@ -92,6 +108,37 @@ public final class ChatViewModel {
                 let conversation = conversations.remove(at: index)
                 conversations.insert(conversation, at: 0)
             }
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Resolves the chat approval card (Phase 2.2, item 3) in place — the
+    /// same action the Approvals/Dashboard screens perform, just reachable
+    /// without leaving the conversation.
+    public func approveLastApproval() async {
+        await resolveLastApproval { client, workspaceId, approvalId in
+            try await client.approveApproval(workspaceId: workspaceId, approvalId: approvalId)
+        }
+    }
+
+    public func rejectLastApproval() async {
+        await resolveLastApproval { client, workspaceId, approvalId in
+            try await client.rejectApproval(workspaceId: workspaceId, approvalId: approvalId)
+        }
+    }
+
+    private func resolveLastApproval(
+        _ action: (APIClient, String, String) async throws -> ApprovalDecision
+    ) async {
+        guard let approval = lastPendingApproval else { return }
+        errorMessage = nil
+        do {
+            let decision = try await action(apiClient, workspaceId, approval.id)
+            lastApprovalDecision = decision
+            lastPendingApproval = nil
         } catch let error as APIError {
             errorMessage = error.userMessage
         } catch {

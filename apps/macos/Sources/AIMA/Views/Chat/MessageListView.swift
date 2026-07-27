@@ -41,11 +41,26 @@ private struct MessageBubble: View {
 
     private var isUser: Bool { message.role == .user }
 
+    /// Renders AI responses as Markdown (Phase 2.2's "Markdown responses") —
+    /// `AttributedString(markdown:)` isn't available in the Linux Foundation
+    /// this repo's `apps/Shared/AIMACore` package builds/tests against (confirmed
+    /// by a failed trial build), so unlike the rest of the chat pipeline this
+    /// parsing can only live here, in the SwiftUI/Apple-platform-only layer,
+    /// not as a testable AIMACore helper. Falls back to plain text if a
+    /// response contains something the parser rejects, rather than dropping it.
+    private var renderedContent: AttributedString {
+        (try? AttributedString(
+            markdown: message.content,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .full)
+        )) ?? AttributedString(message.content)
+    }
+
     var body: some View {
         HStack {
             if isUser { Spacer(minLength: 40) }
 
-            Text(message.content)
+            Text(renderedContent)
+                .textSelection(.enabled)
                 .padding(10)
                 .background(
                     isUser ? Color.accentColor : Color.gray.opacity(0.2),

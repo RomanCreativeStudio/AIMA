@@ -113,6 +113,17 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(sentJSON?["priority"] as? String, "high")
     }
 
+    func testGetApprovalUnwrapsTheApprovalEnvelope() async throws {
+        let body = """
+        {"approval":{"id":"a1","workspaceId":"w1","actionType":"send_email","payload":null,"status":"pending","createdAt":"2026-01-01T00:00:00.000Z","expiresAt":"2026-01-02T00:00:00.000Z","resolvedAt":null}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/approvals/a1"] = .init(statusCode: 200, body: body)
+
+        let approval = try await client.getApproval(workspaceId: "w1", approvalId: "a1")
+        XCTAssertEqual(approval.actionType, "send_email")
+        XCTAssertEqual(approval.status, .pending)
+    }
+
     func testNonSuccessStatusThrowsServerErrorWithBackendMessage() async {
         MockURLProtocol.stubs["GET /api/workspaces/missing/tasks"] = .init(
             statusCode: 404,

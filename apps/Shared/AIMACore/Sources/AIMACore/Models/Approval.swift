@@ -3,11 +3,13 @@ import Foundation
 /// Mirrors `backend/src/approval/types.ts#ApprovalStatus` (Phase 1.7).
 /// `expired` is derived by the backend at read time, never persisted, but
 /// is a real value this app can receive and must render.
-public enum ApprovalStatus: String, Codable, CaseIterable, Sendable {
+public enum ApprovalStatus: String, Codable, CaseIterable, Identifiable, Sendable {
     case pending
     case approved
     case rejected
     case expired
+
+    public var id: String { rawValue }
 }
 
 /// Mirrors `backend/src/approval/types.ts#PendingApproval`.

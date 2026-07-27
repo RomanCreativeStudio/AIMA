@@ -1,11 +1,13 @@
 import AIMACore
 import SwiftUI
 
-/// The four top-level screens (Phase 2.1, item 2): Dashboard, Chat,
-/// Workspace, Settings.
+/// The top-level screens: Dashboard and Chat (Phase 2.1, item 2), Tasks and
+/// Approvals (Phase 2.2, items 3–4), Workspace and Settings (Phase 2.1).
 enum AppSection: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case chat = "Chat"
+    case tasks = "Tasks"
+    case approvals = "Approvals"
     case workspace = "Workspace"
     case settings = "Settings"
 
@@ -15,6 +17,8 @@ enum AppSection: String, CaseIterable, Identifiable {
         switch self {
         case .dashboard: return "square.grid.2x2"
         case .chat: return "bubble.left.and.bubble.right"
+        case .tasks: return "checklist"
+        case .approvals: return "checkmark.seal"
         case .workspace: return "square.stack.3d.up"
         case .settings: return "gearshape"
         }
@@ -22,12 +26,12 @@ enum AppSection: String, CaseIterable, Identifiable {
 }
 
 /// The app's navigation architecture (Phase 2.1, item 1): a
-/// `NavigationSplitView` sidebar switching between the four main screens.
+/// `NavigationSplitView` sidebar switching between the six main screens.
 /// Owns the single `WorkspaceViewModel` shared by every screen that needs
-/// to know which workspace is active — Dashboard and Chat both read it
-/// (via plain, unwrapped properties; `@Observable` tracks property access
-/// on read, no `@ObservedObject`-style wrapper needed), and the Workspace
-/// screen is the one place that changes it.
+/// to know which workspace is active — Dashboard, Chat, Tasks, and
+/// Approvals all read it (via plain, unwrapped properties; `@Observable`
+/// tracks property access on read, no `@ObservedObject`-style wrapper
+/// needed), and the Workspace screen is the one place that changes it.
 struct RootNavigationView: View {
     let container: DependencyContainer
     @State private var selectedSection: AppSection? = .dashboard
@@ -62,24 +66,36 @@ struct RootNavigationView: View {
         case .dashboard:
             DashboardView(container: container, workspaceViewModel: workspaceViewModel)
         case .chat:
-            if let workspaceId = workspaceViewModel.activeWorkspaceId {
-                ChatView(container: container, workspaceId: workspaceId)
-                    .id(workspaceId) // a workspace switch means a fresh conversation list/history, not a patched-up one.
-            } else if workspaceViewModel.isLoading {
-                ProgressView("Loading workspaces…")
-            } else {
-                ContentUnavailableView(
-                    "No Workspace Selected",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text("Pick a workspace from the Workspace tab first.")
-                )
-            }
+            workspaceScopedView { ChatView(container: container, workspaceId: $0) }
+        case .tasks:
+            workspaceScopedView { TasksView(container: container, workspaceId: $0) }
+        case .approvals:
+            workspaceScopedView { ApprovalsView(container: container, workspaceId: $0) }
         case .workspace:
             WorkspaceSwitcherView(viewModel: workspaceViewModel)
         case .settings:
             SettingsView(container: container)
         case .none:
             ContentUnavailableView("Select a Section", systemImage: "sidebar.left")
+        }
+    }
+
+    /// Every screen scoped to "the active workspace" (Chat, Tasks,
+    /// Approvals) needs the same three states — a real workspace, still
+    /// loading, or none selected — and the same `.id(workspaceId)` reset so
+    /// a workspace switch means a fresh screen, not a patched-up one.
+    @ViewBuilder
+    private func workspaceScopedView<Content: View>(@ViewBuilder content: (String) -> Content) -> some View {
+        if let workspaceId = workspaceViewModel.activeWorkspaceId {
+            content(workspaceId).id(workspaceId)
+        } else if workspaceViewModel.isLoading {
+            ProgressView("Loading workspaces…")
+        } else {
+            ContentUnavailableView(
+                "No Workspace Selected",
+                systemImage: "exclamationmark.triangle",
+                description: Text("Pick a workspace from the Workspace tab first.")
+            )
         }
     }
 }
