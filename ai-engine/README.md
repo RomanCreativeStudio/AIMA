@@ -24,4 +24,4 @@ See `.env.example`. `AI_PROVIDER` and `EMBEDDING_PROVIDER` both default to `mock
 
 ## Tests
 
-`npm test` runs `node:test` via `tsx` — no test framework dependency beyond that. Embedding provider tests are pure unit tests (no network, no database).
+`npm test` runs `node:test` via `tsx` — no test framework dependency beyond that. Embedding/intent provider tests are pure unit tests (no network, no database). The glob in `package.json`'s `test` script is deliberately quoted (`'src/**/*.test.ts'`) — `/bin/sh` on Debian/Ubuntu is `dash`, which doesn't support bash's `**` recursive globstar, so an unquoted pattern would silently skip test files nested more than one directory deep.

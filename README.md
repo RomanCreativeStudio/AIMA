@@ -15,7 +15,7 @@ Start here — these documents are the binding source of truth for product, arch
 ```
 AIMA/
 ├── apps/         # Client applications: macos/, ios/, web/, tvos/ (future)
-├── backend/      # API layer, auth, permission engine, intent/approval engines, conversation pipeline, memory/retrieval, action log
+├── backend/      # API layer, auth, permission engine, intent/approval engines, conversation pipeline, memory + document retrieval, action log
 ├── ai-engine/    # AI provider, embedding provider, and intent classifier abstractions
 ├── database/     # Schema migrations
 └── docs/         # Product Bible, Technical Architecture, this workflow guide
@@ -34,4 +34,4 @@ Each of `backend/` and `ai-engine/` has its own `.env.example` — copy to `.env
 
 ## Status
 
-Foundation, Intelligence, Conversation Intelligence, and Intent & Approval Engine phases complete: backend API, permission engine, workspace-scoped memory/retrieval, the full conversation pipeline (memory-aware AI requests, stored history), structured intent detection, and the DB-backed approval lifecycle are all working end-to-end (`npm test` from the repo root) — with no external action ever executed yet. UI clients (`apps/`) are not yet scaffolded — see `docs/TECHNICAL_ARCHITECTURE.md` §10 for the sprint plan.
+Foundation, Intelligence, Conversation Intelligence, Intent & Approval Engine, and Knowledge Ingestion phases complete: backend API, permission engine, workspace-scoped memory and document retrieval, the full conversation pipeline (memory- and documentation-aware AI requests, stored history), structured intent detection, and the DB-backed approval lifecycle are all working end-to-end (`npm test` from the repo root) — with no external action ever executed yet. UI clients (`apps/`) are not yet scaffolded — see `docs/TECHNICAL_ARCHITECTURE.md` §10 for the sprint plan.

@@ -5,6 +5,7 @@ import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
 import type { ActionLogger } from './actionLog/logger';
 import type { ConversationService } from './conversation/conversationService';
+import type { DocumentService } from './knowledge/documentService';
 import type { MemoryService } from './memory/memoryService';
 import type { CapabilityRegistry } from './permissions/registry';
 import type { PermissionEngine } from './permissions/engine';
@@ -13,6 +14,7 @@ import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
 import { memoriesRouter } from './routes/memories';
 import { conversationsRouter } from './routes/conversations';
+import { documentsRouter } from './routes/documents';
 import { errorHandler } from './middleware/errorHandler';
 
 export interface AppDependencies {
@@ -21,6 +23,7 @@ export interface AppDependencies {
   permissionEngine: PermissionEngine;
   actionLogger: ActionLogger;
   memoryService: MemoryService;
+  documentService: DocumentService;
   conversationService: ConversationService;
   aiProvider: AIProvider;
   corsOrigins: string[];
@@ -46,6 +49,14 @@ export function createApp(deps: AppDependencies): Application {
     '/api',
     memoriesRouter({
       memoryService: deps.memoryService,
+      permissionEngine: deps.permissionEngine,
+      actionLogger: deps.actionLogger,
+    }),
+  );
+  app.use(
+    '/api',
+    documentsRouter({
+      documentService: deps.documentService,
       permissionEngine: deps.permissionEngine,
       actionLogger: deps.actionLogger,
     }),

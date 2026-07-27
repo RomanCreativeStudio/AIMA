@@ -6,11 +6,13 @@ import { MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engin
 import { seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { ActionLogger } from '../actionLog/logger';
 import { IntentEngine } from '../intent/intentEngine';
+import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
-import { ConversationService } from './conversationService';
-import { ConversationNotFoundError, WorkspaceNotFoundError } from './errors';
+import { ConversationService, type ConversationServiceDependencies } from './conversationService';
+import { WorkspaceNotFoundError } from '../types/errors';
+import { ConversationNotFoundError } from './errors';
 
 /** Records the last request it received instead of calling a real provider — a spy, not a stub. */
 class RecordingAIProvider implements AIProvider {
@@ -29,16 +31,30 @@ class RecordingAIProvider implements AIProvider {
   }
 }
 
-function buildService(client: Client, provider: AIProvider) {
+function buildService(
+  client: Client,
+  provider: AIProvider,
+  overrides: Partial<ConversationServiceDependencies> = {},
+) {
   const registry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(client);
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+  const documentService = new DocumentService(client, new MockEmbeddingProvider());
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
-  return {
-    service: new ConversationService(client, memoryService, provider, actionLogger, permissionEngine, intentEngine),
+
+  const service = new ConversationService({
+    db: client,
     memoryService,
-  };
+    documentService,
+    aiProvider: provider,
+    actionLogger,
+    permissionEngine,
+    intentEngine,
+    ...overrides,
+  });
+
+  return { service, memoryService, documentService };
 }
 
 test('sendMessage runs the full pipeline: saves both messages and logs the generation', async () => {
@@ -115,6 +131,53 @@ test('sendMessage never retrieves memory from a different workspace', async () =
   });
 });
 
+test('sendMessage retrieves relevant document chunks and includes them in the system prompt', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const provider = new RecordingAIProvider();
+    const { service, documentService } = buildService(client, provider);
+
+    await documentService.importDocument({
+      workspaceId,
+      format: 'markdown',
+      title: 'Onboarding Guide',
+      content: '# Onboarding\n\nSchedule a kickoff call and draft a proposal covering scope and price.',
+    });
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'How do we onboard a new client?',
+    });
+
+    assert.ok(result.retrievedDocumentChunks.length > 0);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Relevant documentation for this workspace/);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Onboarding Guide/);
+  });
+});
+
+test('sendMessage never retrieves document chunks from a different workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const rcs = await seedWorkspace(client, 'rcs');
+    const mfs = await seedWorkspace(client, 'mfs');
+    const conversationId = await seedConversation(client, rcs.workspaceId);
+    const provider = new RecordingAIProvider();
+    const { service, documentService } = buildService(client, provider);
+
+    await documentService.importDocument({
+      workspaceId: mfs.workspaceId,
+      format: 'plaintext',
+      content: 'Character backstory notes for Kestrel that should never leak into RCS.',
+    });
+
+    await service.sendMessage({ workspaceId: rcs.workspaceId, conversationId, content: 'Tell me about Kestrel.' });
+
+    assert.ok(provider.lastRequest);
+    assert.doesNotMatch(provider.lastRequest!.systemPrompt ?? '', /Kestrel/);
+  });
+});
+
 test('sendMessage rejects a conversation that belongs to a different workspace', async () => {
   await withTestTransaction(async (client) => {
     const rcs = await seedWorkspace(client, 'rcs');
@@ -143,23 +206,8 @@ test('listMessages applies the history limit (context limit)', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'development');
     const conversationId = await seedConversation(client, workspaceId);
-    const registry = new CapabilityRegistry();
-    const permissionEngine = new PermissionEngine(registry);
-    const actionLogger = new ActionLogger(client);
-    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
-    const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
     const provider = new RecordingAIProvider();
-    // historyLimit = 3 for this test
-    const service = new ConversationService(
-      client,
-      memoryService,
-      provider,
-      actionLogger,
-      permissionEngine,
-      intentEngine,
-      3,
-      5,
-    );
+    const { service } = buildService(client, provider, { historyLimit: 3 });
 
     for (let i = 0; i < 4; i++) {
       await service.sendMessage({ workspaceId, conversationId, content: `message ${i}` });
@@ -177,23 +225,8 @@ test('sendMessage applies the memory limit (context limit)', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');
     const conversationId = await seedConversation(client, workspaceId);
-    const registry = new CapabilityRegistry();
-    const permissionEngine = new PermissionEngine(registry);
-    const actionLogger = new ActionLogger(client);
-    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
-    const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
     const provider = new RecordingAIProvider();
-    // memoryLimit = 2 for this test
-    const service = new ConversationService(
-      client,
-      memoryService,
-      provider,
-      actionLogger,
-      permissionEngine,
-      intentEngine,
-      10,
-      2,
-    );
+    const { service, memoryService } = buildService(client, provider, { memoryLimit: 2 });
 
     for (let i = 0; i < 5; i++) {
       await memoryService.createMemory({ workspaceId, scope: 'workspace', content: `fact number ${i} about planning` });
@@ -201,6 +234,26 @@ test('sendMessage applies the memory limit (context limit)', async () => {
 
     const result = await service.sendMessage({ workspaceId, conversationId, content: 'planning facts' });
     assert.ok(result.retrievedMemories.length <= 2);
+  });
+});
+
+test('sendMessage applies the document limit (context limit)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'personal');
+    const conversationId = await seedConversation(client, workspaceId);
+    const provider = new RecordingAIProvider();
+    const { service, documentService } = buildService(client, provider, { documentLimit: 2 });
+
+    for (let i = 0; i < 5; i++) {
+      await documentService.importDocument({
+        workspaceId,
+        format: 'plaintext',
+        content: `Document number ${i} about planning and scheduling.`,
+      });
+    }
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'planning documents' });
+    assert.ok(result.retrievedDocumentChunks.length <= 2);
   });
 });
 
@@ -269,6 +322,7 @@ test('sendMessage result matches the full response schema', async () => {
     assert.deepEqual(Object.keys(result).sort(), [
       'assistantMessage',
       'intent',
+      'retrievedDocumentChunks',
       'retrievedMemories',
       'userMessage',
     ]);
@@ -276,6 +330,7 @@ test('sendMessage result matches the full response schema', async () => {
     assert.equal(typeof result.userMessage.content, 'string');
     assert.equal(typeof result.assistantMessage.content, 'string');
     assert.ok(Array.isArray(result.retrievedMemories));
+    assert.ok(Array.isArray(result.retrievedDocumentChunks));
 
     assert.deepEqual(Object.keys(result.intent).sort(), [
       'approval',

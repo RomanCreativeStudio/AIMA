@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import type { ConversationService } from '../conversation/conversationService';
-import { ConversationNotFoundError, WorkspaceNotFoundError } from '../conversation/errors';
+import { WorkspaceNotFoundError } from '../types/errors';
+import { ConversationNotFoundError } from '../conversation/errors';
 import { isUuid } from '../util/uuid';
 
 export interface ConversationsRouterDependencies {

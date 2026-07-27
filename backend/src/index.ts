@@ -6,6 +6,7 @@ import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
 import { ConversationService } from './conversation/conversationService';
 import { IntentEngine } from './intent/intentEngine';
+import { DocumentService } from './knowledge/documentService';
 import { MemoryService } from './memory/memoryService';
 import { CapabilityRegistry } from './permissions/registry';
 import { PermissionEngine } from './permissions/engine';
@@ -27,14 +28,16 @@ async function main(): Promise<void> {
   const intentClassifier = new RuleBasedIntentClassifier();
   const intentEngine = new IntentEngine(intentClassifier, permissionEngine);
   const memoryService = new MemoryService(pool, embeddingProvider);
-  const conversationService = new ConversationService(
-    pool,
+  const documentService = new DocumentService(pool, embeddingProvider);
+  const conversationService = new ConversationService({
+    db: pool,
     memoryService,
+    documentService,
     aiProvider,
     actionLogger,
     permissionEngine,
     intentEngine,
-  );
+  });
 
   const app = createApp({
     pool,
@@ -42,6 +45,7 @@ async function main(): Promise<void> {
     permissionEngine,
     actionLogger,
     memoryService,
+    documentService,
     conversationService,
     aiProvider,
     corsOrigins: config.corsOrigins,

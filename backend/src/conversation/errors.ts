@@ -1,10 +1,3 @@
-export class WorkspaceNotFoundError extends Error {
-  constructor(workspaceId: string) {
-    super(`Workspace not found: ${workspaceId}`);
-    this.name = 'WorkspaceNotFoundError';
-  }
-}
-
 /**
  * Thrown when a conversationId does not belong to the given workspaceId —
  * either it doesn't exist, or it belongs to a different workspace. Both

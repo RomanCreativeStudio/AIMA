@@ -1,8 +1,9 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { ActionLogger } from '../actionLog/logger';
 import type { MemoryService } from '../memory/memoryService';
 import { MEMORY_SCOPES, type MemoryScope } from '../memory/types';
 import type { PermissionEngine } from '../permissions/engine';
+import { WorkspaceNotFoundError } from '../types/errors';
 import { isUuid } from '../util/uuid';
 
 export interface MemoriesRouterDependencies {
@@ -68,13 +69,17 @@ export function memoriesRouter(deps: MemoriesRouterDependencies): Router {
           metadata: typeof metadata === 'object' && metadata !== null ? metadata : undefined,
         });
       } catch (error) {
-        await deps.actionLogger.log({
-          workspaceId,
-          tier: deps.permissionEngine.resolveTier(CREATE_MEMORY_CAPABILITY),
-          summary: `Failed to create a ${scope} memory`,
-          payload: { error: (error as Error).message },
-          outcome: 'failure',
-        });
+        // A nonexistent workspace has no valid FK target to log against —
+        // logging here would itself fail. Let handleKnownErrors map it to 404.
+        if (!(error instanceof WorkspaceNotFoundError)) {
+          await deps.actionLogger.log({
+            workspaceId,
+            tier: deps.permissionEngine.resolveTier(CREATE_MEMORY_CAPABILITY),
+            summary: `Failed to create a ${scope} memory`,
+            payload: { error: (error as Error).message },
+            outcome: 'failure',
+          });
+        }
         throw error;
       }
 
@@ -88,7 +93,7 @@ export function memoriesRouter(deps: MemoriesRouterDependencies): Router {
 
       res.status(201).json({ memory, permission: decision });
     } catch (error) {
-      next(error);
+      handleKnownErrors(error, res, next);
     }
   });
 
@@ -154,4 +159,12 @@ export function memoriesRouter(deps: MemoriesRouterDependencies): Router {
 
 function isMemoryScope(value: unknown): value is MemoryScope {
   return typeof value === 'string' && (MEMORY_SCOPES as readonly string[]).includes(value);
+}
+
+function handleKnownErrors(error: unknown, res: Response, next: (error: unknown) => void): void {
+  if (error instanceof WorkspaceNotFoundError) {
+    res.status(404).json({ error: error.message });
+    return;
+  }
+  next(error);
 }

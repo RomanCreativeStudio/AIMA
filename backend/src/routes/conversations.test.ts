@@ -9,6 +9,7 @@ import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
 import { ConversationService } from '../conversation/conversationService';
 import { IntentEngine } from '../intent/intentEngine';
+import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
@@ -27,16 +28,18 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(pool);
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
+  const documentService = new DocumentService(pool, new MockEmbeddingProvider());
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
-  const conversationService = new ConversationService(
-    pool,
+  const conversationService = new ConversationService({
+    db: pool,
     memoryService,
+    documentService,
     aiProvider,
     actionLogger,
     permissionEngine,
     intentEngine,
-  );
+  });
 
   const app = createApp({
     pool,
@@ -44,6 +47,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     permissionEngine,
     actionLogger,
     memoryService,
+    documentService,
     conversationService,
     aiProvider,
     corsOrigins: [],

@@ -1,3 +1,4 @@
+import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
 
@@ -31,6 +32,8 @@ export interface SendMessageResult {
   assistantMessage: Message;
   /** What was retrieved and injected into this request's system prompt — surfaced for transparency. */
   retrievedMemories: RankedMemoryResult[];
+  /** Document chunks retrieved and injected into this request's system prompt. */
+  retrievedDocumentChunks: RankedDocumentChunkResult[];
   /** Structured intent metadata for the user's message (docs/TECHNICAL_ARCHITECTURE.md §4, Response Schema). */
   intent: IntentAnalysis;
 }

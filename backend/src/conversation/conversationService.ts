@@ -2,17 +2,36 @@ import type { AIProvider } from '@aima/ai-engine';
 import type { ActionLogger } from '../actionLog/logger';
 import type { Queryable } from '../db/queryable';
 import type { IntentEngine } from '../intent/intentEngine';
+import type { DocumentService } from '../knowledge/documentService';
 import type { MemoryService } from '../memory/memoryService';
 import type { PermissionEngine } from '../permissions/engine';
 import { isWorkspaceSlug, type WorkspaceSlug } from '../types/workspace';
+import { WorkspaceNotFoundError } from '../types/errors';
 import { buildSystemPrompt } from './contextAssembly';
-import { ConversationNotFoundError, WorkspaceNotFoundError } from './errors';
+import { ConversationNotFoundError } from './errors';
 import type { Conversation, Message, MessageRole, SendMessageInput, SendMessageResult } from './types';
 
 const DEFAULT_HISTORY_LIMIT = 10;
 const DEFAULT_MEMORY_LIMIT = 5;
+const DEFAULT_DOCUMENT_LIMIT = 5;
 
 export const GENERATE_RESPONSE_CAPABILITY = 'generate_ai_response';
+
+export interface ConversationServiceDependencies {
+  db: Queryable;
+  memoryService: MemoryService;
+  documentService: DocumentService;
+  aiProvider: AIProvider;
+  actionLogger: ActionLogger;
+  permissionEngine: PermissionEngine;
+  intentEngine: IntentEngine;
+  /** Max recent messages sent to the AI provider (a context limit — count-based, not token-based). */
+  historyLimit?: number;
+  /** Max memory records retrieved per turn (a context limit). */
+  memoryLimit?: number;
+  /** Max document chunks retrieved per turn (a context limit). */
+  documentLimit?: number;
+}
 
 /**
  * The conversation pipeline (docs/TECHNICAL_ARCHITECTURE.md §4, §7):
@@ -21,21 +40,39 @@ export const GENERATE_RESPONSE_CAPABILITY = 'generate_ai_response';
  *   → AI Provider → Response → Conversation Storage
  *
  * Every step is workspace-scoped: a conversation must belong to the
- * workspace it's addressed through, memory retrieval never crosses
- * workspaces, and history/memory are both capped (context limits) before
- * being sent to the AI provider.
+ * workspace it's addressed through, memory/document retrieval never cross
+ * workspaces, and history/memory/documents are each capped (context
+ * limits) before being sent to the AI provider.
+ *
+ * Constructed from a single dependencies object rather than positional
+ * arguments — this service's dependency list has grown with every sprint
+ * (memory, intent, now documents), and positional constructors made every
+ * addition a silent-reorder risk across call sites.
  */
 export class ConversationService {
-  constructor(
-    private readonly db: Queryable,
-    private readonly memoryService: MemoryService,
-    private readonly aiProvider: AIProvider,
-    private readonly actionLogger: ActionLogger,
-    private readonly permissionEngine: PermissionEngine,
-    private readonly intentEngine: IntentEngine,
-    private readonly historyLimit: number = DEFAULT_HISTORY_LIMIT,
-    private readonly memoryLimit: number = DEFAULT_MEMORY_LIMIT,
-  ) {}
+  private readonly db: Queryable;
+  private readonly memoryService: MemoryService;
+  private readonly documentService: DocumentService;
+  private readonly aiProvider: AIProvider;
+  private readonly actionLogger: ActionLogger;
+  private readonly permissionEngine: PermissionEngine;
+  private readonly intentEngine: IntentEngine;
+  private readonly historyLimit: number;
+  private readonly memoryLimit: number;
+  private readonly documentLimit: number;
+
+  constructor(deps: ConversationServiceDependencies) {
+    this.db = deps.db;
+    this.memoryService = deps.memoryService;
+    this.documentService = deps.documentService;
+    this.aiProvider = deps.aiProvider;
+    this.actionLogger = deps.actionLogger;
+    this.permissionEngine = deps.permissionEngine;
+    this.intentEngine = deps.intentEngine;
+    this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
+    this.memoryLimit = deps.memoryLimit ?? DEFAULT_MEMORY_LIMIT;
+    this.documentLimit = deps.documentLimit ?? DEFAULT_DOCUMENT_LIMIT;
+  }
 
   async createConversation(workspaceId: string, title?: string): Promise<Conversation> {
     await this.assertWorkspaceExists(workspaceId);
@@ -68,10 +105,10 @@ export class ConversationService {
 
   /**
    * Runs the full pipeline for one user turn: saves the user message, pulls
-   * workspace-scoped memory and recent history, assembles a system prompt,
-   * calls the AI provider, saves the assistant's reply, and logs the
-   * generation for transparency (docs/PRODUCT_BIBLE.md's Transparency
-   * principle) — regardless of outcome.
+   * workspace-scoped memory, documentation, and recent history, assembles a
+   * system prompt, calls the AI provider, saves the assistant's reply, and
+   * logs the generation for transparency (docs/PRODUCT_BIBLE.md's
+   * Transparency principle) — regardless of outcome.
    */
   async sendMessage(input: SendMessageInput): Promise<SendMessageResult> {
     const workspaceSlug = await this.assertConversationInWorkspace(input.workspaceId, input.conversationId);
@@ -79,13 +116,14 @@ export class ConversationService {
     const userMessage = await this.saveMessage(input.workspaceId, input.conversationId, 'user', input.content);
 
     try {
-      const [history, relevantMemories, intent] = await Promise.all([
+      const [history, relevantMemories, relevantDocumentChunks, intent] = await Promise.all([
         this.listMessages(input.workspaceId, input.conversationId, this.historyLimit),
         this.memoryService.getWorkspaceContext(input.workspaceId, input.content, this.memoryLimit),
+        this.documentService.search(input.workspaceId, input.content, this.documentLimit),
         this.intentEngine.analyze(input.content),
       ]);
 
-      const systemPrompt = buildSystemPrompt(workspaceSlug, relevantMemories);
+      const systemPrompt = buildSystemPrompt(workspaceSlug, relevantMemories, relevantDocumentChunks);
 
       const completion = await this.aiProvider.complete({
         systemPrompt,
@@ -106,6 +144,7 @@ export class ConversationService {
         payload: {
           conversationId: input.conversationId,
           memoriesUsed: relevantMemories.length,
+          documentChunksUsed: relevantDocumentChunks.length,
           provider: completion.provider,
           detectedIntent: intent.intent,
           intentConfidence: intent.confidence,
@@ -114,7 +153,13 @@ export class ConversationService {
         outcome: 'success',
       });
 
-      return { userMessage, assistantMessage, retrievedMemories: relevantMemories, intent };
+      return {
+        userMessage,
+        assistantMessage,
+        retrievedMemories: relevantMemories,
+        retrievedDocumentChunks: relevantDocumentChunks,
+        intent,
+      };
     } catch (error) {
       await this.actionLogger.log({
         workspaceId: input.workspaceId,

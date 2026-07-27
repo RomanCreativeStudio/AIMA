@@ -2,7 +2,23 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MockEmbeddingProvider } from '@aima/ai-engine';
 import { seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
+import { WorkspaceNotFoundError } from '../types/errors';
 import { MemoryService } from './memoryService';
+
+test('createMemory rejects an unknown workspaceId', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new MemoryService(client, new MockEmbeddingProvider());
+    await assert.rejects(
+      () =>
+        service.createMemory({
+          workspaceId: '00000000-0000-0000-0000-000000000000',
+          scope: 'workspace',
+          content: 'x',
+        }),
+      WorkspaceNotFoundError,
+    );
+  });
+});
 
 test('creates a memory and finds it via ranked search', async () => {
   await withTestTransaction(async (client) => {

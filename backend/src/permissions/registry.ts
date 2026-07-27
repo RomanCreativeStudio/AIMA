@@ -61,6 +61,25 @@ const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     tierLocked: false,
     description: 'Summarize requested content within a workspace. Text only, no draft or execution.',
   },
+  {
+    actionType: 'import_document',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description:
+      'Import a document into a workspace knowledge base (docs/TECHNICAL_ARCHITECTURE.md §4). Internal only — no external effect.',
+  },
+  {
+    actionType: 'reindex_document',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description: 'Re-chunk and re-embed an already-imported document.',
+  },
+  {
+    actionType: 'delete_document',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description: 'Remove an imported document and its chunks from a workspace. Reversible by re-importing the source.',
+  },
 ];
 
 export class CapabilityRegistry {

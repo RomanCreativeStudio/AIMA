@@ -1,5 +1,7 @@
 import type { EmbeddingProvider } from '@aima/ai-engine';
 import type { Queryable } from '../db/queryable';
+import { toVectorLiteral } from '../db/vector';
+import { WorkspaceNotFoundError } from '../types/errors';
 import type { CreateMemoryInput, MemoryRecord, MemorySearchQuery, RankedMemoryResult } from './types';
 
 const DEFAULT_SEARCH_LIMIT = 5;
@@ -18,6 +20,7 @@ export class MemoryService {
 
   async createMemory(input: CreateMemoryInput): Promise<MemoryRecord> {
     assertScopeConsistency(input);
+    await this.assertWorkspaceExists(input.workspaceId);
 
     const [embedding] = await this.embeddingProvider.embed([input.content]);
 
@@ -85,6 +88,13 @@ export class MemoryService {
   async getWorkspaceContext(workspaceId: string, query: string, limit?: number): Promise<RankedMemoryResult[]> {
     return this.search({ workspaceId, query, limit });
   }
+
+  private async assertWorkspaceExists(workspaceId: string): Promise<void> {
+    const result = await this.db.query('SELECT 1 FROM workspaces WHERE id = $1', [workspaceId]);
+    if (result.rows.length === 0) {
+      throw new WorkspaceNotFoundError(workspaceId);
+    }
+  }
 }
 
 function assertScopeConsistency(input: CreateMemoryInput): void {
@@ -94,10 +104,6 @@ function assertScopeConsistency(input: CreateMemoryInput): void {
   if (input.scope === 'project' && !input.projectKey) {
     throw new Error('A "project" scoped memory requires projectKey.');
   }
-}
-
-function toVectorLiteral(embedding: number[]): string {
-  return `[${embedding.join(',')}]`;
 }
 
 interface MemoryRow {
