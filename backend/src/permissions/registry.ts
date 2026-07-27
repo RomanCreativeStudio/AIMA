@@ -9,7 +9,7 @@ import type { CapabilityDefinition } from './types';
  * Tier 4 is only reached through explicit, logged user promotion at runtime,
  * never as a shipped default.
  */
-const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
+export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
   {
     actionType: 'suggest_followup',
     defaultTier: 'suggest',
@@ -21,6 +21,24 @@ const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     defaultTier: 'prepare',
     tierLocked: false,
     description: "Draft an email into the user's review queue. Nothing is sent.",
+  },
+  {
+    actionType: 'draft_proposal',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description: "Draft a client proposal into the user's review queue. Nothing is sent.",
+  },
+  {
+    actionType: 'draft_client_response',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description: "Draft a response to a client into the user's review queue. Nothing is sent.",
+  },
+  {
+    actionType: 'draft_report',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description: "Draft a report into the user's review queue. Nothing is sent.",
   },
   {
     actionType: 'send_email',

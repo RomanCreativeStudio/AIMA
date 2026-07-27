@@ -1,5 +1,8 @@
 import type { AIProvider } from '@aima/ai-engine';
+import type { ApprovalEngine } from '../approval/approvalEngine';
+import type { ApprovalDecision } from '../approval/types';
 import type { Message } from '../conversation/types';
+import { INTENT_CAPABILITY_MAP } from '../intent/intentCapabilityMap';
 import type { IntentAnalysis } from '../intent/types';
 import type { IntentEngine } from '../intent/intentEngine';
 import type { WorkspaceSlug } from '../types/workspace';
@@ -24,6 +27,15 @@ export interface AimaResponse {
   model: string;
   context: UnifiedContext;
   intent: IntentAnalysis;
+  /**
+   * The real approval lifecycle decision for the intent's mapped capability
+   * (docs/decisions/0007-intent-and-approval-workflows.md) — distinct from
+   * `intent.approval`, which is only an advisory "would this need approval"
+   * flag. When the mapped capability is Tier 3, this is backed by an actual
+   * pending_approvals row (created via ApprovalEngine); otherwise it's
+   * `{ state: 'no_approval_needed' }` with no database write.
+   */
+  approvalDecision: ApprovalDecision;
 }
 
 /**
@@ -31,9 +43,10 @@ export interface AimaResponse {
  * AIMA capability for a single request (docs/TECHNICAL_ARCHITECTURE.md §4):
  *
  *   Determine workspace context (assistant profile) → gather memory/document
- *   context (ContextManager) → detect intent (IntentEngine) → build the AI
- *   context (contextAssembly) → call the AI provider → return a structured
- *   response.
+ *   context (ContextManager) → detect intent (IntentEngine) → evaluate
+ *   whether the detected intent's capability needs real approval
+ *   (ApprovalEngine) → build the AI context (contextAssembly) → call the AI
+ *   provider → return a structured response.
  *
  * Deliberately does not own persistence, workspace-isolation checks, or
  * action logging — those stay with ConversationService (which validates
@@ -46,6 +59,7 @@ export class AimaCoreService {
     private readonly contextManager: ContextManager,
     private readonly aiProvider: AIProvider,
     private readonly intentEngine: IntentEngine,
+    private readonly approvalEngine: ApprovalEngine,
   ) {}
 
   async handleRequest(request: AimaRequest): Promise<AimaResponse> {
@@ -62,11 +76,17 @@ export class AimaCoreService {
 
     const profile = getAssistantProfile(request.workspaceSlug);
     const systemPrompt = buildSystemPrompt(profile, context.memories, context.documentChunks);
+    const capability = INTENT_CAPABILITY_MAP[intent.intent];
 
-    const completion = await this.aiProvider.complete({
-      systemPrompt,
-      messages: context.history.map((message) => ({ role: message.role, content: message.content })),
-    });
+    const [completion, approvalDecision] = await Promise.all([
+      this.aiProvider.complete({
+        systemPrompt,
+        messages: context.history.map((message) => ({ role: message.role, content: message.content })),
+      }),
+      capability
+        ? this.approvalEngine.evaluate(request.workspaceId, capability, intent.parameters)
+        : Promise.resolve<ApprovalDecision>({ state: 'no_approval_needed' }),
+    ]);
 
     return {
       content: completion.content,
@@ -74,6 +94,7 @@ export class AimaCoreService {
       model: completion.model,
       context,
       intent,
+      approvalDecision,
     };
   }
 }

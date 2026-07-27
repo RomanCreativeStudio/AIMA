@@ -4,7 +4,9 @@ import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
 import type { ActionLogger } from './actionLog/logger';
+import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
+import type { DraftService } from './drafts/draftService';
 import type { HealthService } from './health/healthService';
 import type { DocumentService } from './knowledge/documentService';
 import type { MemoryService } from './memory/memoryService';
@@ -14,9 +16,11 @@ import type { PermissionEngine } from './permissions/engine';
 import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
+import { approvalsRouter } from './routes/approvals';
 import { memoriesRouter } from './routes/memories';
 import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
+import { draftsRouter } from './routes/drafts';
 import { tasksRouter } from './routes/tasks';
 import { errorHandler } from './middleware/errorHandler';
 
@@ -28,6 +32,8 @@ export interface AppDependencies {
   memoryService: MemoryService;
   documentService: DocumentService;
   taskService: TaskService;
+  draftService: DraftService;
+  approvalEngine: ApprovalEngine;
   healthService: HealthService;
   conversationService: ConversationService;
   aiProvider: AIProvider;
@@ -74,6 +80,15 @@ export function createApp(deps: AppDependencies): Application {
       actionLogger: deps.actionLogger,
     }),
   );
+  app.use(
+    '/api',
+    draftsRouter({
+      draftService: deps.draftService,
+      permissionEngine: deps.permissionEngine,
+      actionLogger: deps.actionLogger,
+    }),
+  );
+  app.use('/api', approvalsRouter({ approvalEngine: deps.approvalEngine }));
   app.use('/api', conversationsRouter({ conversationService: deps.conversationService }));
 
   app.use(errorHandler);

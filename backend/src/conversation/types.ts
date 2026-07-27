@@ -1,3 +1,4 @@
+import type { ApprovalDecision } from '../approval/types';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
@@ -36,4 +37,6 @@ export interface SendMessageResult {
   retrievedDocumentChunks: RankedDocumentChunkResult[];
   /** Structured intent metadata for the user's message (docs/TECHNICAL_ARCHITECTURE.md §4, Response Schema). */
   intent: IntentAnalysis;
+  /** The real approval lifecycle decision for the detected intent's mapped capability, if any (docs/decisions/0007-intent-and-approval-workflows.md). */
+  approvalDecision: ApprovalDecision;
 }

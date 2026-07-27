@@ -4,9 +4,11 @@ import { createApp } from './app';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
+import { ApprovalEngine } from './approval/approvalEngine';
 import { AimaCoreService } from './core/aimaCoreService';
 import { ContextManager } from './core/contextManager';
 import { ConversationService } from './conversation/conversationService';
+import { DraftService } from './drafts/draftService';
 import { HealthService } from './health/healthService';
 import { IntentEngine } from './intent/intentEngine';
 import { DocumentService } from './knowledge/documentService';
@@ -31,12 +33,14 @@ async function main(): Promise<void> {
   const embeddingProvider = createEmbeddingProviderFromEnv();
   const intentClassifier = new RuleBasedIntentClassifier();
   const intentEngine = new IntentEngine(intentClassifier, permissionEngine);
+  const approvalEngine = new ApprovalEngine(pool, permissionEngine);
   const memoryService = new MemoryService(pool, embeddingProvider);
   const documentService = new DocumentService(pool, embeddingProvider);
   const taskService = new TaskService(pool);
+  const draftService = new DraftService(pool);
   const healthService = new HealthService(pool, aiProvider);
   const contextManager = new ContextManager(memoryService, documentService);
-  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine);
   const conversationService = new ConversationService({
     db: pool,
     aimaCoreService,
@@ -52,6 +56,8 @@ async function main(): Promise<void> {
     memoryService,
     documentService,
     taskService,
+    draftService,
+    approvalEngine,
     healthService,
     conversationService,
     aiProvider,

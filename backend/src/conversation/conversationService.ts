@@ -128,6 +128,7 @@ export class ConversationService {
           detectedIntent: result.intent.intent,
           intentConfidence: result.intent.confidence,
           approval: result.intent.approval,
+          approvalDecision: result.approvalDecision.state,
         },
         outcome: 'success',
       });
@@ -138,6 +139,7 @@ export class ConversationService {
         retrievedMemories: result.context.memories,
         retrievedDocumentChunks: result.context.documentChunks,
         intent: result.intent,
+        approvalDecision: result.approvalDecision,
       };
     } catch (error) {
       await this.actionLogger.log({

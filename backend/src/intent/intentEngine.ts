@@ -1,8 +1,7 @@
 import type { IntentClassifier } from '@aima/ai-engine';
 import type { PermissionDecision, PermissionEngine } from '../permissions/engine';
-import type { ApprovalState } from '../approval/types';
 import { INTENT_CAPABILITY_MAP, SUGGESTED_NEXT_ACTIONS } from './intentCapabilityMap';
-import type { IntentAnalysis } from './types';
+import type { ApprovalRequirement, IntentAnalysis } from './types';
 
 /**
  * Composes intent classification with the Permission Engine to produce
@@ -20,22 +19,23 @@ export class IntentEngine {
   ) {}
 
   async analyze(message: string): Promise<IntentAnalysis> {
-    const { intent, confidence } = await this.classifier.classify(message);
+    const { intent, confidence, parameters } = await this.classifier.classify(message);
     const capability = INTENT_CAPABILITY_MAP[intent];
 
-    const approval: ApprovalState = capability
+    const approval: ApprovalRequirement = capability
       ? mapDecisionToApproval(this.permissionEngine.evaluate(capability))
       : 'no_approval_needed';
 
     return {
       intent,
       confidence,
+      parameters,
       approval,
       suggestedNextAction: SUGGESTED_NEXT_ACTIONS[intent],
     };
   }
 }
 
-function mapDecisionToApproval(decision: PermissionDecision): ApprovalState {
+function mapDecisionToApproval(decision: PermissionDecision): ApprovalRequirement {
   return decision.kind === 'requires_approval' ? 'approval_required' : 'no_approval_needed';
 }

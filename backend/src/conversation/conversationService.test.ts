@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import type { Client } from 'pg';
 import type { AICompletionRequest, AICompletionResult, AIProvider } from '@aima/ai-engine';
 import { MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
-import { seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
+import { seedCapabilities, seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { ActionLogger } from '../actionLog/logger';
+import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
 import { ContextManager } from '../core/contextManager';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
-import { CapabilityRegistry } from '../permissions/registry';
+import { CapabilityRegistry, DEFAULT_CAPABILITIES } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
 import { ConversationService, type ConversationServiceDependencies } from './conversationService';
 import { WorkspaceNotFoundError } from '../types/errors';
@@ -37,15 +38,16 @@ function buildService(
   client: Client,
   provider: AIProvider,
   overrides: Partial<ConversationServiceDependencies> = {},
+  registry: CapabilityRegistry = new CapabilityRegistry(),
 ) {
-  const registry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(client);
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
   const documentService = new DocumentService(client, new MockEmbeddingProvider());
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const approvalEngine = new ApprovalEngine(client, permissionEngine);
   const contextManager = new ContextManager(memoryService, documentService);
-  const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine);
+  const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine);
 
   const service = new ConversationService({
     db: client,
@@ -272,6 +274,7 @@ test('sendMessage attaches detected intent metadata and logs it', async () => {
 
     assert.equal(result.intent.intent, 'remember');
     assert.equal(result.intent.approval, 'no_approval_needed');
+    assert.equal(result.approvalDecision.state, 'no_approval_needed');
     assert.match(result.intent.suggestedNextAction, /Store this as a memory/);
 
     const log = await client.query<{ payload: { detectedIntent?: string } }>(
@@ -280,6 +283,43 @@ test('sendMessage attaches detected intent metadata and logs it', async () => {
     );
     assert.equal(log.rows.length, 1);
     assert.equal(log.rows[0].payload.detectedIntent, 'remember');
+  });
+});
+
+test('sendMessage creates a real pending approval when the detected intent maps to a Tier 3 capability', async () => {
+  await withTestTransaction(async (client) => {
+    await seedCapabilities(client);
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    // Elevate create_task to Tier 3 (keeping every other default capability,
+    // including generate_ai_response — sendMessage's own action-logging
+    // needs it) to prove the conversation pipeline actually creates and
+    // surfaces a real pending_approvals row when the detected intent's
+    // capability requires approval — not just an advisory flag
+    // (docs/decisions/0007-intent-and-approval-workflows.md).
+    const registry = new CapabilityRegistry(
+      DEFAULT_CAPABILITIES.map((capability) =>
+        capability.actionType === 'create_task' ? { ...capability, defaultTier: 'execute_with_approval' } : capability,
+      ),
+    );
+    const { service } = buildService(client, new RecordingAIProvider(), {}, registry);
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Remind me to follow up with Acme on Friday.',
+    });
+
+    assert.equal(result.intent.intent, 'create_task');
+    assert.equal(result.intent.approval, 'approval_required');
+    assert.equal(result.approvalDecision.state, 'pending');
+    assert.ok(result.approvalDecision.pendingApprovalId);
+
+    const row = await client.query('SELECT status, payload FROM pending_approvals WHERE id = $1', [
+      result.approvalDecision.pendingApprovalId,
+    ]);
+    assert.equal(row.rows.length, 1);
+    assert.equal(row.rows[0].status, 'pending');
   });
 });
 
@@ -309,6 +349,22 @@ test('sendMessage classifies distinct intents for distinct messages', async () =
       content: 'Summarize this thread for me.',
     });
     assert.equal(summary.intent.intent, 'summarize');
+
+    const proposal = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Draft a proposal for the Acme website redesign.',
+    });
+    assert.equal(proposal.intent.intent, 'draft_proposal');
+    assert.equal(proposal.intent.parameters.topic, 'the acme website redesign');
+
+    const docSearch = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Search the docs for the onboarding checklist.',
+    });
+    assert.equal(docSearch.intent.intent, 'search_documents');
+    assert.equal(docSearch.intent.parameters.query, 'the onboarding checklist');
   });
 });
 
@@ -321,6 +377,7 @@ test('sendMessage result matches the full response schema', async () => {
     const result = await service.sendMessage({ workspaceId, conversationId, content: 'What day is it?' });
 
     assert.deepEqual(Object.keys(result).sort(), [
+      'approvalDecision',
       'assistantMessage',
       'intent',
       'retrievedDocumentChunks',
@@ -337,12 +394,14 @@ test('sendMessage result matches the full response schema', async () => {
       'approval',
       'confidence',
       'intent',
+      'parameters',
       'suggestedNextAction',
     ]);
     assert.equal(typeof result.intent.intent, 'string');
     assert.equal(typeof result.intent.confidence, 'number');
     assert.ok(result.intent.confidence >= 0 && result.intent.confidence <= 1);
-    assert.ok(['no_approval_needed', 'approval_required', 'approved', 'denied'].includes(result.intent.approval));
+    assert.ok(['no_approval_needed', 'approval_required'].includes(result.intent.approval));
     assert.equal(typeof result.intent.suggestedNextAction, 'string');
+    assert.equal(result.approvalDecision.state, 'no_approval_needed');
   });
 });

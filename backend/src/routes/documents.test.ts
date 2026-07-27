@@ -7,7 +7,9 @@ import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
+import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
+import { DraftService } from '../drafts/draftService';
 import { ContextManager } from '../core/contextManager';
 import { ConversationService } from '../conversation/conversationService';
 import { IntentEngine } from '../intent/intentEngine';
@@ -34,11 +36,13 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
   const documentService = new DocumentService(pool, new MockEmbeddingProvider());
   const taskService = new TaskService(pool);
+  const draftService = new DraftService(pool);
   const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
   const contextManager = new ContextManager(memoryService, documentService);
-  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine);
+  const approvalEngine = new ApprovalEngine(pool, permissionEngine);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine);
   const conversationService = new ConversationService({
     db: pool,
     aimaCoreService,
@@ -54,6 +58,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     memoryService,
     documentService,
     taskService,
+    draftService,
+    approvalEngine,
     healthService,
     conversationService,
     aiProvider,

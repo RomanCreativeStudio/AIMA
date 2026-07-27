@@ -18,6 +18,13 @@ export class PendingApprovalAlreadyResolvedError extends Error {
   }
 }
 
+export class PendingApprovalExpiredError extends Error {
+  constructor(pendingApprovalId: string) {
+    super(`Pending approval ${pendingApprovalId} has expired and can no longer be approved or rejected`);
+    this.name = 'PendingApprovalExpiredError';
+  }
+}
+
 export class UnregisteredCapabilityError extends Error {
   constructor(actionType: string) {
     super(

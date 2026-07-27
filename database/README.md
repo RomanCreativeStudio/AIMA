@@ -16,6 +16,8 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0003_message_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `messages`, so conversation history has a stable ordering independent of `created_at` collisions. See `docs/decisions/0003-conversation-pipeline.md`. |
 | `0004_documents.sql` | Adds `documents` and `document_chunks` for ingested reference material — separate from `memory_records` (docs/decisions/0005-knowledge-ingestion.md). Includes a `document_format` enum and an HNSW index on `document_chunks.embedding`. |
 | `0005_task_priority.sql` | Adds a `task_priority` enum (`low`/`medium`/`high`) and a `priority` column (default `medium`) to `tasks`, completing the Task Foundation model (docs/decisions/0006-assistant-core-orchestration.md #4). |
+| `0006_approval_lifecycle.sql` | Renames `pending_approvals.status`'s `declined` value to `rejected`, adds an `expires_at` column (default 24 hours from creation), and adds a `sequence` column for stable newest-first ordering. `expired` is a derived state, never written to `status` (docs/decisions/0007-intent-and-approval-workflows.md #2). |
+| `0007_drafts.sql` | Adds a `draft_type` enum (`email`/`proposal`/`client_response`/`report`) and the `drafts` table — the Action Preparation Layer's foundation for held content reviewed before anything is sent (docs/decisions/0007-intent-and-approval-workflows.md #6). |
 
 ## Entities
 
@@ -31,7 +33,8 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `document_chunks` | Deterministically chunked, embedded pieces of a document (`docs/decisions/0005-knowledge-ingestion.md`), with a denormalized `workspace_id` and an HNSW index for ranked retrieval, mirroring `memory_records`. |
 | `capabilities` | The permission-tier registry — mirrors `backend/src/permissions/registry.ts` (docs/TECHNICAL_ARCHITECTURE.md §5). |
 | `workspace_capability_settings` | User-promoted per-workspace tier overrides. |
-| `pending_approvals` | Tier 3 intents awaiting explicit user confirmation. |
+| `pending_approvals` | Tier 3 intents awaiting explicit user confirmation. Lifecycle `status` is `pending`/`approved`/`rejected`; a fourth state, `expired`, is derived from `expires_at` at read time and never stored (`0006_approval_lifecycle.sql`). Created/read by `backend/src/approval/approvalEngine.ts`. |
+| `drafts` | Held content — `email`/`proposal`/`client_response`/`report` — a user reviews before anything is sent, workspace-scoped (`0007_drafts.sql`). Created/read by `backend/src/drafts/draftService.ts`. |
 | `action_log` | Audit trail for every Tier 3/4 execution. |
 
 ## Running migrations locally
@@ -43,6 +46,8 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0002_memory_scopes.sq
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0003_message_sequence.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0004_documents.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0005_task_priority.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0006_approval_lifecycle.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0007_drafts.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -58,9 +63,11 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0002_memory_scopes.s
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0003_message_sequence.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0004_documents.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0005_task_priority.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0006_approval_lifecycle.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0007_drafts.sql
 ```
 
-Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs.
+Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.
 
 ## Adding a migration
 

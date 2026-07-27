@@ -4,8 +4,10 @@ export const INTENTS = [
   'remember',
   'create_task',
   'draft_email',
+  'draft_proposal',
   'summarize',
   'search_memory',
+  'search_documents',
   'unknown',
 ] as const;
 
@@ -15,6 +17,8 @@ export interface IntentDetectionResult {
   intent: Intent;
   /** 0 (no confidence) to 1 (certain). */
   confidence: number;
+  /** Loosely extracted slot values (e.g. { title: "..." } for create_task) — best-effort, never required to be present. */
+  parameters: Record<string, string>;
 }
 
 /**

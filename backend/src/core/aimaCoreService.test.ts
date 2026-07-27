@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import type { Client } from 'pg';
 import type { AICompletionRequest, AICompletionResult, AIProvider } from '@aima/ai-engine';
 import { MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
-import { seedWorkspace, withTestTransaction } from '../testUtils/db';
+import { seedCapabilities, seedWorkspace, withTestTransaction } from '../testUtils/db';
+import { ApprovalEngine } from '../approval/approvalEngine';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
@@ -23,14 +24,15 @@ class RecordingAIProvider implements AIProvider {
   }
 }
 
-function buildCoreService(client: Client) {
+function buildCoreService(client: Client, registry: CapabilityRegistry = new CapabilityRegistry()) {
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
   const documentService = new DocumentService(client, new MockEmbeddingProvider());
   const contextManager = new ContextManager(memoryService, documentService);
-  const permissionEngine = new PermissionEngine(new CapabilityRegistry());
+  const permissionEngine = new PermissionEngine(registry);
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const approvalEngine = new ApprovalEngine(client, permissionEngine);
   const provider = new RecordingAIProvider();
-  const core = new AimaCoreService(contextManager, provider, intentEngine);
+  const core = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine);
   return { core, provider, memoryService, documentService };
 }
 
@@ -50,6 +52,34 @@ test('handleRequest returns AI content, context, and intent together', async () 
     assert.equal(response.provider, 'recording');
     assert.equal(response.context.workspaceSlug, 'rcs');
     assert.ok(response.intent.intent);
+    assert.equal(response.approvalDecision.state, 'no_approval_needed');
+  });
+});
+
+test('handleRequest creates a real pending approval when the detected intent maps to a Tier 3 capability', async () => {
+  await withTestTransaction(async (client) => {
+    await seedCapabilities(client);
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const registry = new CapabilityRegistry([
+      { actionType: 'create_task', defaultTier: 'execute_with_approval', tierLocked: false, description: '' },
+    ]);
+    const { core } = buildCoreService(client, registry);
+
+    const response = await core.handleRequest({
+      workspaceId,
+      workspaceSlug: 'rcs',
+      query: 'Remind me to follow up with Acme on Friday.',
+      history: [],
+    });
+
+    assert.equal(response.intent.intent, 'create_task');
+    assert.equal(response.approvalDecision.state, 'pending');
+    assert.ok(response.approvalDecision.pendingApprovalId);
+
+    const row = await client.query('SELECT status FROM pending_approvals WHERE id = $1', [
+      response.approvalDecision.pendingApprovalId,
+    ]);
+    assert.equal(row.rows[0].status, 'pending');
   });
 });
 
@@ -121,6 +151,7 @@ test('handleRequest propagates AI provider failures rather than swallowing them'
     const contextManager = new ContextManager(memoryService, documentService);
     const permissionEngine = new PermissionEngine(new CapabilityRegistry());
     const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+    const approvalEngine = new ApprovalEngine(client, permissionEngine);
 
     const failingProvider: AIProvider = {
       name: 'failing',
@@ -129,7 +160,7 @@ test('handleRequest propagates AI provider failures rather than swallowing them'
       },
     };
 
-    const core = new AimaCoreService(contextManager, failingProvider, intentEngine);
+    const core = new AimaCoreService(contextManager, failingProvider, intentEngine, approvalEngine);
 
     await assert.rejects(
       () => core.handleRequest({ workspaceId, workspaceSlug: 'development', query: 'hi', history: [] }),

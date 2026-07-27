@@ -11,8 +11,10 @@ export const INTENT_CAPABILITY_MAP: Record<Intent, string | null> = {
   remember: 'create_memory',
   create_task: 'create_task',
   draft_email: 'draft_email',
+  draft_proposal: 'draft_proposal',
   summarize: 'summarize_content',
   search_memory: null,
+  search_documents: null,
   unknown: null,
 };
 
@@ -22,7 +24,9 @@ export const SUGGESTED_NEXT_ACTIONS: Record<Intent, string> = {
   remember: 'Store this as a memory in the current workspace.',
   create_task: 'Create a task in the current workspace.',
   draft_email: 'Prepare an email draft for your review.',
+  draft_proposal: 'Prepare a proposal draft for your review.',
   summarize: 'Summarize the requested content.',
   search_memory: 'Search stored memory for relevant results.',
+  search_documents: 'Search ingested documents for relevant results.',
   unknown: 'No specific action detected; treated as general conversation.',
 };

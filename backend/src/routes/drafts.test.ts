@@ -80,7 +80,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
 }
 
 async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `route-test-${randomUUID()}@example.com`;
+  const email = `draft-route-test-${randomUUID()}@example.com`;
   const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
     email,
   ]);
@@ -88,30 +88,33 @@ async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
 
   const workspaceResult = await pool.query<{ id: string }>(
     'INSERT INTO workspaces (user_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
-    [userId, 'development', 'development'],
+    [userId, 'rcs', 'rcs'],
   );
 
   return { userId, workspaceId: workspaceResult.rows[0].id };
 }
 
 async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
-  // ON DELETE CASCADE on workspaces/memory_records/action_log takes care of the rest.
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, and logs the action', async () => {
+test('POST /api/workspaces/:id/drafts creates a draft and logs the action', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Client Acme wants a full redesign.' }),
+        body: JSON.stringify({ type: 'email', title: 'Follow-up', content: 'Hi Acme, following up...' }),
       });
 
       assert.equal(response.status, 201);
-      const body = (await response.json()) as { memory: { scope: string }; permission: { kind: string } };
-      assert.equal(body.memory.scope, 'workspace');
+      const body = (await response.json()) as {
+        draft: { type: string; title: string; content: string };
+        permission: { kind: string };
+      };
+      assert.equal(body.draft.type, 'email');
+      assert.equal(body.draft.title, 'Follow-up');
       assert.equal(body.permission.kind, 'prepare');
 
       const log = await pool.query('SELECT summary, outcome FROM action_log WHERE workspace_id = $1', [
@@ -125,72 +128,80 @@ test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, an
   });
 });
 
-test('POST /api/workspaces/:id/memories rejects a well-formed but unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
-    assert.equal(response.status, 404);
-  });
-});
-
-test('POST .../memories rejects scope="conversation" without a conversationId', async () => {
+test('POST .../drafts rejects an invalid type', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'conversation', content: 'missing id' }),
+        body: JSON.stringify({ type: 'invoice', content: 'x' }),
       });
-
       assert.equal(response.status, 400);
-
-      const log = await pool.query('SELECT 1 FROM action_log WHERE workspace_id = $1', [workspaceId]);
-      assert.equal(log.rows.length, 0, 'a rejected request should never reach the action log');
     } finally {
       await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('POST .../memories rejects a malformed workspaceId', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
-    assert.equal(response.status, 400);
+test('POST .../drafts rejects empty content', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'email', content: '' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
-test('GET .../memories/search returns ranked results scoped to the requesting workspace only', async () => {
+test('POST .../drafts rejects an unknown workspaceId with 404, not 500', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/drafts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'email', content: 'x' }),
+    });
+    assert.equal(response.status, 404);
+  });
+});
+
+test('GET .../drafts lists drafts scoped to the workspace and can filter by type', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const a = await seedWorkspace(pool);
     const b = await seedWorkspace(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`, {
+      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Acme wants a website redesign.' }),
+        body: JSON.stringify({ type: 'email', content: 'Draft in A' }),
       });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories`, {
+      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Kestrel character backstory notes.' }),
+        body: JSON.stringify({ type: 'proposal', content: 'Proposal in A' }),
+      });
+      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'email', content: 'Draft in B' }),
       });
 
-      const response = await fetch(
-        `${baseUrl}/api/workspaces/${a.workspaceId}/memories/search?q=${encodeURIComponent('Acme redesign')}`,
-      );
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`);
       assert.equal(response.status, 200);
+      const body = (await response.json()) as { drafts: Array<{ workspaceId: string }> };
+      assert.equal(body.drafts.length, 2);
+      assert.ok(body.drafts.every((draft) => draft.workspaceId === a.workspaceId));
 
-      const body = (await response.json()) as { results: Array<{ workspaceId: string }> };
-      assert.ok(body.results.length >= 1);
-      assert.ok(body.results.every((result) => result.workspaceId === a.workspaceId));
+      const filtered = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts?type=proposal`);
+      const filteredBody = (await filtered.json()) as { drafts: Array<{ type: string }> };
+      assert.equal(filteredBody.drafts.length, 1);
+      assert.equal(filteredBody.drafts[0].type, 'proposal');
     } finally {
       await cleanupWorkspace(pool, a.userId);
       await cleanupWorkspace(pool, b.userId);
@@ -198,12 +209,58 @@ test('GET .../memories/search returns ranked results scoped to the requesting wo
   });
 });
 
-test('GET .../memories/search requires a non-empty "q" parameter', async () => {
+test('PATCH .../drafts/:id updates content; 404s across workspaces', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'report', content: 'Draft 1' }),
+      });
+      const { draft } = (await createResponse.json()) as { draft: { id: string } };
+
+      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts/${draft.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'Draft 2' }),
+      });
+      assert.equal(updateResponse.status, 200);
+      const updated = (await updateResponse.json()) as { draft: { content: string } };
+      assert.equal(updated.draft.content, 'Draft 2');
+
+      const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/drafts/${draft.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'hijacked' }),
+      });
+      assert.equal(crossResponse.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});
+
+test('DELETE .../drafts/:id removes the draft', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/search`);
-      assert.equal(response.status, 400);
+      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'client_response', content: 'To be deleted' }),
+      });
+      const { draft } = (await createResponse.json()) as { draft: { id: string } };
+
+      const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`, {
+        method: 'DELETE',
+      });
+      assert.equal(deleteResponse.status, 200);
+
+      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`);
+      assert.equal(getResponse.status, 404);
     } finally {
       await cleanupWorkspace(pool, userId);
     }
