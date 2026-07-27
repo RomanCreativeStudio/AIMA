@@ -55,6 +55,12 @@ const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description:
       'Generate a conversational AI reply within a workspace. Text only, no draft or execution — logged for transparency, not gated.',
   },
+  {
+    actionType: 'summarize_content',
+    defaultTier: 'suggest',
+    tierLocked: false,
+    description: 'Summarize requested content within a workspace. Text only, no draft or execution.',
+  },
 ];
 
 export class CapabilityRegistry {

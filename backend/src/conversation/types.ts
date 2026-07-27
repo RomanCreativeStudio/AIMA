@@ -1,4 +1,5 @@
 import type { RankedMemoryResult } from '../memory/types';
+import type { IntentAnalysis } from '../intent/types';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -30,4 +31,6 @@ export interface SendMessageResult {
   assistantMessage: Message;
   /** What was retrieved and injected into this request's system prompt — surfaced for transparency. */
   retrievedMemories: RankedMemoryResult[];
+  /** Structured intent metadata for the user's message (docs/TECHNICAL_ARCHITECTURE.md §4, Response Schema). */
+  intent: IntentAnalysis;
 }

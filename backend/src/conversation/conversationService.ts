@@ -1,6 +1,7 @@
 import type { AIProvider } from '@aima/ai-engine';
 import type { ActionLogger } from '../actionLog/logger';
 import type { Queryable } from '../db/queryable';
+import type { IntentEngine } from '../intent/intentEngine';
 import type { MemoryService } from '../memory/memoryService';
 import type { PermissionEngine } from '../permissions/engine';
 import { isWorkspaceSlug, type WorkspaceSlug } from '../types/workspace';
@@ -31,6 +32,7 @@ export class ConversationService {
     private readonly aiProvider: AIProvider,
     private readonly actionLogger: ActionLogger,
     private readonly permissionEngine: PermissionEngine,
+    private readonly intentEngine: IntentEngine,
     private readonly historyLimit: number = DEFAULT_HISTORY_LIMIT,
     private readonly memoryLimit: number = DEFAULT_MEMORY_LIMIT,
   ) {}
@@ -77,9 +79,10 @@ export class ConversationService {
     const userMessage = await this.saveMessage(input.workspaceId, input.conversationId, 'user', input.content);
 
     try {
-      const [history, relevantMemories] = await Promise.all([
+      const [history, relevantMemories, intent] = await Promise.all([
         this.listMessages(input.workspaceId, input.conversationId, this.historyLimit),
         this.memoryService.getWorkspaceContext(input.workspaceId, input.content, this.memoryLimit),
+        this.intentEngine.analyze(input.content),
       ]);
 
       const systemPrompt = buildSystemPrompt(workspaceSlug, relevantMemories);
@@ -104,11 +107,14 @@ export class ConversationService {
           conversationId: input.conversationId,
           memoriesUsed: relevantMemories.length,
           provider: completion.provider,
+          detectedIntent: intent.intent,
+          intentConfidence: intent.confidence,
+          approval: intent.approval,
         },
         outcome: 'success',
       });
 
-      return { userMessage, assistantMessage, retrievedMemories: relevantMemories };
+      return { userMessage, assistantMessage, retrievedMemories: relevantMemories, intent };
     } catch (error) {
       await this.actionLogger.log({
         workspaceId: input.workspaceId,

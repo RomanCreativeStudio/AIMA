@@ -4,10 +4,11 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { Pool } from 'pg';
-import { createAIProvider, MockEmbeddingProvider } from '@aima/ai-engine';
+import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
 import { ConversationService } from '../conversation/conversationService';
+import { IntentEngine } from '../intent/intentEngine';
 import { MemoryService } from '../memory/memoryService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
@@ -27,7 +28,15 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const actionLogger = new ActionLogger(pool);
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
   const aiProvider = createAIProvider({ provider: 'mock' });
-  const conversationService = new ConversationService(pool, memoryService, aiProvider, actionLogger, permissionEngine);
+  const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const conversationService = new ConversationService(
+    pool,
+    memoryService,
+    aiProvider,
+    actionLogger,
+    permissionEngine,
+    intentEngine,
+  );
 
   const app = createApp({
     pool,

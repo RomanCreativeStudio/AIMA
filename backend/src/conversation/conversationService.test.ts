@@ -2,9 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Client } from 'pg';
 import type { AICompletionRequest, AICompletionResult, AIProvider } from '@aima/ai-engine';
-import { MockEmbeddingProvider } from '@aima/ai-engine';
+import { MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { ActionLogger } from '../actionLog/logger';
+import { IntentEngine } from '../intent/intentEngine';
 import { MemoryService } from '../memory/memoryService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
@@ -33,8 +34,9 @@ function buildService(client: Client, provider: AIProvider) {
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(client);
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+  const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
   return {
-    service: new ConversationService(client, memoryService, provider, actionLogger, permissionEngine),
+    service: new ConversationService(client, memoryService, provider, actionLogger, permissionEngine, intentEngine),
     memoryService,
   };
 }
@@ -145,9 +147,19 @@ test('listMessages applies the history limit (context limit)', async () => {
     const permissionEngine = new PermissionEngine(registry);
     const actionLogger = new ActionLogger(client);
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
     const provider = new RecordingAIProvider();
     // historyLimit = 3 for this test
-    const service = new ConversationService(client, memoryService, provider, actionLogger, permissionEngine, 3, 5);
+    const service = new ConversationService(
+      client,
+      memoryService,
+      provider,
+      actionLogger,
+      permissionEngine,
+      intentEngine,
+      3,
+      5,
+    );
 
     for (let i = 0; i < 4; i++) {
       await service.sendMessage({ workspaceId, conversationId, content: `message ${i}` });
@@ -169,9 +181,19 @@ test('sendMessage applies the memory limit (context limit)', async () => {
     const permissionEngine = new PermissionEngine(registry);
     const actionLogger = new ActionLogger(client);
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
     const provider = new RecordingAIProvider();
     // memoryLimit = 2 for this test
-    const service = new ConversationService(client, memoryService, provider, actionLogger, permissionEngine, 10, 2);
+    const service = new ConversationService(
+      client,
+      memoryService,
+      provider,
+      actionLogger,
+      permissionEngine,
+      intentEngine,
+      10,
+      2,
+    );
 
     for (let i = 0; i < 5; i++) {
       await memoryService.createMemory({ workspaceId, scope: 'workspace', content: `fact number ${i} about planning` });
@@ -179,5 +201,92 @@ test('sendMessage applies the memory limit (context limit)', async () => {
 
     const result = await service.sendMessage({ workspaceId, conversationId, content: 'planning facts' });
     assert.ok(result.retrievedMemories.length <= 2);
+  });
+});
+
+test('sendMessage attaches detected intent metadata and logs it', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Remember that the client prefers email over calls.',
+    });
+
+    assert.equal(result.intent.intent, 'remember');
+    assert.equal(result.intent.approval, 'no_approval_needed');
+    assert.match(result.intent.suggestedNextAction, /Store this as a memory/);
+
+    const log = await client.query<{ payload: { detectedIntent?: string } }>(
+      'SELECT payload FROM action_log WHERE workspace_id = $1',
+      [workspaceId],
+    );
+    assert.equal(log.rows.length, 1);
+    assert.equal(log.rows[0].payload.detectedIntent, 'remember');
+  });
+});
+
+test('sendMessage classifies distinct intents for distinct messages', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const task = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Remind me to review the pull request tomorrow.',
+    });
+    assert.equal(task.intent.intent, 'create_task');
+
+    const email = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Draft an email to the team about the release.',
+    });
+    assert.equal(email.intent.intent, 'draft_email');
+
+    const summary = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Summarize this thread for me.',
+    });
+    assert.equal(summary.intent.intent, 'summarize');
+  });
+});
+
+test('sendMessage result matches the full response schema', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'personal');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'What day is it?' });
+
+    assert.deepEqual(Object.keys(result).sort(), [
+      'assistantMessage',
+      'intent',
+      'retrievedMemories',
+      'userMessage',
+    ]);
+
+    assert.equal(typeof result.userMessage.content, 'string');
+    assert.equal(typeof result.assistantMessage.content, 'string');
+    assert.ok(Array.isArray(result.retrievedMemories));
+
+    assert.deepEqual(Object.keys(result.intent).sort(), [
+      'approval',
+      'confidence',
+      'intent',
+      'suggestedNextAction',
+    ]);
+    assert.equal(typeof result.intent.intent, 'string');
+    assert.equal(typeof result.intent.confidence, 'number');
+    assert.ok(result.intent.confidence >= 0 && result.intent.confidence <= 1);
+    assert.ok(['no_approval_needed', 'approval_required', 'approved', 'denied'].includes(result.intent.approval));
+    assert.equal(typeof result.intent.suggestedNextAction, 'string');
   });
 });

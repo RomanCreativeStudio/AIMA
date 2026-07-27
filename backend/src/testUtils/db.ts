@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
+import { CapabilityRegistry } from '../permissions/registry';
+import { syncCapabilitiesToDatabase } from '../permissions/syncCapabilities';
 import type { WorkspaceSlug } from '../types/workspace';
 
 const TEST_DATABASE_URL =
@@ -58,4 +60,9 @@ export async function seedConversation(client: Client, workspaceId: string): Pro
     [workspaceId, 'Test conversation'],
   );
   return result.rows[0].id;
+}
+
+/** Upserts the default capability registry into the test DB — required before ApprovalEngine can create a pending approval. */
+export async function seedCapabilities(client: Client): Promise<void> {
+  await syncCapabilitiesToDatabase(client, new CapabilityRegistry());
 }
