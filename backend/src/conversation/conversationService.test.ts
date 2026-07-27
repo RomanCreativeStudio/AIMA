@@ -11,8 +11,10 @@ import { ContextManager } from '../core/contextManager';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
+import { PreferenceService } from '../preferences/preferenceService';
 import { CapabilityRegistry, DEFAULT_CAPABILITIES } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
+import { WorkspaceService } from '../workspaces/workspaceService';
 import { ConversationService, type ConversationServiceDependencies } from './conversationService';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { ConversationNotFoundError } from './errors';
@@ -44,10 +46,12 @@ function buildService(
   const actionLogger = new ActionLogger(client);
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
   const documentService = new DocumentService(client, new MockEmbeddingProvider());
+  const preferenceService = new PreferenceService(client);
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
   const approvalEngine = new ApprovalEngine(client, permissionEngine);
-  const contextManager = new ContextManager(memoryService, documentService);
-  const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine);
+  const workspaceService = new WorkspaceService(client);
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+  const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine, workspaceService);
 
   const service = new ConversationService({
     db: client,

@@ -89,7 +89,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
 }
 
 async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `task-route-test-${randomUUID()}@example.com`;
+  const email = `user-route-test-${randomUUID()}@example.com`;
   const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
     email,
   ]);
@@ -107,141 +107,95 @@ async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-test('POST /api/workspaces/:id/tasks creates a task and logs the action', async () => {
+test('GET /api/users/:id returns the profile', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
+    const { userId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Follow up with Acme', priority: 'high' }),
-      });
-
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as { task: { title: string; priority: string; status: string }; permission: { kind: string } };
-      assert.equal(body.task.title, 'Follow up with Acme');
-      assert.equal(body.task.priority, 'high');
-      assert.equal(body.task.status, 'todo');
-      assert.equal(body.permission.kind, 'prepare');
-
-      const log = await pool.query('SELECT summary, outcome FROM action_log WHERE workspace_id = $1', [
-        workspaceId,
-      ]);
-      assert.equal(log.rows.length, 1);
-      assert.equal(log.rows[0].outcome, 'success');
+      const response = await fetch(`${baseUrl}/api/users/${userId}`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { user: { id: string; preferences: Record<string, unknown> } };
+      assert.equal(body.user.id, userId);
+      assert.deepEqual(body.user.preferences, {});
     } finally {
       await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('POST .../tasks rejects an empty title', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: '' }),
-      });
-      assert.equal(response.status, 400);
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('POST .../tasks rejects an unknown workspaceId with 404, not 500', async () => {
+test('GET /api/users/:id returns 404 for an unknown id', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'x' }),
-    });
+    const response = await fetch(`${baseUrl}/api/users/00000000-0000-0000-0000-000000000000`);
     assert.equal(response.status, 404);
   });
 });
 
-test('GET .../tasks lists tasks scoped to the workspace', async () => {
+test('PATCH /api/users/:id updates displayName and preferences', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
+    const { userId } = await seedWorkspace(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
-        method: 'POST',
+      const response = await fetch(`${baseUrl}/api/users/${userId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Task in A' }),
-      });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Task in B' }),
+        body: JSON.stringify({ displayName: 'Roman', preferences: { theme: 'dark' } }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`);
       assert.equal(response.status, 200);
-      const body = (await response.json()) as { tasks: Array<{ workspaceId: string }> };
-      assert.equal(body.tasks.length, 1);
-      assert.equal(body.tasks[0].workspaceId, a.workspaceId);
+      const body = (await response.json()) as { user: { displayName: string; preferences: Record<string, unknown> } };
+      assert.equal(body.user.displayName, 'Roman');
+      assert.deepEqual(body.user.preferences, { theme: 'dark' });
     } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
+      await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('PATCH .../tasks/:id updates status; 404s across workspaces', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
-    try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Ship it' }),
-      });
-      const { task } = (await createResponse.json()) as { task: { id: string } };
-
-      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'done' }),
-      });
-      assert.equal(updateResponse.status, 200);
-      const updated = (await updateResponse.json()) as { task: { status: string } };
-      assert.equal(updated.task.status, 'done');
-
-      const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' }),
-      });
-      assert.equal(crossResponse.status, 404);
-    } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
-    }
-  });
-});
-
-test('DELETE .../tasks/:id removes the task', async () => {
+test('PATCH /api/users/:id sets defaultWorkspaceId when it belongs to the user', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
-        method: 'POST',
+      const response = await fetch(`${baseUrl}/api/users/${userId}`, {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'To be deleted' }),
+        body: JSON.stringify({ defaultWorkspaceId: workspaceId }),
       });
-      const { task } = (await createResponse.json()) as { task: { id: string } };
 
-      const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
-        method: 'DELETE',
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { user: { defaultWorkspaceId: string } };
+      assert.equal(body.user.defaultWorkspaceId, workspaceId);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH /api/users/:id rejects a defaultWorkspaceId from a different user with 404', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/users/${a.userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ defaultWorkspaceId: b.workspaceId }),
       });
-      assert.equal(deleteResponse.status, 200);
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});
 
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`);
-      assert.equal(getResponse.status, 404);
+test('PATCH /api/users/:id rejects a non-string displayName', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ displayName: 42 }),
+      });
+      assert.equal(response.status, 400);
     } finally {
       await cleanupWorkspace(pool, userId);
     }

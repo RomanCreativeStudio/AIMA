@@ -13,10 +13,13 @@ import { HealthService } from './health/healthService';
 import { IntentEngine } from './intent/intentEngine';
 import { DocumentService } from './knowledge/documentService';
 import { MemoryService } from './memory/memoryService';
+import { PreferenceService } from './preferences/preferenceService';
 import { CapabilityRegistry } from './permissions/registry';
 import { PermissionEngine } from './permissions/engine';
 import { syncCapabilitiesToDatabase } from './permissions/syncCapabilities';
 import { TaskService } from './tasks/taskService';
+import { UserService } from './users/userService';
+import { WorkspaceService } from './workspaces/workspaceService';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -36,11 +39,14 @@ async function main(): Promise<void> {
   const approvalEngine = new ApprovalEngine(pool, permissionEngine);
   const memoryService = new MemoryService(pool, embeddingProvider);
   const documentService = new DocumentService(pool, embeddingProvider);
+  const preferenceService = new PreferenceService(pool);
   const taskService = new TaskService(pool);
   const draftService = new DraftService(pool);
+  const userService = new UserService(pool);
+  const workspaceService = new WorkspaceService(pool);
   const healthService = new HealthService(pool, aiProvider);
-  const contextManager = new ContextManager(memoryService, documentService);
-  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine);
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
   const conversationService = new ConversationService({
     db: pool,
     aimaCoreService,
@@ -58,6 +64,9 @@ async function main(): Promise<void> {
     taskService,
     draftService,
     approvalEngine,
+    preferenceService,
+    userService,
+    workspaceService,
     healthService,
     conversationService,
     aiProvider,

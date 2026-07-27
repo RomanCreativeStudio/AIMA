@@ -1,5 +1,6 @@
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
+import type { Preference } from '../preferences/types';
 import type { AssistantProfile } from './assistantProfiles';
 
 /** Per-snippet cap so a single long memory or document chunk can't dominate the prompt. */
@@ -12,12 +13,12 @@ const IDENTITY =
 
 /**
  * Builds the system prompt for a single AI request: identity → active
- * workspace + its behavior profile → retrieved memory → retrieved
- * documentation (docs/TECHNICAL_ARCHITECTURE.md §4). Memory and
- * documentation are kept as two separate, clearly labeled sections rather
- * than merged into one interleaved ranked list — they carry different
- * metadata (scope vs. document/section) and merging would need an
- * arbitrary cross-type ranking rule that isn't needed for this MVP
+ * workspace + its effective behavior profile → structured preferences →
+ * retrieved memory → retrieved documentation (docs/TECHNICAL_ARCHITECTURE.md
+ * §4). Memory, documentation, and preferences are kept as separate, clearly
+ * labeled sections rather than merged into one interleaved ranked list —
+ * they carry different metadata and merging would need an arbitrary
+ * cross-type ranking rule that isn't needed for this MVP
  * (docs/decisions/0005-knowledge-ingestion.md). Pure and synchronous so
  * it's trivially unit-testable without a database or network.
  */
@@ -25,8 +26,16 @@ export function buildSystemPrompt(
   profile: AssistantProfile,
   memories: RankedMemoryResult[],
   documentChunks: RankedDocumentChunkResult[] = [],
+  preferences: Preference[] = [],
 ): string {
   const workspaceLine = `You are currently operating in ${profile.description} ${profile.responseInstructions}`;
+
+  const preferenceSection =
+    preferences.length === 0
+      ? null
+      : `Workspace preferences to follow:\n${preferences
+          .map((preference, index) => `${index + 1}. [${preference.category}] ${preference.key}: ${preference.value}`)
+          .join('\n')}`;
 
   const memorySection =
     memories.length === 0
@@ -45,7 +54,9 @@ export function buildSystemPrompt(
           })
           .join('\n')}`;
 
-  return [IDENTITY, workspaceLine, memorySection, documentSection].filter((section) => section !== null).join('\n\n');
+  return [IDENTITY, workspaceLine, preferenceSection, memorySection, documentSection]
+    .filter((section) => section !== null)
+    .join('\n\n');
 }
 
 function truncate(text: string, maxChars: number): string {

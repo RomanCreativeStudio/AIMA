@@ -26,11 +26,6 @@ import { WorkspaceService } from '../workspaces/workspaceService';
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
 
-interface SeededWorkspace {
-  userId: string;
-  workspaceId: string;
-}
-
 async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
@@ -88,162 +83,158 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   }
 }
 
-async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `task-route-test-${randomUUID()}@example.com`;
-  const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
-    email,
-  ]);
-  const userId = userResult.rows[0].id;
-
-  const workspaceResult = await pool.query<{ id: string }>(
-    'INSERT INTO workspaces (user_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
-    [userId, 'rcs', 'rcs'],
-  );
-
-  return { userId, workspaceId: workspaceResult.rows[0].id };
+async function seedUser(pool: Pool): Promise<string> {
+  const email = `workspace-route-test-${randomUUID()}@example.com`;
+  const result = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [email]);
+  return result.rows[0].id;
 }
 
-async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
+async function cleanupUser(pool: Pool, userId: string): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-test('POST /api/workspaces/:id/tasks creates a task and logs the action', async () => {
+test('POST /api/workspaces creates a workspace with a defaulted type', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
+    const userId = await seedUser(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+      const response = await fetch(`${baseUrl}/api/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Follow up with Acme', priority: 'high' }),
+        body: JSON.stringify({ userId, slug: 'mfs', name: 'Mythic Forge Studios' }),
       });
 
       assert.equal(response.status, 201);
-      const body = (await response.json()) as { task: { title: string; priority: string; status: string }; permission: { kind: string } };
-      assert.equal(body.task.title, 'Follow up with Acme');
-      assert.equal(body.task.priority, 'high');
-      assert.equal(body.task.status, 'todo');
-      assert.equal(body.permission.kind, 'prepare');
-
-      const log = await pool.query('SELECT summary, outcome FROM action_log WHERE workspace_id = $1', [
-        workspaceId,
-      ]);
-      assert.equal(log.rows.length, 1);
-      assert.equal(log.rows[0].outcome, 'success');
+      const body = (await response.json()) as { workspace: { slug: string; type: string } };
+      assert.equal(body.workspace.slug, 'mfs');
+      assert.equal(body.workspace.type, 'creative');
     } finally {
-      await cleanupWorkspace(pool, userId);
+      await cleanupUser(pool, userId);
     }
   });
 });
 
-test('POST .../tasks rejects an empty title', async () => {
+test('POST /api/workspaces rejects an invalid slug', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
+    const userId = await seedUser(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+      const response = await fetch(`${baseUrl}/api/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: '' }),
+        body: JSON.stringify({ userId, slug: 'not-a-real-slug', name: 'x' }),
       });
       assert.equal(response.status, 400);
     } finally {
-      await cleanupWorkspace(pool, userId);
+      await cleanupUser(pool, userId);
     }
   });
 });
 
-test('POST .../tasks rejects an unknown workspaceId with 404, not 500', async () => {
+test('POST /api/workspaces rejects an unknown userId with 404', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/tasks`, {
+    const response = await fetch(`${baseUrl}/api/workspaces`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'x' }),
+      body: JSON.stringify({ userId: '00000000-0000-0000-0000-000000000000', slug: 'personal', name: 'x' }),
     });
     assert.equal(response.status, 404);
   });
 });
 
-test('GET .../tasks lists tasks scoped to the workspace', async () => {
+test('POST /api/workspaces rejects a duplicate slug for the same user with 409', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
+    const userId = await seedUser(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
+      await fetch(`${baseUrl}/api/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Task in A' }),
+        body: JSON.stringify({ userId, slug: 'personal', name: 'Personal' }),
       });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks`, {
+      const response = await fetch(`${baseUrl}/api/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Task in B' }),
+        body: JSON.stringify({ userId, slug: 'personal', name: 'Personal Again' }),
+      });
+      assert.equal(response.status, 409);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('GET /api/users/:id/workspaces lists only that user\'s workspaces', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedUser(pool);
+    const b = await seedUser(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: a, slug: 'personal', name: 'A Personal' }),
+      });
+      await fetch(`${baseUrl}/api/workspaces`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: b, slug: 'personal', name: 'B Personal' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`);
+      const response = await fetch(`${baseUrl}/api/users/${a}/workspaces`);
       assert.equal(response.status, 200);
-      const body = (await response.json()) as { tasks: Array<{ workspaceId: string }> };
-      assert.equal(body.tasks.length, 1);
-      assert.equal(body.tasks[0].workspaceId, a.workspaceId);
+      const body = (await response.json()) as { workspaces: Array<{ userId: string }> };
+      assert.equal(body.workspaces.length, 1);
+      assert.equal(body.workspaces[0].userId, a);
     } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
+      await cleanupUser(pool, a);
+      await cleanupUser(pool, b);
     }
   });
 });
 
-test('PATCH .../tasks/:id updates status; 404s across workspaces', async () => {
+test('GET /api/workspaces/:id returns 404 for an unknown id', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000`);
+    assert.equal(response.status, 404);
+  });
+});
+
+test('PATCH /api/workspaces/:id updates instructions and assistantBehavior', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
+    const userId = await seedUser(pool);
     try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
+      const createResponse = await fetch(`${baseUrl}/api/workspaces`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'Ship it' }),
+        body: JSON.stringify({ userId, slug: 'rcs', name: 'RCS' }),
       });
-      const { task } = (await createResponse.json()) as { task: { id: string } };
+      const { workspace } = (await createResponse.json()) as { workspace: { id: string } };
 
-      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks/${task.id}`, {
+      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${workspace.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'done' }),
+        body: JSON.stringify({
+          instructions: 'Always mention the project deadline.',
+          assistantBehavior: { tone: 'formal' },
+        }),
       });
+
       assert.equal(updateResponse.status, 200);
-      const updated = (await updateResponse.json()) as { task: { status: string } };
-      assert.equal(updated.task.status, 'done');
-
-      const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks/${task.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'cancelled' }),
-      });
-      assert.equal(crossResponse.status, 404);
+      const updated = (await updateResponse.json()) as {
+        workspace: { instructions: string; assistantBehavior: Record<string, unknown> };
+      };
+      assert.equal(updated.workspace.instructions, 'Always mention the project deadline.');
+      assert.deepEqual(updated.workspace.assistantBehavior, { tone: 'formal' });
     } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
+      await cleanupUser(pool, userId);
     }
   });
 });
 
-test('DELETE .../tasks/:id removes the task', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'To be deleted' }),
-      });
-      const { task } = (await createResponse.json()) as { task: { id: string } };
-
-      const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
-        method: 'DELETE',
-      });
-      assert.equal(deleteResponse.status, 200);
-
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`);
-      assert.equal(getResponse.status, 404);
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
+test('PATCH /api/workspaces/:id returns 404 for an unknown id', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'x' }),
+    });
+    assert.equal(response.status, 404);
   });
 });

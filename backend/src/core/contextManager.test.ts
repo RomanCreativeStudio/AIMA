@@ -4,6 +4,7 @@ import { MockEmbeddingProvider } from '@aima/ai-engine';
 import { seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
+import { PreferenceService } from '../preferences/preferenceService';
 import { ContextManager } from './contextManager';
 
 test('gatherContext merges memory and document results, scoped to the workspace', async () => {
@@ -11,7 +12,8 @@ test('gatherContext merges memory and document results, scoped to the workspace'
     const { workspaceId } = await seedWorkspace(client, 'rcs');
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
     const documentService = new DocumentService(client, new MockEmbeddingProvider());
-    const contextManager = new ContextManager(memoryService, documentService);
+    const preferenceService = new PreferenceService(client);
+    const contextManager = new ContextManager(memoryService, documentService, preferenceService);
 
     await memoryService.createMemory({
       workspaceId,
@@ -39,7 +41,8 @@ test('gatherContext never returns memory or document chunks from a different wor
     const b = await seedWorkspace(client, 'mfs');
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
     const documentService = new DocumentService(client, new MockEmbeddingProvider());
-    const contextManager = new ContextManager(memoryService, documentService);
+    const preferenceService = new PreferenceService(client);
+    const contextManager = new ContextManager(memoryService, documentService, preferenceService);
 
     await memoryService.createMemory({
       workspaceId: b.workspaceId,
@@ -64,7 +67,8 @@ test('gatherContext respects configurable memory and document limits', async () 
     const { workspaceId } = await seedWorkspace(client, 'personal');
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
     const documentService = new DocumentService(client, new MockEmbeddingProvider());
-    const contextManager = new ContextManager(memoryService, documentService);
+    const preferenceService = new PreferenceService(client);
+    const contextManager = new ContextManager(memoryService, documentService, preferenceService);
 
     for (let i = 0; i < 5; i++) {
       await memoryService.createMemory({ workspaceId, scope: 'workspace', content: `fact ${i} about planning` });
@@ -85,12 +89,42 @@ test('gatherContext respects configurable memory and document limits', async () 
   });
 });
 
+test('gatherContext includes workspace preferences, isolated from other workspaces', async () => {
+  await withTestTransaction(async (client) => {
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const documentService = new DocumentService(client, new MockEmbeddingProvider());
+    const preferenceService = new PreferenceService(client);
+    const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+
+    await preferenceService.setPreference({
+      workspaceId: a.workspaceId,
+      category: 'writing_style',
+      key: 'tone',
+      value: 'formal',
+    });
+    await preferenceService.setPreference({
+      workspaceId: b.workspaceId,
+      category: 'writing_style',
+      key: 'tone',
+      value: 'playful',
+    });
+
+    const context = await contextManager.gatherContext(a.workspaceId, 'rcs', 'anything', []);
+
+    assert.equal(context.preferences.length, 1);
+    assert.equal(context.preferences[0].value, 'formal');
+  });
+});
+
 test('gatherContext passes through the pre-fetched history unchanged', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'development');
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
     const documentService = new DocumentService(client, new MockEmbeddingProvider());
-    const contextManager = new ContextManager(memoryService, documentService);
+    const preferenceService = new PreferenceService(client);
+    const contextManager = new ContextManager(memoryService, documentService, preferenceService);
 
     const history = [
       {

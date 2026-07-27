@@ -1,3 +1,4 @@
+import type { Workspace } from '../workspaces/types';
 import type { WorkspaceSlug } from '../types/workspace';
 
 /**
@@ -53,4 +54,38 @@ const ASSISTANT_PROFILES: Record<WorkspaceSlug, AssistantProfile> = {
 
 export function getAssistantProfile(workspaceSlug: WorkspaceSlug): AssistantProfile {
   return ASSISTANT_PROFILES[workspaceSlug];
+}
+
+/**
+ * The Assistant Profile Integration point (Phase 1.8): composes the static
+ * per-slug default above with a workspace's own DB-backed configuration
+ * (`instructions`, `assistantBehavior` — backend/src/workspaces/), rather
+ * than replacing it. The static profile stays the baseline every workspace
+ * of that slug gets out of the box; a workspace's own instructions/behavior
+ * only ever add to it (docs/decisions/0008-user-identity-and-workspace-
+ * intelligence.md).
+ */
+export function buildEffectiveProfile(workspace: Workspace): AssistantProfile {
+  const base = getAssistantProfile(workspace.slug);
+  const instructions = [base.responseInstructions];
+
+  if (workspace.instructions) {
+    instructions.push(workspace.instructions);
+  }
+
+  const behaviorEntries = Object.entries(workspace.assistantBehavior);
+  if (behaviorEntries.length > 0) {
+    instructions.push(
+      `Additional behavior preferences for this workspace: ${behaviorEntries
+        .map(([key, value]) => `${key}: ${value}`)
+        .join('; ')}.`,
+    );
+  }
+
+  return {
+    workspaceSlug: base.workspaceSlug,
+    name: base.name,
+    description: base.description,
+    responseInstructions: instructions.join(' '),
+  };
 }

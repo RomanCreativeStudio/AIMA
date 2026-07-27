@@ -8,8 +8,10 @@ import { ApprovalEngine } from '../approval/approvalEngine';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
+import { PreferenceService } from '../preferences/preferenceService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
+import { WorkspaceService } from '../workspaces/workspaceService';
 import { AimaCoreService } from './aimaCoreService';
 import { ContextManager } from './contextManager';
 
@@ -27,13 +29,15 @@ class RecordingAIProvider implements AIProvider {
 function buildCoreService(client: Client, registry: CapabilityRegistry = new CapabilityRegistry()) {
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
   const documentService = new DocumentService(client, new MockEmbeddingProvider());
-  const contextManager = new ContextManager(memoryService, documentService);
+  const preferenceService = new PreferenceService(client);
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const permissionEngine = new PermissionEngine(registry);
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
   const approvalEngine = new ApprovalEngine(client, permissionEngine);
+  const workspaceService = new WorkspaceService(client);
   const provider = new RecordingAIProvider();
-  const core = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine);
-  return { core, provider, memoryService, documentService };
+  const core = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine, workspaceService);
+  return { core, provider, memoryService, documentService, preferenceService, workspaceService };
 }
 
 test('handleRequest returns AI content, context, and intent together', async () => {
@@ -99,6 +103,63 @@ test('handleRequest uses the workspace-specific assistant profile in the system 
   });
 });
 
+test('handleRequest includes a workspace\'s own DB-backed instructions and assistantBehavior in the system prompt (Phase 1.8)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { core, provider, workspaceService } = buildCoreService(client);
+
+    await workspaceService.updateWorkspace(workspaceId, {
+      instructions: 'Always mention the Acme contract deadline.',
+      assistantBehavior: { tone: 'formal' },
+    });
+
+    await core.handleRequest({ workspaceId, workspaceSlug: 'rcs', query: 'hello', history: [] });
+
+    // The static per-slug default is still present alongside the override.
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /needs approval before it is ever sent/);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Always mention the Acme contract deadline\./);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /tone: formal/);
+  });
+});
+
+test('handleRequest surfaces the same workspace\'s config differently across two switches (workspace switching)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId: rcsId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: mfsId } = await seedWorkspace(client, 'mfs');
+    const { core, provider, workspaceService } = buildCoreService(client);
+
+    await workspaceService.updateWorkspace(rcsId, { instructions: 'RCS-only guidance.' });
+    await workspaceService.updateWorkspace(mfsId, { instructions: 'MFS-only guidance.' });
+
+    await core.handleRequest({ workspaceId: rcsId, workspaceSlug: 'rcs', query: 'hello', history: [] });
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /RCS-only guidance\./);
+    assert.doesNotMatch(provider.lastRequest!.systemPrompt ?? '', /MFS-only guidance\./);
+
+    await core.handleRequest({ workspaceId: mfsId, workspaceSlug: 'mfs', query: 'hello', history: [] });
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /MFS-only guidance\./);
+    assert.doesNotMatch(provider.lastRequest!.systemPrompt ?? '', /RCS-only guidance\./);
+  });
+});
+
+test('handleRequest includes workspace preferences in the system prompt', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const { core, provider, preferenceService } = buildCoreService(client);
+
+    await preferenceService.setPreference({
+      workspaceId,
+      category: 'response_preferences',
+      key: 'verbosity',
+      value: 'concise',
+    });
+
+    await core.handleRequest({ workspaceId, workspaceSlug: 'development', query: 'hello', history: [] });
+
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Workspace preferences to follow/);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /\[response_preferences\] verbosity: concise/);
+  });
+});
+
 test('handleRequest gathers memory and document context into the system prompt', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'mfs');
@@ -148,10 +209,12 @@ test('handleRequest propagates AI provider failures rather than swallowing them'
     const { workspaceId } = await seedWorkspace(client, 'development');
     const memoryService = new MemoryService(client, new MockEmbeddingProvider());
     const documentService = new DocumentService(client, new MockEmbeddingProvider());
-    const contextManager = new ContextManager(memoryService, documentService);
+    const preferenceService = new PreferenceService(client);
+    const contextManager = new ContextManager(memoryService, documentService, preferenceService);
     const permissionEngine = new PermissionEngine(new CapabilityRegistry());
     const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
     const approvalEngine = new ApprovalEngine(client, permissionEngine);
+    const workspaceService = new WorkspaceService(client);
 
     const failingProvider: AIProvider = {
       name: 'failing',
@@ -160,7 +223,7 @@ test('handleRequest propagates AI provider failures rather than swallowing them'
       },
     };
 
-    const core = new AimaCoreService(contextManager, failingProvider, intentEngine, approvalEngine);
+    const core = new AimaCoreService(contextManager, failingProvider, intentEngine, approvalEngine, workspaceService);
 
     await assert.rejects(
       () => core.handleRequest({ workspaceId, workspaceSlug: 'development', query: 'hi', history: [] }),

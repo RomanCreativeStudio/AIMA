@@ -10,7 +10,10 @@ import type { DraftService } from './drafts/draftService';
 import type { HealthService } from './health/healthService';
 import type { DocumentService } from './knowledge/documentService';
 import type { MemoryService } from './memory/memoryService';
+import type { PreferenceService } from './preferences/preferenceService';
 import type { TaskService } from './tasks/taskService';
+import type { UserService } from './users/userService';
+import type { WorkspaceService } from './workspaces/workspaceService';
 import type { CapabilityRegistry } from './permissions/registry';
 import type { PermissionEngine } from './permissions/engine';
 import { healthRouter } from './routes/health';
@@ -21,7 +24,10 @@ import { memoriesRouter } from './routes/memories';
 import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
+import { preferencesRouter } from './routes/preferences';
 import { tasksRouter } from './routes/tasks';
+import { usersRouter } from './routes/users';
+import { workspacesRouter } from './routes/workspaces';
 import { errorHandler } from './middleware/errorHandler';
 
 export interface AppDependencies {
@@ -33,6 +39,9 @@ export interface AppDependencies {
   documentService: DocumentService;
   taskService: TaskService;
   draftService: DraftService;
+  preferenceService: PreferenceService;
+  userService: UserService;
+  workspaceService: WorkspaceService;
   approvalEngine: ApprovalEngine;
   healthService: HealthService;
   conversationService: ConversationService;
@@ -88,6 +97,16 @@ export function createApp(deps: AppDependencies): Application {
       actionLogger: deps.actionLogger,
     }),
   );
+  app.use(
+    '/api',
+    preferencesRouter({
+      preferenceService: deps.preferenceService,
+      permissionEngine: deps.permissionEngine,
+      actionLogger: deps.actionLogger,
+    }),
+  );
+  app.use('/api', usersRouter({ userService: deps.userService }));
+  app.use('/api', workspacesRouter({ workspaceService: deps.workspaceService }));
   app.use('/api', approvalsRouter({ approvalEngine: deps.approvalEngine }));
   app.use('/api', conversationsRouter({ conversationService: deps.conversationService }));
 

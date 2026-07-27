@@ -18,13 +18,15 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0005_task_priority.sql` | Adds a `task_priority` enum (`low`/`medium`/`high`) and a `priority` column (default `medium`) to `tasks`, completing the Task Foundation model (docs/decisions/0006-assistant-core-orchestration.md #4). |
 | `0006_approval_lifecycle.sql` | Renames `pending_approvals.status`'s `declined` value to `rejected`, adds an `expires_at` column (default 24 hours from creation), and adds a `sequence` column for stable newest-first ordering. `expired` is a derived state, never written to `status` (docs/decisions/0007-intent-and-approval-workflows.md #2). |
 | `0007_drafts.sql` | Adds a `draft_type` enum (`email`/`proposal`/`client_response`/`report`) and the `drafts` table — the Action Preparation Layer's foundation for held content reviewed before anything is sent (docs/decisions/0007-intent-and-approval-workflows.md #6). |
+| `0008_user_profile_and_workspace_config.sql` | Adds `preferences`/`communication_style`/`default_workspace_id` to `users`; adds a `workspace_type` enum (`personal`/`business`/`creative`/`development`) plus `type` (nullable, falls back to a slug-based default in code), `instructions`, `assistant_behavior`, `metadata`, and `updated_at` to `workspaces` (docs/decisions/0008-user-identity-and-workspace-intelligence.md #1). |
+| `0009_preferences.sql` | Adds a `preference_category` enum (`writing_style`/`response_preferences`/`workflow_preferences`/`project_rules`) and the `preferences` table — the Preference Memory Layer, structured settings kept separate from `memory_records` (docs/decisions/0008-user-identity-and-workspace-intelligence.md #3). |
 
 ## Entities
 
 | Table | Purpose |
 |---|---|
-| `users` | The AIMA account holder. Single-user in the MVP. |
-| `workspaces` | One row per (`user`, workspace kind) — `personal`, `rcs`, `mfs`, `development` (docs/PRODUCT_BIBLE.md §1). The isolation boundary everything else hangs off of. |
+| `users` | The AIMA account holder. Single-user in the MVP. Carries a `preferences` JSONB settings blob, `communication_style`, and `default_workspace_id` (Phase 1.8). Created/read by `backend/src/users/userService.ts`. |
+| `workspaces` | One row per (`user`, workspace kind) — `personal`, `rcs`, `mfs`, `development` (docs/PRODUCT_BIBLE.md §1). The isolation boundary everything else hangs off of. Also carries `type` (a generic `personal`/`business`/`creative`/`development` category, independent of the fixed slug), `instructions`, `assistant_behavior`, and `metadata` (Phase 1.8). Created/read by `backend/src/workspaces/workspaceService.ts`. |
 | `conversations` | A chat thread, scoped to one workspace. Created/read by `backend/src/conversation/conversationService.ts`. |
 | `messages` | Individual turns within a conversation, ordered by the monotonic `sequence` column (not `created_at` — see `0003_message_sequence.sql`). |
 | `memory_records` | Durable memory, always workspace-scoped, classified by `scope` (`user`/`workspace`/`conversation`/`project`), with an `embedding` column and HNSW index for ranked retrieval (docs/TECHNICAL_ARCHITECTURE.md §4). `conversation` scope requires `conversation_id`; `project` scope requires `project_key`; both are enforced by a `CHECK` constraint, not just application code. |
@@ -35,6 +37,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `workspace_capability_settings` | User-promoted per-workspace tier overrides. |
 | `pending_approvals` | Tier 3 intents awaiting explicit user confirmation. Lifecycle `status` is `pending`/`approved`/`rejected`; a fourth state, `expired`, is derived from `expires_at` at read time and never stored (`0006_approval_lifecycle.sql`). Created/read by `backend/src/approval/approvalEngine.ts`. |
 | `drafts` | Held content — `email`/`proposal`/`client_response`/`report` — a user reviews before anything is sent, workspace-scoped (`0007_drafts.sql`). Created/read by `backend/src/drafts/draftService.ts`. |
+| `preferences` | Structured, categorized workspace settings (`writing_style`/`response_preferences`/`workflow_preferences`/`project_rules`) that shape assistant behavior, unique per (workspace, category, key) (`0009_preferences.sql`). Created/read by `backend/src/preferences/preferenceService.ts`. |
 | `action_log` | Audit trail for every Tier 3/4 execution. |
 
 ## Running migrations locally
@@ -48,6 +51,8 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0004_documents.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0005_task_priority.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0006_approval_lifecycle.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0007_drafts.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0008_user_profile_and_workspace_config.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0009_preferences.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -65,6 +70,8 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0004_documents.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0005_task_priority.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0006_approval_lifecycle.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0007_drafts.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0008_user_profile_and_workspace_config.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0009_preferences.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.

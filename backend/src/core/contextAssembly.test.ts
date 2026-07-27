@@ -1,9 +1,40 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSystemPrompt } from './contextAssembly';
-import { getAssistantProfile } from './assistantProfiles';
+import { buildEffectiveProfile, getAssistantProfile } from './assistantProfiles';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
+import type { Preference } from '../preferences/types';
+import type { Workspace } from '../workspaces/types';
+
+function preference(overrides: Partial<Preference> = {}): Preference {
+  return {
+    id: 'pref-1',
+    workspaceId: 'ws-1',
+    category: 'writing_style',
+    key: 'tone',
+    value: 'formal',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function workspace(overrides: Partial<Workspace> = {}): Workspace {
+  return {
+    id: 'ws-1',
+    userId: 'user-1',
+    slug: 'rcs',
+    name: 'Roman Creative Studio',
+    type: 'business',
+    instructions: null,
+    assistantBehavior: {},
+    metadata: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
 
 function memory(overrides: Partial<RankedMemoryResult> = {}): RankedMemoryResult {
   return {
@@ -100,6 +131,40 @@ test('buildSystemPrompt truncates an overly long document chunk', () => {
 
   assert.ok(!prompt.includes(longContent));
   assert.match(prompt, /y{500}…/);
+});
+
+test('buildSystemPrompt omits the preferences section when there are none', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [], []);
+  assert.doesNotMatch(prompt, /Workspace preferences/);
+});
+
+test('buildSystemPrompt includes preferences by category and key/value', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [],
+    [],
+    [preference({ category: 'writing_style', key: 'tone', value: 'formal' })],
+  );
+
+  assert.match(prompt, /Workspace preferences to follow/);
+  assert.match(prompt, /\[writing_style\] tone: formal/);
+});
+
+test('buildEffectiveProfile keeps the static base instructions when the workspace has no overrides', () => {
+  const profile = buildEffectiveProfile(workspace());
+  assert.equal(profile.responseInstructions, getAssistantProfile('rcs').responseInstructions);
+});
+
+test('buildEffectiveProfile appends workspace-specific instructions to the static base', () => {
+  const profile = buildEffectiveProfile(workspace({ instructions: 'Always mention the project deadline.' }));
+  assert.match(profile.responseInstructions, /needs approval before it is ever sent/);
+  assert.match(profile.responseInstructions, /Always mention the project deadline\./);
+});
+
+test('buildEffectiveProfile renders assistantBehavior entries into the instructions', () => {
+  const profile = buildEffectiveProfile(workspace({ assistantBehavior: { tone: 'formal', verbosity: 'concise' } }));
+  assert.match(profile.responseInstructions, /tone: formal/);
+  assert.match(profile.responseInstructions, /verbosity: concise/);
 });
 
 test('buildSystemPrompt can render both memory and documentation sections together', () => {

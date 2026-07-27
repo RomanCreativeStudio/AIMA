@@ -93,6 +93,13 @@ export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description: 'Re-chunk and re-embed an already-imported document.',
   },
   {
+    actionType: 'set_preference',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description:
+      'Set a structured workspace preference (writing style, response preferences, workflow preferences, project rules) that shapes future assistant behavior.',
+  },
+  {
     actionType: 'delete_document',
     defaultTier: 'prepare',
     tierLocked: false,
