@@ -105,17 +105,25 @@ All clients are **thin, presentation-focused surfaces** over the same backend AP
 - Model-agnostic interface internally (a thin adapter around the provider call) so the underlying model/provider can be upgraded without touching the rest of the system.
 
 ### Memory System
-- **Short-term (session) memory:** the active conversation's recent turns, held in-context per request.
-- **Long-term memory:** durable facts, preferences, and history the user wants AIMA to retain across sessions (e.g., "I always want proposals in this tone," "this client prefers email over calls"), stored as structured, workspace-scoped memory records in the database — not just left inside raw chat logs.
-- Long-term memory is retrieved selectively per request (see Knowledge Retrieval below), not dumped wholesale into every prompt — this keeps costs and latency sane and avoids irrelevant context bleeding across workspaces.
+Implemented in the Intelligence Sprint as `memory_records` (database/migrations/0002_memory_scopes.sql) plus `backend/src/memory/memoryService.ts`. Four scopes cover the categories from docs/PRODUCT_BIBLE.md:
+
+- **`workspace`** — general durable knowledge about a workspace (the default/catch-all).
+- **`user`** — a durable personal-preference fact (e.g., "always draft proposals in a formal tone"). Recorded **within** a workspace, not globally across workspaces — see the design note below.
+- **`conversation`** — tied to a specific `conversation_id`; required for this scope.
+- **`project`** — tied to a `project_key` tag (a lightweight string, not a full `projects` table, to avoid a relational entity the MVP doesn't need yet); required for this scope.
+
+**Design note (see `docs/decisions/0002-memory-and-embeddings.md`):** every memory row still carries a required `workspace_id` — workspace isolation (§6) is never relaxed, even for "user" scope. A memory scoped `user` is a durable fact recorded *inside* a given workspace, not a cross-workspace global. True cross-workspace recall remains the explicit, logged bridging described in docs/PRODUCT_BIBLE.md §6, and is not implemented by the memory system itself.
+
+Short-term (in-session conversation history) memory is not yet implemented — `conversations`/`messages` tables exist (§3) but nothing yet writes to them; that lands with the chat pipeline in the Integration Sprint.
 
 ### Context Management
-- Every AI request is built with an explicit **context assembly step**: current workspace → relevant long-term memory for that workspace → relevant knowledge documents (below) → recent conversation turns → the user's new input.
-- Context assembly is workspace-aware by construction: it is not possible for MFS character memory to be pulled into an RCS proposal draft unless the user explicitly requests cross-workspace bridging (Product Bible §6).
+- `MemoryService.getWorkspaceContext(workspaceId, query, limit)` is the retrieval entry point: it ranks all memory in a workspace (any scope) by relevance to a query string. This is the retrieval **building block** — it is not yet wired into an actual AI request's system prompt (that assembly step — workspace → memory → knowledge → conversation turns → new input — is Integration Sprint scope, once the chat pipeline exists to assemble into).
+- Context retrieval is workspace-scoped by construction: `MemoryService.search` always filters by `workspace_id`, so it is not possible for MFS character memory to be returned for an RCS query unless the caller explicitly bridges workspaces (Product Bible §6) — which nothing in the current codebase does yet.
 
 ### Knowledge Retrieval
-- Project knowledge bases (client history, MFS story bible, code repo context, personal notes) are stored as documents/records and retrieved via similarity search (embeddings + vector index) scoped to the active workspace, rather than relying on the model's raw context window to hold everything.
-- Retrieval-augmented generation (RAG) pattern: relevant chunks are fetched and injected into the prompt at request time, keeping the system scalable as knowledge bases grow.
+- Retrieval uses pgvector's HNSW index (`idx_memory_records_embedding`, cosine distance) over the `embedding` column — similarity search happens in Postgres, not in application code.
+- Embeddings are produced through the same provider-abstraction pattern as chat completions: `ai-engine/src/embeddings/` defines an `EmbeddingProvider` interface with `MockEmbeddingProvider` (deterministic hashed bag-of-words, no network — the default) and `OpenAIEmbeddingProvider` (real embeddings via `text-embedding-3-small`, called with `fetch` rather than adding the full `openai` SDK dependency). Selected at runtime via `EMBEDDING_PROVIDER`, mirroring `AI_PROVIDER`.
+- `MemoryService.search` returns ranked results (`1 - cosine_distance` as `score`), optionally filtered by scope, `conversationId`, or `projectKey` — this is the RAG "retrieve relevant chunks" step; the "inject into the prompt" step is not yet built (see Context Management above).
 
 ### Future Multi-Agent Capability
 - Not built in the MVP, but the orchestration layer is designed so that a single "AIMA" request can later be decomposed into specialized sub-agents (e.g., a "research agent," a "drafting agent," a "code agent") coordinated by a controller — because context assembly, memory, and permission-checking are already centralized rather than duplicated per client. This is a reason to keep orchestration server-side and centralized now, not a feature to build now.
@@ -232,10 +240,10 @@ Four sprints, each producing a working, demonstrable increment. Scope is intenti
 - **Exit criteria:** User can log in, pick a workspace, chat with AIMA, and receive workspace-appropriate responses and drafts.
 
 ### Intelligence Sprint
-- Build long-term memory storage and retrieval (Section 4), scoped per workspace.
-- Build project knowledge base ingestion + retrieval (embeddings via `pgvector`) for at least one workspace (recommend Development or RCS first, since they have the clearest structured data).
-- Improve context assembly so responses reflect real memory/history, not just the current conversation.
-- **Exit criteria:** AIMA demonstrably remembers relevant facts/history across sessions and retrieves relevant knowledge when answering.
+- Build long-term memory storage and retrieval (Section 4), scoped per workspace. ✅ Done — `memory_records` scope model, `MemoryService.createMemory`/`search`/`getWorkspaceContext`, pgvector HNSW ranking, workspace-isolated by construction.
+- Build project knowledge base ingestion + retrieval (embeddings via `pgvector`). ✅ Done as the `project` memory scope (`project_key` tag) — a full document-ingestion pipeline (e.g., chunking uploaded files) is not yet built; today's "knowledge" is whatever is explicitly stored as a memory record via the API.
+- Improve context assembly so responses reflect real memory/history, not just the current conversation. ⏳ Not done — `getWorkspaceContext` provides the ranked retrieval; wiring its output into an actual chat request's system prompt is Integration Sprint scope (no chat pipeline exists yet to assemble into).
+- **Exit criteria met:** AIMA can store and retrieve relevant memory/knowledge per workspace, ranked by relevance, with permission enforcement and workspace isolation intact. Retrieval is not yet connected to a live conversation — that requires the Integration Sprint's chat pipeline.
 
 ### Integration Sprint
 - Build the Permission Engine fully (Section 5): capability registry, pending-approval flow, Tier 3 execution, Action Log.

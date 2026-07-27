@@ -41,6 +41,13 @@ const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     tierLocked: false,
     description: 'File a note into the correct workspace. Eligible for future Tier 4 promotion once proven reliable.',
   },
+  {
+    actionType: 'create_memory',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description:
+      'Store a new long-term memory record for a workspace (docs/TECHNICAL_ARCHITECTURE.md §4). Internal only — no external effect.',
+  },
 ];
 
 export class CapabilityRegistry {

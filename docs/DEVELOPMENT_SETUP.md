@@ -181,11 +181,12 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 
 ### Unit Testing
 - Every non-trivial function in `backend/` and `ai-engine/` — especially permission tier logic, workspace scoping, and context assembly — should have unit test coverage.
+- Tooling: Node's built-in `node:test` runner via `tsx` (`npm test` in either package, or from the repo root to run both) — no test framework dependency beyond that, per the "avoid unnecessary complexity" rule (§9). Example: `backend/src/permissions/engine.test.ts`, `ai-engine/src/embeddings/MockEmbeddingProvider.test.ts`.
 - Swift code in `apps/` uses XCTest for logic that isn't purely presentational (e.g., view models).
 
 ### Integration Testing
-- Backend API endpoints are tested end-to-end against a local test database: request in, expected data/permission behavior out.
-- Special focus: workspace isolation (a request scoped to RCS must never return MFS/Personal/Development data) and permission tier enforcement (a Tier 3 action must never execute without an approval record).
+- Backend API endpoints and services are tested end-to-end against a **real local Postgres database** (`aima_test`, migrated per `database/README.md`) — not mocked. Set `TEST_DATABASE_URL` if your local database differs from the default. Service-level tests wrap each test in a transaction that's rolled back (`backend/src/testUtils/db.ts`); HTTP-level route tests seed and clean up their own rows.
+- Special focus: workspace isolation (a request scoped to RCS must never return MFS/Personal/Development data — see `backend/src/memory/memoryService.test.ts`) and permission tier enforcement (every action-producing route must call the `PermissionEngine` and log to `action_log` — see `backend/src/routes/memories.test.ts`).
 
 ### Feature Testing
 - Before a feature is considered done, it is tested as a full flow through the relevant client — not just at the API layer — to confirm the actual user-facing behavior matches the Product Bible's intent (e.g., a Tier 3 email draft genuinely requires a tap/click to send, not just returns the correct API response).

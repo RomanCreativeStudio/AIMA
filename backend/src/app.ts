@@ -3,15 +3,22 @@ import express, { type Application } from 'express';
 import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
+import type { ActionLogger } from './actionLog/logger';
+import type { MemoryService } from './memory/memoryService';
 import type { CapabilityRegistry } from './permissions/registry';
+import type { PermissionEngine } from './permissions/engine';
 import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
+import { memoriesRouter } from './routes/memories';
 import { errorHandler } from './middleware/errorHandler';
 
 export interface AppDependencies {
   pool: Pool;
   registry: CapabilityRegistry;
+  permissionEngine: PermissionEngine;
+  actionLogger: ActionLogger;
+  memoryService: MemoryService;
   aiProvider: AIProvider;
   corsOrigins: string[];
 }
@@ -32,6 +39,14 @@ export function createApp(deps: AppDependencies): Application {
   app.use(healthRouter(deps.pool));
   app.use('/api', capabilitiesRouter(deps.registry));
   app.use('/api', aiRouter(deps.aiProvider));
+  app.use(
+    '/api',
+    memoriesRouter({
+      memoryService: deps.memoryService,
+      permissionEngine: deps.permissionEngine,
+      actionLogger: deps.actionLogger,
+    }),
+  );
 
   app.use(errorHandler);
 
