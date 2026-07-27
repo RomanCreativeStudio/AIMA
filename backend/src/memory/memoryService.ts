@@ -1,11 +1,8 @@
-import type { Client, Pool } from 'pg';
 import type { EmbeddingProvider } from '@aima/ai-engine';
+import type { Queryable } from '../db/queryable';
 import type { CreateMemoryInput, MemoryRecord, MemorySearchQuery, RankedMemoryResult } from './types';
 
 const DEFAULT_SEARCH_LIMIT = 5;
-
-/** Anything that can run a parameterized query — satisfied by both `Pool` and `Client`. */
-type Queryable = Pool | Client;
 
 /**
  * Owns storage and retrieval of memory_records: embedding new memories on

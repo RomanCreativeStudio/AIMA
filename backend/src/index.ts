@@ -4,6 +4,7 @@ import { createApp } from './app';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
+import { ConversationService } from './conversation/conversationService';
 import { MemoryService } from './memory/memoryService';
 import { CapabilityRegistry } from './permissions/registry';
 import { PermissionEngine } from './permissions/engine';
@@ -16,6 +17,7 @@ const actionLogger = new ActionLogger(pool);
 const aiProvider = createAIProviderFromEnv();
 const embeddingProvider = createEmbeddingProviderFromEnv();
 const memoryService = new MemoryService(pool, embeddingProvider);
+const conversationService = new ConversationService(pool, memoryService, aiProvider, actionLogger, permissionEngine);
 
 const app = createApp({
   pool,
@@ -23,6 +25,7 @@ const app = createApp({
   permissionEngine,
   actionLogger,
   memoryService,
+  conversationService,
   aiProvider,
   corsOrigins: config.corsOrigins,
 });

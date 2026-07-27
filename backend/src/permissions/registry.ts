@@ -48,6 +48,13 @@ const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description:
       'Store a new long-term memory record for a workspace (docs/TECHNICAL_ARCHITECTURE.md §4). Internal only — no external effect.',
   },
+  {
+    actionType: 'generate_ai_response',
+    defaultTier: 'suggest',
+    tierLocked: false,
+    description:
+      'Generate a conversational AI reply within a workspace. Text only, no draft or execution — logged for transparency, not gated.',
+  },
 ];
 
 export class CapabilityRegistry {

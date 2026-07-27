@@ -13,6 +13,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 |---|---|
 | `0001_init.sql` | `users`, `workspaces`, `conversations`, `messages`, `memory_records` (base columns), `tasks`, `capabilities`, `workspace_capability_settings`, `pending_approvals`, `action_log`. |
 | `0002_memory_scopes.sql` | Extends `memory_records` with the four-way memory scope model (`scope`, `conversation_id`, `project_key`, `metadata`) and adds the HNSW vector index for retrieval. See `docs/decisions/0002-memory-and-embeddings.md`. |
+| `0003_message_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `messages`, so conversation history has a stable ordering independent of `created_at` collisions. See `docs/decisions/0003-conversation-pipeline.md`. |
 
 ## Entities
 
@@ -20,8 +21,8 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 |---|---|
 | `users` | The AIMA account holder. Single-user in the MVP. |
 | `workspaces` | One row per (`user`, workspace kind) — `personal`, `rcs`, `mfs`, `development` (docs/PRODUCT_BIBLE.md §1). The isolation boundary everything else hangs off of. |
-| `conversations` | A chat thread, scoped to one workspace. |
-| `messages` | Individual turns within a conversation. |
+| `conversations` | A chat thread, scoped to one workspace. Created/read by `backend/src/conversation/conversationService.ts`. |
+| `messages` | Individual turns within a conversation, ordered by the monotonic `sequence` column (not `created_at` — see `0003_message_sequence.sql`). |
 | `memory_records` | Durable memory, always workspace-scoped, classified by `scope` (`user`/`workspace`/`conversation`/`project`), with an `embedding` column and HNSW index for ranked retrieval (docs/TECHNICAL_ARCHITECTURE.md §4). `conversation` scope requires `conversation_id`; `project` scope requires `project_key`; both are enforced by a `CHECK` constraint, not just application code. |
 | `tasks` | Task/project items, workspace-scoped. |
 | `capabilities` | The permission-tier registry — mirrors `backend/src/permissions/registry.ts` (docs/TECHNICAL_ARCHITECTURE.md §5). |
@@ -35,6 +36,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 createdb aima_dev
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0001_init.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0002_memory_scopes.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0003_message_sequence.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -47,10 +49,11 @@ Point `backend/.env`'s `DATABASE_URL` at this database.
 createdb aima_test
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0001_init.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0002_memory_scopes.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0003_message_sequence.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs.
 
 ## Adding a migration
 
-Add a new numbered file (`0003_<description>.sql`) — never edit a migration that has already been applied anywhere. Keep each migration additive and reversible where practical.
+Add a new numbered file (`0004_<description>.sql`) — never edit a migration that has already been applied anywhere. Keep each migration additive and reversible where practical.

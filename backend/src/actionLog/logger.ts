@@ -1,5 +1,5 @@
-import type { Pool } from 'pg';
 import type { PermissionTier } from '../permissions/types';
+import type { Queryable } from '../db/queryable';
 
 export interface ActionLogEntry {
   workspaceId: string;
@@ -17,7 +17,7 @@ export interface ActionLogEntry {
  * best-effort.
  */
 export class ActionLogger {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly pool: Queryable) {}
 
   async log(entry: ActionLogEntry): Promise<void> {
     await this.pool.query(

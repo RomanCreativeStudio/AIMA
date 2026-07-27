@@ -7,6 +7,7 @@ import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
+import { ConversationService } from '../conversation/conversationService';
 import { MemoryService } from '../memory/memoryService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
@@ -25,6 +26,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(pool);
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
+  const aiProvider = createAIProvider({ provider: 'mock' });
+  const conversationService = new ConversationService(pool, memoryService, aiProvider, actionLogger, permissionEngine);
 
   const app = createApp({
     pool,
@@ -32,7 +35,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     permissionEngine,
     actionLogger,
     memoryService,
-    aiProvider: createAIProvider({ provider: 'mock' }),
+    conversationService,
+    aiProvider,
     corsOrigins: [],
   });
 

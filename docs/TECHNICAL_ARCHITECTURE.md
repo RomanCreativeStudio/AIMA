@@ -103,6 +103,9 @@ All clients are **thin, presentation-focused surfaces** over the same backend AP
 ### AI Model Communication
 - The backend's AI orchestration layer is the sole caller of the LLM provider. It assembles: system instructions (AIMA's identity, active workspace rules, permission tier context), retrieved memory/knowledge (below), and the user's current input, then streams the response back through the API layer to the client.
 - Model-agnostic interface internally (a thin adapter around the provider call) so the underlying model/provider can be upgraded without touching the rest of the system.
+- Implemented end-to-end (Conversation Intelligence Sprint) as `backend/src/conversation/conversationService.ts`, running the full pipeline described in §7:
+  `User Input → Workspace Context → Memory Retrieval → Context Assembly → AI Provider → Response → Conversation Storage`.
+  Responses still stream through the API layer at the HTTP level as a single JSON response for now — token-level streaming to the client is a UI-sprint concern, not yet built.
 
 ### Memory System
 Implemented in the Intelligence Sprint as `memory_records` (database/migrations/0002_memory_scopes.sql) plus `backend/src/memory/memoryService.ts`. Four scopes cover the categories from docs/PRODUCT_BIBLE.md:
@@ -114,11 +117,19 @@ Implemented in the Intelligence Sprint as `memory_records` (database/migrations/
 
 **Design note (see `docs/decisions/0002-memory-and-embeddings.md`):** every memory row still carries a required `workspace_id` — workspace isolation (§6) is never relaxed, even for "user" scope. A memory scoped `user` is a durable fact recorded *inside* a given workspace, not a cross-workspace global. True cross-workspace recall remains the explicit, logged bridging described in docs/PRODUCT_BIBLE.md §6, and is not implemented by the memory system itself.
 
-Short-term (in-session conversation history) memory is not yet implemented — `conversations`/`messages` tables exist (§3) but nothing yet writes to them; that lands with the chat pipeline in the Integration Sprint.
+**Short-term (in-session conversation history)** is implemented as the `conversations`/`messages` tables, written by `ConversationService`. Message ordering uses a monotonic `sequence` column (`database/migrations/0003_message_sequence.sql`) rather than `created_at` alone — under READ COMMITTED, `now()` is frozen at transaction start, so two messages saved in the same transaction (a user turn and its assistant reply) can share an identical timestamp, making timestamp-only ordering unreliable.
 
 ### Context Management
-- `MemoryService.getWorkspaceContext(workspaceId, query, limit)` is the retrieval entry point: it ranks all memory in a workspace (any scope) by relevance to a query string. This is the retrieval **building block** — it is not yet wired into an actual AI request's system prompt (that assembly step — workspace → memory → knowledge → conversation turns → new input — is Integration Sprint scope, once the chat pipeline exists to assemble into).
-- Context retrieval is workspace-scoped by construction: `MemoryService.search` always filters by `workspace_id`, so it is not possible for MFS character memory to be returned for an RCS query unless the caller explicitly bridges workspaces (Product Bible §6) — which nothing in the current codebase does yet.
+Fully implemented as `ConversationService.sendMessage` (`backend/src/conversation/`), which runs the pipeline for every turn:
+
+1. Confirms the conversation belongs to the given workspace (the isolation checkpoint — see §6).
+2. Saves the user's message.
+3. In parallel: loads recent conversation history (capped at `historyLimit`, default 10 messages) and retrieves relevant workspace memory (`MemoryService.getWorkspaceContext`, capped at `memoryLimit`, default 5 records) — both are **context limits**, applied by count rather than token counting, to keep this MVP-simple.
+4. `contextAssembly.ts#buildSystemPrompt` assembles a system prompt: AIMA's identity → the active workspace's description → the retrieved memory (each snippet truncated to 500 characters so one long memory can't dominate the prompt).
+5. Calls the AI provider with the system prompt and capped history.
+6. Saves the assistant's reply and logs the generation (`generate_ai_response` capability, Tier 1/suggest, logged for transparency but not gated — see §5).
+
+Context retrieval is workspace-scoped by construction: `MemoryService.search` always filters by `workspace_id`, so it is not possible for MFS character memory to be returned for an RCS query unless the caller explicitly bridges workspaces (Product Bible §6) — which nothing in the current codebase does yet. See `docs/decisions/0003-conversation-pipeline.md` for the context-limit and logging-tier rationale.
 
 ### Knowledge Retrieval
 - Retrieval uses pgvector's HNSW index (`idx_memory_records_embedding`, cosine distance) over the `embedding` column — similarity search happens in Postgres, not in application code.
@@ -178,6 +189,8 @@ Workspace isolation (Personal, RCS, MFS, Development) is enforced structurally a
 7. **User** reads the response, and — for Tier 2/3 items — takes the next action (edit, approve, decline), which re-enters this same flow as a new request.
 
 Every hop in this flow is workspace-scoped and, where an action occurred, logged — so the user (or a future audit view) can always reconstruct "what happened, in what workspace, at what tier, and why."
+
+**Implementation status:** steps 1–3 and 6–7 (client → backend → context assembly → response → client) are fully implemented as `ConversationService.sendMessage` (`backend/src/conversation/`, Conversation Intelligence Sprint). Step 4's "intents" — the AI response containing a structured, tiered action proposal that the Permission Engine parses out of the model's output — are **not yet implemented**: today, a generated response is plain text, logged once as a single `generate_ai_response` action (Tier 1/suggest). Parsing model output into distinct actionable intents (e.g., "draft this email" as a Tier 2 artifact) is Integration Sprint scope, once a real external-action capability exists to route to.
 
 ---
 
@@ -245,9 +258,12 @@ Four sprints, each producing a working, demonstrable increment. Scope is intenti
 - Improve context assembly so responses reflect real memory/history, not just the current conversation. ⏳ Not done — `getWorkspaceContext` provides the ranked retrieval; wiring its output into an actual chat request's system prompt is Integration Sprint scope (no chat pipeline exists yet to assemble into).
 - **Exit criteria met:** AIMA can store and retrieve relevant memory/knowledge per workspace, ranked by relevance, with permission enforcement and workspace isolation intact. Retrieval is not yet connected to a live conversation — that requires the Integration Sprint's chat pipeline.
 
+### Conversation Intelligence Sprint (pulled forward from Integration Sprint scope)
+Completed ahead of schedule, once the Intelligence Sprint's memory system made it practical: the conversation pipeline (§4, §7) now runs end-to-end — `ConversationService` creates conversations, saves messages, retrieves workspace-scoped memory, assembles a system prompt, calls the AI provider, and stores the response, all with workspace isolation enforced and every generation logged. See `docs/decisions/0003-conversation-pipeline.md`.
+
 ### Integration Sprint
-- Build the Permission Engine fully (Section 5): capability registry, pending-approval flow, Tier 3 execution, Action Log.
-- Implement first real external-action capability end-to-end (e.g., sending an email draft after approval, or a GitHub integration action).
+- Build the Permission Engine's remaining pieces (Section 5): per-workspace tier overrides (`workspace_capability_settings`), pending-approval flow, Tier 3 execution. The capability registry, tier resolution, and Action Log already exist (Foundation Sprint) and are in active use by the memory and conversation pipelines.
+- Implement first real external-action capability end-to-end (e.g., sending an email draft after approval, or a GitHub integration action) — this is also where the AI response needs to start producing structured, parseable intents (§7) rather than plain text only.
 - Add push notifications (iPhone) for pending approvals.
 - Ship the web dashboard as a secondary client against the now-stable API.
 - **Exit criteria:** AIMA can prepare and, upon explicit approval, execute at least one real external action, fully logged and visible to the user.

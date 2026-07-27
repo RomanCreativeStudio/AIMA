@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
 import type { ActionLogger } from './actionLog/logger';
+import type { ConversationService } from './conversation/conversationService';
 import type { MemoryService } from './memory/memoryService';
 import type { CapabilityRegistry } from './permissions/registry';
 import type { PermissionEngine } from './permissions/engine';
@@ -11,6 +12,7 @@ import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
 import { memoriesRouter } from './routes/memories';
+import { conversationsRouter } from './routes/conversations';
 import { errorHandler } from './middleware/errorHandler';
 
 export interface AppDependencies {
@@ -19,6 +21,7 @@ export interface AppDependencies {
   permissionEngine: PermissionEngine;
   actionLogger: ActionLogger;
   memoryService: MemoryService;
+  conversationService: ConversationService;
   aiProvider: AIProvider;
   corsOrigins: string[];
 }
@@ -47,6 +50,7 @@ export function createApp(deps: AppDependencies): Application {
       actionLogger: deps.actionLogger,
     }),
   );
+  app.use('/api', conversationsRouter({ conversationService: deps.conversationService }));
 
   app.use(errorHandler);
 
