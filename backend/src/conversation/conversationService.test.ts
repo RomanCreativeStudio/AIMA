@@ -5,6 +5,8 @@ import type { AICompletionRequest, AICompletionResult, AIProvider } from '@aima/
 import { MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { ActionLogger } from '../actionLog/logger';
+import { AimaCoreService } from '../core/aimaCoreService';
+import { ContextManager } from '../core/contextManager';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
@@ -42,15 +44,14 @@ function buildService(
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
   const documentService = new DocumentService(client, new MockEmbeddingProvider());
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const contextManager = new ContextManager(memoryService, documentService);
+  const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine);
 
   const service = new ConversationService({
     db: client,
-    memoryService,
-    documentService,
-    aiProvider: provider,
+    aimaCoreService,
     actionLogger,
     permissionEngine,
-    intentEngine,
     ...overrides,
   });
 

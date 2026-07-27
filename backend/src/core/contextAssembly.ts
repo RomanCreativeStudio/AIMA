@@ -1,21 +1,9 @@
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
-import type { WorkspaceSlug } from '../types/workspace';
+import type { AssistantProfile } from './assistantProfiles';
 
 /** Per-snippet cap so a single long memory or document chunk can't dominate the prompt. */
 const MAX_SNIPPET_CHARS = 500;
-
-/**
- * Short, fixed descriptions of each workspace's purpose (docs/PRODUCT_BIBLE.md
- * §1), injected into the system prompt so the model knows which context it's
- * operating in without ever needing to see another workspace's data.
- */
-const WORKSPACE_DESCRIPTIONS: Record<WorkspaceSlug, string> = {
-  personal: 'the Personal workspace — daily planning, notes, and personal organization.',
-  rcs: 'the Roman Creative Studio workspace — client management, outreach, website projects, and proposals.',
-  mfs: 'the Mythic Forge Studios workspace — The Fracture Protocol, character development, and production tracking.',
-  development: 'the Development workspace — coding, GitHub, and software projects.',
-};
 
 const IDENTITY =
   'You are AIMA, a personal AI operating assistant. You assist, organize, recommend, prepare, explain, ' +
@@ -24,21 +12,21 @@ const IDENTITY =
 
 /**
  * Builds the system prompt for a single AI request: identity → active
- * workspace → retrieved memory → retrieved documentation
- * (docs/TECHNICAL_ARCHITECTURE.md §4). Memory and documentation are kept as
- * two separate, clearly labeled sections rather than merged into one
- * interleaved ranked list — they carry different metadata (scope vs.
- * document/section) and merging would need an arbitrary cross-type ranking
- * rule that isn't needed for this MVP (docs/decisions/0005-knowledge-
- * ingestion.md). Pure and synchronous so it's trivially unit-testable
- * without a database or network.
+ * workspace + its behavior profile → retrieved memory → retrieved
+ * documentation (docs/TECHNICAL_ARCHITECTURE.md §4). Memory and
+ * documentation are kept as two separate, clearly labeled sections rather
+ * than merged into one interleaved ranked list — they carry different
+ * metadata (scope vs. document/section) and merging would need an
+ * arbitrary cross-type ranking rule that isn't needed for this MVP
+ * (docs/decisions/0005-knowledge-ingestion.md). Pure and synchronous so
+ * it's trivially unit-testable without a database or network.
  */
 export function buildSystemPrompt(
-  workspaceSlug: WorkspaceSlug,
+  profile: AssistantProfile,
   memories: RankedMemoryResult[],
   documentChunks: RankedDocumentChunkResult[] = [],
 ): string {
-  const workspaceLine = `You are currently operating in ${WORKSPACE_DESCRIPTIONS[workspaceSlug]}`;
+  const workspaceLine = `You are currently operating in ${profile.description} ${profile.responseInstructions}`;
 
   const memorySection =
     memories.length === 0

@@ -4,13 +4,17 @@ import { createApp } from './app';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
+import { AimaCoreService } from './core/aimaCoreService';
+import { ContextManager } from './core/contextManager';
 import { ConversationService } from './conversation/conversationService';
+import { HealthService } from './health/healthService';
 import { IntentEngine } from './intent/intentEngine';
 import { DocumentService } from './knowledge/documentService';
 import { MemoryService } from './memory/memoryService';
 import { CapabilityRegistry } from './permissions/registry';
 import { PermissionEngine } from './permissions/engine';
 import { syncCapabilitiesToDatabase } from './permissions/syncCapabilities';
+import { TaskService } from './tasks/taskService';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -29,14 +33,15 @@ async function main(): Promise<void> {
   const intentEngine = new IntentEngine(intentClassifier, permissionEngine);
   const memoryService = new MemoryService(pool, embeddingProvider);
   const documentService = new DocumentService(pool, embeddingProvider);
+  const taskService = new TaskService(pool);
+  const healthService = new HealthService(pool, aiProvider);
+  const contextManager = new ContextManager(memoryService, documentService);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine);
   const conversationService = new ConversationService({
     db: pool,
-    memoryService,
-    documentService,
-    aiProvider,
+    aimaCoreService,
     actionLogger,
     permissionEngine,
-    intentEngine,
   });
 
   const app = createApp({
@@ -46,6 +51,8 @@ async function main(): Promise<void> {
     actionLogger,
     memoryService,
     documentService,
+    taskService,
+    healthService,
     conversationService,
     aiProvider,
     corsOrigins: config.corsOrigins,

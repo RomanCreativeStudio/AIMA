@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildSystemPrompt } from './contextAssembly';
+import { getAssistantProfile } from './assistantProfiles';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
 
@@ -36,19 +37,26 @@ function documentChunk(overrides: Partial<RankedDocumentChunkResult> = {}): Rank
 }
 
 test('buildSystemPrompt names the correct workspace for each slug', () => {
-  const rcsPrompt = buildSystemPrompt('rcs', []);
-  const mfsPrompt = buildSystemPrompt('mfs', []);
+  const rcsPrompt = buildSystemPrompt(getAssistantProfile('rcs'), []);
+  const mfsPrompt = buildSystemPrompt(getAssistantProfile('mfs'), []);
   assert.match(rcsPrompt, /Roman Creative Studio/);
   assert.match(mfsPrompt, /Mythic Forge Studios/);
 });
 
+test('buildSystemPrompt includes workspace-specific response instructions', () => {
+  const rcsPrompt = buildSystemPrompt(getAssistantProfile('rcs'), []);
+  const mfsPrompt = buildSystemPrompt(getAssistantProfile('mfs'), []);
+  assert.match(rcsPrompt, /needs approval before it is ever sent/);
+  assert.match(mfsPrompt, /narrative and character consistency/);
+});
+
 test('buildSystemPrompt notes when no relevant memory was found', () => {
-  const prompt = buildSystemPrompt('personal', []);
+  const prompt = buildSystemPrompt(getAssistantProfile('personal'), []);
   assert.match(prompt, /No relevant stored memory was found/);
 });
 
 test('buildSystemPrompt includes memory content and scope, ranked in order', () => {
-  const prompt = buildSystemPrompt('mfs', [
+  const prompt = buildSystemPrompt(getAssistantProfile('mfs'), [
     memory({ content: 'Kestrel is the protagonist.', scope: 'project' }),
     memory({ content: 'Season 1 ends on a cliffhanger.', scope: 'workspace' }),
   ]);
@@ -59,25 +67,25 @@ test('buildSystemPrompt includes memory content and scope, ranked in order', () 
 
 test('buildSystemPrompt truncates an overly long memory snippet', () => {
   const longContent = 'x'.repeat(1000);
-  const prompt = buildSystemPrompt('development', [memory({ content: longContent })]);
+  const prompt = buildSystemPrompt(getAssistantProfile('development'), [memory({ content: longContent })]);
 
   assert.ok(!prompt.includes(longContent), 'the full 1000-character memory should not appear verbatim');
   assert.match(prompt, /x{500}…/);
 });
 
 test('buildSystemPrompt always states AIMA never acts without approval', () => {
-  const prompt = buildSystemPrompt('personal', []);
+  const prompt = buildSystemPrompt(getAssistantProfile('personal'), []);
   assert.match(prompt, /never send external communication|without explicit user approval/);
 });
 
 test('buildSystemPrompt omits the documentation section when there are no chunks', () => {
-  const prompt = buildSystemPrompt('rcs', [memory()], []);
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [memory()], []);
   assert.doesNotMatch(prompt, /Relevant documentation/);
 });
 
 test('buildSystemPrompt includes document chunk content with document title and section', () => {
   const prompt = buildSystemPrompt(
-    'development',
+    getAssistantProfile('development'),
     [],
     [documentChunk({ documentTitle: 'Onboarding Guide', section: 'Step 1', content: 'Create an account.' })],
   );
@@ -88,7 +96,7 @@ test('buildSystemPrompt includes document chunk content with document title and 
 
 test('buildSystemPrompt truncates an overly long document chunk', () => {
   const longContent = 'y'.repeat(1000);
-  const prompt = buildSystemPrompt('rcs', [], [documentChunk({ content: longContent })]);
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [documentChunk({ content: longContent })]);
 
   assert.ok(!prompt.includes(longContent));
   assert.match(prompt, /y{500}…/);
@@ -96,7 +104,7 @@ test('buildSystemPrompt truncates an overly long document chunk', () => {
 
 test('buildSystemPrompt can render both memory and documentation sections together', () => {
   const prompt = buildSystemPrompt(
-    'rcs',
+    getAssistantProfile('rcs'),
     [memory({ content: 'Client prefers formal tone.' })],
     [documentChunk({ content: 'Proposal template lives in docs/proposal.md.' })],
   );

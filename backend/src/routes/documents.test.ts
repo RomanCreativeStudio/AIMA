@@ -7,12 +7,16 @@ import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
+import { AimaCoreService } from '../core/aimaCoreService';
+import { ContextManager } from '../core/contextManager';
 import { ConversationService } from '../conversation/conversationService';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
 import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
+import { TaskService } from '../tasks/taskService';
+import { HealthService } from '../health/healthService';
 
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
@@ -29,16 +33,17 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const actionLogger = new ActionLogger(pool);
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
   const documentService = new DocumentService(pool, new MockEmbeddingProvider());
+  const taskService = new TaskService(pool);
+  const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const contextManager = new ContextManager(memoryService, documentService);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine);
   const conversationService = new ConversationService({
     db: pool,
-    memoryService,
-    documentService,
-    aiProvider,
+    aimaCoreService,
     actionLogger,
     permissionEngine,
-    intentEngine,
   });
 
   const app = createApp({
@@ -48,6 +53,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     actionLogger,
     memoryService,
     documentService,
+    taskService,
+    healthService,
     conversationService,
     aiProvider,
     corsOrigins: [],

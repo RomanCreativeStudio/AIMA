@@ -1,0 +1,139 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import type { Client } from 'pg';
+import type { AICompletionRequest, AICompletionResult, AIProvider } from '@aima/ai-engine';
+import { MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
+import { seedWorkspace, withTestTransaction } from '../testUtils/db';
+import { IntentEngine } from '../intent/intentEngine';
+import { DocumentService } from '../knowledge/documentService';
+import { MemoryService } from '../memory/memoryService';
+import { CapabilityRegistry } from '../permissions/registry';
+import { PermissionEngine } from '../permissions/engine';
+import { AimaCoreService } from './aimaCoreService';
+import { ContextManager } from './contextManager';
+
+/** Records the last request it received instead of calling a real provider — a spy, not a stub. */
+class RecordingAIProvider implements AIProvider {
+  readonly name = 'recording';
+  lastRequest?: AICompletionRequest;
+
+  async complete(request: AICompletionRequest): Promise<AICompletionResult> {
+    this.lastRequest = request;
+    return { content: 'a response', model: 'recording-1', provider: this.name, stopReason: 'end_turn' };
+  }
+}
+
+function buildCoreService(client: Client) {
+  const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+  const documentService = new DocumentService(client, new MockEmbeddingProvider());
+  const contextManager = new ContextManager(memoryService, documentService);
+  const permissionEngine = new PermissionEngine(new CapabilityRegistry());
+  const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const provider = new RecordingAIProvider();
+  const core = new AimaCoreService(contextManager, provider, intentEngine);
+  return { core, provider, memoryService, documentService };
+}
+
+test('handleRequest returns AI content, context, and intent together', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { core } = buildCoreService(client);
+
+    const response = await core.handleRequest({
+      workspaceId,
+      workspaceSlug: 'rcs',
+      query: 'What should I tell the client?',
+      history: [],
+    });
+
+    assert.equal(response.content, 'a response');
+    assert.equal(response.provider, 'recording');
+    assert.equal(response.context.workspaceSlug, 'rcs');
+    assert.ok(response.intent.intent);
+  });
+});
+
+test('handleRequest uses the workspace-specific assistant profile in the system prompt', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId: rcsId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: mfsId } = await seedWorkspace(client, 'mfs');
+    const { core, provider } = buildCoreService(client);
+
+    await core.handleRequest({ workspaceId: rcsId, workspaceSlug: 'rcs', query: 'hello', history: [] });
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Roman Creative Studio/);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /needs approval before it is ever sent/);
+
+    await core.handleRequest({ workspaceId: mfsId, workspaceSlug: 'mfs', query: 'hello', history: [] });
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Mythic Forge Studios/);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /narrative and character consistency/);
+  });
+});
+
+test('handleRequest gathers memory and document context into the system prompt', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'mfs');
+    const { core, provider, memoryService, documentService } = buildCoreService(client);
+
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: 'Kestrel is the protagonist of the Fracture Protocol.',
+    });
+    await documentService.importDocument({
+      workspaceId,
+      format: 'plaintext',
+      content: 'Character sheet: Kestrel wields a fractured blade.',
+    });
+
+    await core.handleRequest({ workspaceId, workspaceSlug: 'mfs', query: 'Tell me about Kestrel', history: [] });
+
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /Kestrel is the protagonist/);
+    assert.match(provider.lastRequest!.systemPrompt ?? '', /fractured blade/);
+  });
+});
+
+test('handleRequest applies configurable context limits', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'personal');
+    const { core, memoryService } = buildCoreService(client);
+
+    for (let i = 0; i < 5; i++) {
+      await memoryService.createMemory({ workspaceId, scope: 'workspace', content: `fact ${i} about planning` });
+    }
+
+    const response = await core.handleRequest({
+      workspaceId,
+      workspaceSlug: 'personal',
+      query: 'planning facts',
+      history: [],
+      limits: { memoryLimit: 2 },
+    });
+
+    assert.ok(response.context.memories.length <= 2);
+  });
+});
+
+test('handleRequest propagates AI provider failures rather than swallowing them', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const documentService = new DocumentService(client, new MockEmbeddingProvider());
+    const contextManager = new ContextManager(memoryService, documentService);
+    const permissionEngine = new PermissionEngine(new CapabilityRegistry());
+    const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+
+    const failingProvider: AIProvider = {
+      name: 'failing',
+      complete: async () => {
+        throw new Error('provider unavailable');
+      },
+    };
+
+    const core = new AimaCoreService(contextManager, failingProvider, intentEngine);
+
+    await assert.rejects(
+      () => core.handleRequest({ workspaceId, workspaceSlug: 'development', query: 'hi', history: [] }),
+      /provider unavailable/,
+    );
+  });
+});

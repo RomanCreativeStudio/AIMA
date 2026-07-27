@@ -91,6 +91,12 @@ All clients are **thin, presentation-focused surfaces** over the same backend AP
 - Separate object storage for unstructured/binary content: documents, images, proposal PDFs, creative assets, exported files.
 - Storage objects reference their owning workspace and are subject to the same isolation rules as database rows.
 
+### Task Foundation (Phase 1.6)
+A minimal, workspace-scoped task model — `backend/src/tasks/taskService.ts` over the `tasks` table (created in `0001_init.sql`, given a `priority` column in `database/migrations/0005_task_priority.sql`). Fields: `id`, `workspaceId`, `title`, `description`, `status` (`todo`/`in_progress`/`done`/`cancelled`), `priority` (`low`/`medium`/`high`, defaults to `medium`), `dueDate`, `createdAt`/`updatedAt`. Create/list/get/update/delete, all workspace-isolated. Deliberately no assignment, subtasks, labels, or advanced querying yet — this phase built the data foundation the `create_task` intent (Phase 1.4) already anticipated, not a full task-management feature (docs/decisions/0006-assistant-core-orchestration.md).
+
+### System Health Layer (Phase 1.6)
+`backend/src/health/healthService.ts`, exposed at `GET /health`, reports whether each major subsystem is reachable: database, memory (`memory_records` query), knowledge (`document_chunks` query), and AI provider. The AI provider check reports **configuration only** (which provider is selected, e.g. `mock`/`claude`) rather than making a real completion call on every poll — a network ping would cost tokens/latency on a health check that might run every few seconds, a bad tradeoff for an MVP. Each check runs independently, so one failing subsystem is reported without masking the others.
+
 ### Security
 - All traffic over TLS. All stored sensitive data encrypted at rest.
 - Secrets (API keys, provider credentials) held in a managed secrets store, never in client code or repo.
@@ -103,9 +109,16 @@ All clients are **thin, presentation-focused surfaces** over the same backend AP
 ### AI Model Communication
 - The backend's AI orchestration layer is the sole caller of the LLM provider. It assembles: system instructions (AIMA's identity, active workspace rules, permission tier context), retrieved memory/knowledge (below), and the user's current input, then streams the response back through the API layer to the client.
 - Model-agnostic interface internally (a thin adapter around the provider call) so the underlying model/provider can be upgraded without touching the rest of the system.
-- Implemented end-to-end (Conversation Intelligence Sprint) as `backend/src/conversation/conversationService.ts`, running the full pipeline described in §7:
+- Implemented end-to-end as `backend/src/conversation/conversationService.ts` (persistence, workspace isolation) delegating to `backend/src/core/aimaCoreService.ts` (the actual orchestration — Phase 1.6, see below) for the pipeline described in §7:
   `User Input → Workspace Context → Memory Retrieval → Context Assembly → AI Provider → Response → Conversation Storage`.
   Responses still stream through the API layer at the HTTP level as a single JSON response for now — token-level streaming to the client is a UI-sprint concern, not yet built.
+
+### Assistant Core Orchestration Layer (Phase 1.6)
+The coordinator connecting every AIMA capability for a single request, split into three pieces so each is independently testable and reusable:
+
+- **`AimaCoreService`** (`backend/src/core/aimaCoreService.ts`) — given a workspace, a query, and pre-fetched conversation history, it gathers context (via `ContextManager`), detects intent (via `IntentEngine`), selects the workspace's assistant profile, assembles the system prompt, and calls the AI provider. It deliberately owns none of the isolation checks or persistence that guard it — `ConversationService` still validates that a conversation belongs to its workspace and saves messages before/after calling it. This split means `AimaCoreService` can be reused by any future caller that needs a workspace-aware AI response without a persisted conversation (e.g., a future one-off "ask AIMA" endpoint), without duplicating the pipeline.
+- **`ContextManager`** (`backend/src/core/contextManager.ts`) — the Unified Context Manager: combines conversation history (accepted pre-fetched — loading/capping messages is `ConversationService`'s persistence concern, not a context-assembly concern), workspace memory, and document context into one `UnifiedContext`, with independently configurable `memoryLimit`/`documentLimit`. This is the same Promise.all-based retrieval `ConversationService` used to do inline, extracted so it's testable without a full conversation pipeline (`docs/decisions/0006-assistant-core-orchestration.md`).
+- **Assistant Behavior Layer** (`backend/src/core/assistantProfiles.ts`) — an `AssistantProfile` per workspace (`name`, `description`, `responseInstructions`), replacing what used to be a bare one-line workspace description in `contextAssembly.ts`. `getAssistantProfile(workspaceSlug)` is a plain lookup (mirroring `intentCapabilityMap.ts`'s pattern) — promoting it to a DB-backed, user-editable registry is reasonable once a UI exists to edit it, not before.
 
 ### Memory System
 Implemented in the Intelligence Sprint as `memory_records` (database/migrations/0002_memory_scopes.sql) plus `backend/src/memory/memoryService.ts`. Four scopes cover the categories from docs/PRODUCT_BIBLE.md:
@@ -120,16 +133,16 @@ Implemented in the Intelligence Sprint as `memory_records` (database/migrations/
 **Short-term (in-session conversation history)** is implemented as the `conversations`/`messages` tables, written by `ConversationService`. Message ordering uses a monotonic `sequence` column (`database/migrations/0003_message_sequence.sql`) rather than `created_at` alone — under READ COMMITTED, `now()` is frozen at transaction start, so two messages saved in the same transaction (a user turn and its assistant reply) can share an identical timestamp, making timestamp-only ordering unreliable.
 
 ### Context Management
-Fully implemented as `ConversationService.sendMessage` (`backend/src/conversation/`), which runs the pipeline for every turn:
+Split between `ConversationService` (persistence) and the Assistant Core Orchestration Layer (above), which together run this for every turn:
 
-1. Confirms the conversation belongs to the given workspace (the isolation checkpoint — see §6).
-2. Saves the user's message.
-3. In parallel: loads recent conversation history (capped at `historyLimit`, default 10 messages) and retrieves relevant workspace memory (`MemoryService.getWorkspaceContext`, capped at `memoryLimit`, default 5 records) — both are **context limits**, applied by count rather than token counting, to keep this MVP-simple.
-4. `contextAssembly.ts#buildSystemPrompt` assembles a system prompt: AIMA's identity → the active workspace's description → the retrieved memory (each snippet truncated to 500 characters so one long memory can't dominate the prompt).
-5. Calls the AI provider with the system prompt and capped history.
-6. Saves the assistant's reply and logs the generation (`generate_ai_response` capability, Tier 1/suggest, logged for transparency but not gated — see §5).
+1. `ConversationService` confirms the conversation belongs to the given workspace (the isolation checkpoint — see §6) and saves the user's message.
+2. `ConversationService` loads recent conversation history (capped at `historyLimit`, default 10 messages — a persistence-layer context limit) and hands it to `AimaCoreService.handleRequest`.
+3. `AimaCoreService` calls `ContextManager.gatherContext`, which retrieves relevant workspace memory (`MemoryService.getWorkspaceContext`, capped at `memoryLimit`, default 5) and document chunks (`DocumentService.search`, capped at `documentLimit`, default 5) in parallel — all **context limits** applied by count rather than token counting, to keep this MVP-simple.
+4. `AimaCoreService` selects the workspace's `AssistantProfile` and calls `contextAssembly.ts#buildSystemPrompt`, which assembles: AIMA's identity → the profile's workspace description and response instructions → retrieved memory → retrieved documentation (each snippet truncated to 500 characters so one long item can't dominate the prompt).
+5. `AimaCoreService` calls the AI provider with the system prompt and capped history, and returns the completion, gathered context, and detected intent back to `ConversationService`.
+6. `ConversationService` saves the assistant's reply and logs the generation (`generate_ai_response` capability, Tier 1/suggest, logged for transparency but not gated — see §5).
 
-Context retrieval is workspace-scoped by construction: `MemoryService.search` always filters by `workspace_id`, so it is not possible for MFS character memory to be returned for an RCS query unless the caller explicitly bridges workspaces (Product Bible §6) — which nothing in the current codebase does yet. See `docs/decisions/0003-conversation-pipeline.md` for the context-limit and logging-tier rationale.
+Context retrieval is workspace-scoped by construction: `MemoryService.search`/`DocumentService.search` always filter by `workspace_id`, so it is not possible for MFS character memory to be returned for an RCS query unless the caller explicitly bridges workspaces (Product Bible §6) — which nothing in the current codebase does yet. See `docs/decisions/0003-conversation-pipeline.md` for the original context-limit/logging-tier rationale and `docs/decisions/0006-assistant-core-orchestration.md` for the orchestration-layer split.
 
 ### Knowledge Retrieval
 - Retrieval uses pgvector's HNSW index (`idx_memory_records_embedding`, cosine distance) over the `embedding` column — similarity search happens in Postgres, not in application code.
@@ -288,6 +301,9 @@ Structured intent detection and the DB-backed approval lifecycle (§4, §5) are 
 
 ### Knowledge Ingestion Foundation (Phase 1.5)
 Document ingestion, deterministic chunking, and retrieval are built and wired into the conversation pipeline (§4): import/re-index/delete/list/search over `documents`/`document_chunks`, Markdown and plaintext parsing (PDF stubbed, deferred), and `ConversationService` now retrieves relevant documentation alongside memory for every turn. See `docs/decisions/0005-knowledge-ingestion.md`. Two unrelated bugs were caught and fixed along the way: a nonexistent-workspace request could crash trying to log its own failure (fixed by checking workspace existence before attempting to log, and by adding the same `WorkspaceNotFoundError` check `MemoryService` was missing), and both packages' `npm test` scripts silently skipped nested test files under `/bin/sh` (`dash`, which doesn't support bash's `**` globstar) until the glob pattern was quoted.
+
+### Assistant Core Orchestration Layer (Phase 1.6)
+Formalized the coordinator that was previously implicit inside `ConversationService`: `AimaCoreService` (context gathering + intent detection + AI call), `ContextManager` (the Unified Context Manager, extracted so it's independently testable), and the Assistant Behavior Layer (`AssistantProfile` per workspace, with real response instructions replacing a bare one-line description). `ConversationService` was refactored down to persistence + isolation, delegating orchestration to `AimaCoreService` — see §4. Also shipped: the Task Foundation (`tasks` table + `TaskService` + routes, finally giving the long-registered `create_task` capability a real caller) and the System Health Layer (`GET /health` now reports database/memory/knowledge/AI-provider status independently). See `docs/decisions/0006-assistant-core-orchestration.md`.
 
 ### Integration Sprint
 - Build the Permission Engine's remaining piece (Section 5): per-workspace tier overrides (`workspace_capability_settings`) — the capability registry, tier resolution, Action Log, and now the full pending-approval lifecycle all already exist and are in active use.

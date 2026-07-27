@@ -74,7 +74,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
 }
 
 async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `route-test-${randomUUID()}@example.com`;
+  const email = `task-route-test-${randomUUID()}@example.com`;
   const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
     email,
   ]);
@@ -82,30 +82,31 @@ async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
 
   const workspaceResult = await pool.query<{ id: string }>(
     'INSERT INTO workspaces (user_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
-    [userId, 'development', 'development'],
+    [userId, 'rcs', 'rcs'],
   );
 
   return { userId, workspaceId: workspaceResult.rows[0].id };
 }
 
 async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
-  // ON DELETE CASCADE on workspaces/memory_records/action_log takes care of the rest.
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, and logs the action', async () => {
+test('POST /api/workspaces/:id/tasks creates a task and logs the action', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Client Acme wants a full redesign.' }),
+        body: JSON.stringify({ title: 'Follow up with Acme', priority: 'high' }),
       });
 
       assert.equal(response.status, 201);
-      const body = (await response.json()) as { memory: { scope: string }; permission: { kind: string } };
-      assert.equal(body.memory.scope, 'workspace');
+      const body = (await response.json()) as { task: { title: string; priority: string; status: string }; permission: { kind: string } };
+      assert.equal(body.task.title, 'Follow up with Acme');
+      assert.equal(body.task.priority, 'high');
+      assert.equal(body.task.status, 'todo');
       assert.equal(body.permission.kind, 'prepare');
 
       const log = await pool.query('SELECT summary, outcome FROM action_log WHERE workspace_id = $1', [
@@ -119,72 +120,54 @@ test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, an
   });
 });
 
-test('POST /api/workspaces/:id/memories rejects a well-formed but unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
-    assert.equal(response.status, 404);
-  });
-});
-
-test('POST .../memories rejects scope="conversation" without a conversationId', async () => {
+test('POST .../tasks rejects an empty title', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'conversation', content: 'missing id' }),
+        body: JSON.stringify({ title: '' }),
       });
-
       assert.equal(response.status, 400);
-
-      const log = await pool.query('SELECT 1 FROM action_log WHERE workspace_id = $1', [workspaceId]);
-      assert.equal(log.rows.length, 0, 'a rejected request should never reach the action log');
     } finally {
       await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('POST .../memories rejects a malformed workspaceId', async () => {
+test('POST .../tasks rejects an unknown workspaceId with 404, not 500', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/memories`, {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/tasks`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
+      body: JSON.stringify({ title: 'x' }),
     });
-    assert.equal(response.status, 400);
+    assert.equal(response.status, 404);
   });
 });
 
-test('GET .../memories/search returns ranked results scoped to the requesting workspace only', async () => {
+test('GET .../tasks lists tasks scoped to the workspace', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const a = await seedWorkspace(pool);
     const b = await seedWorkspace(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`, {
+      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Acme wants a website redesign.' }),
+        body: JSON.stringify({ title: 'Task in A' }),
       });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories`, {
+      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Kestrel character backstory notes.' }),
+        body: JSON.stringify({ title: 'Task in B' }),
       });
 
-      const response = await fetch(
-        `${baseUrl}/api/workspaces/${a.workspaceId}/memories/search?q=${encodeURIComponent('Acme redesign')}`,
-      );
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`);
       assert.equal(response.status, 200);
-
-      const body = (await response.json()) as { results: Array<{ workspaceId: string }> };
-      assert.ok(body.results.length >= 1);
-      assert.ok(body.results.every((result) => result.workspaceId === a.workspaceId));
+      const body = (await response.json()) as { tasks: Array<{ workspaceId: string }> };
+      assert.equal(body.tasks.length, 1);
+      assert.equal(body.tasks[0].workspaceId, a.workspaceId);
     } finally {
       await cleanupWorkspace(pool, a.userId);
       await cleanupWorkspace(pool, b.userId);
@@ -192,12 +175,58 @@ test('GET .../memories/search returns ranked results scoped to the requesting wo
   });
 });
 
-test('GET .../memories/search requires a non-empty "q" parameter', async () => {
+test('PATCH .../tasks/:id updates status; 404s across workspaces', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Ship it' }),
+      });
+      const { task } = (await createResponse.json()) as { task: { id: string } };
+
+      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'done' }),
+      });
+      assert.equal(updateResponse.status, 200);
+      const updated = (await updateResponse.json()) as { task: { status: string } };
+      assert.equal(updated.task.status, 'done');
+
+      const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelled' }),
+      });
+      assert.equal(crossResponse.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});
+
+test('DELETE .../tasks/:id removes the task', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/search`);
-      assert.equal(response.status, 400);
+      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'To be deleted' }),
+      });
+      const { task } = (await createResponse.json()) as { task: { id: string } };
+
+      const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
+        method: 'DELETE',
+      });
+      assert.equal(deleteResponse.status, 200);
+
+      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`);
+      assert.equal(getResponse.status, 404);
     } finally {
       await cleanupWorkspace(pool, userId);
     }

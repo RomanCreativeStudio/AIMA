@@ -1,22 +1,16 @@
 import { Router } from 'express';
-import type { Pool } from 'pg';
+import type { HealthService } from '../health/healthService';
 
-export function healthRouter(pool: Pool): Router {
+export function healthRouter(healthService: HealthService): Router {
   const router = Router();
 
   router.get('/health', async (_req, res) => {
-    let database: 'ok' | 'error' = 'error';
-    try {
-      await pool.query('SELECT 1');
-      database = 'ok';
-    } catch {
-      database = 'error';
-    }
+    const health = await healthService.check();
 
     res.json({
-      status: 'ok',
+      status: health.status,
       timestamp: new Date().toISOString(),
-      database,
+      checks: health.checks,
     });
   });
 
