@@ -8,6 +8,7 @@ import type {
   CreatePullRequestResult,
   GitHubConnector,
   IssueSummary,
+  PullRequestSummary,
   RepositorySummary,
 } from './types';
 
@@ -19,6 +20,11 @@ const SAMPLE_REPOSITORIES: RepositorySummary[] = [
 const SAMPLE_ISSUES: IssueSummary[] = [
   { id: 'sample-issue-1', number: 42, title: 'Fix flaky migration test', state: 'open' },
   { id: 'sample-issue-2', number: 41, title: 'Update onboarding docs', state: 'closed' },
+];
+
+const SAMPLE_PULL_REQUESTS: PullRequestSummary[] = [
+  { id: 'sample-pr-1', number: 17, title: 'Add Phase 2.6 execution foundation', state: 'open', head: 'feature/execution', base: 'main' },
+  { id: 'sample-pr-2', number: 16, title: 'Fix flaky migration test', state: 'closed', head: 'fix/migration', base: 'main' },
 ];
 
 /**
@@ -56,6 +62,18 @@ export class StubGitHubConnector implements GitHubConnector {
       return [];
     }
     return SAMPLE_ISSUES;
+  }
+
+  /** Phase 2.7 — deterministic stub for "Read Pull Requests". */
+  async listPullRequests(credentials: IntegrationCredentials, repositoryFullName: string): Promise<PullRequestSummary[]> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot list pull requests: ${result.detail}`);
+    }
+    if (!SAMPLE_REPOSITORIES.some((repo) => repo.fullName === repositoryFullName)) {
+      return [];
+    }
+    return SAMPLE_PULL_REQUESTS;
   }
 
   /**

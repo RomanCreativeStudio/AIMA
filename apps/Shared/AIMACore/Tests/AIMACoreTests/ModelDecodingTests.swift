@@ -199,7 +199,31 @@ final class ModelDecodingTests: XCTestCase {
         let integration = try decoder.decode(WorkspaceIntegration.self, from: json)
         XCTAssertNil(integration.connectedAt)
         XCTAssertFalse(integration.enabled)
-        XCTAssertNil(integration.capabilities.first(where: { $0.actionType == "draft_repositories" }), "github has no write capability")
+        XCTAssertNil(integration.capabilities.first(where: { $0.actionType == "draft_repositories" }), "draft_repositories was never a real capability")
+        XCTAssertNil(integration.tokenExpiresAt, "an absent tokenExpiresAt key must decode to nil, same as an explicit null")
+    }
+
+    func testDecodesWorkspaceIntegrationWithTokenExpiresAt() throws {
+        // Phase 2.7 — tokenExpiresAt is non-secret OAuth token-expiry metadata, distinct from the encrypted credentials themselves.
+        let json = """
+        {
+          "workspaceId":"w1","provider":"gmail","enabled":true,"status":"connected",
+          "connectedAt":"2026-01-01T00:00:00.000Z","lastValidatedAt":"2026-01-01T00:00:00.000Z",
+          "tokenExpiresAt":"2026-01-01T01:00:00.000Z",
+          "createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z",
+          "displayName":"Gmail","description":"Send, save drafts, read the inbox/unread messages, and search a connected Gmail account.",
+          "capabilities":[
+            {"actionType":"read_email","tier":"execute_with_approval"},
+            {"actionType":"send_email","tier":"execute_with_approval"},
+            {"actionType":"draft_gmail_email","tier":"execute_with_approval"}
+          ],
+          "requiredCredentialFields":["accessToken","refreshToken"]
+        }
+        """.data(using: .utf8)!
+
+        let integration = try decoder.decode(WorkspaceIntegration.self, from: json)
+        XCTAssertEqual(integration.tokenExpiresAt, "2026-01-01T01:00:00.000Z")
+        XCTAssertEqual(integration.capabilities.count, 3)
     }
 
     func testIntegrationProviderRawValuesMatchBackendEnum() {

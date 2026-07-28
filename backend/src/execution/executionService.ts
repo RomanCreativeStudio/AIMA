@@ -35,12 +35,21 @@ export class ExecutionService {
     private readonly permissionEngine: PermissionEngine,
   ) {}
 
-  /** Pure, read-only — never persists anything (item 5: "Generate an execution preview"). */
+  /**
+   * Pure, read-only — never persists anything (item 5: "Generate an
+   * execution preview"). `tokenExpiresAt` is live provider metadata added
+   * in Phase 2.7 (item 7: "Allow conversation previews to include live
+   * provider metadata"): now that providers are real OAuth-connected
+   * accounts rather than deterministic stubs, a caller deciding whether to
+   * confirm an execution can see whether the underlying connection's token
+   * is already expired or about to be — still without ever contacting the
+   * provider or executing anything.
+   */
   async preview(workspaceId: string, actionType: string, payload: ExecutionRequestPayload): Promise<ExecutionPreview> {
     await this.assertWorkspaceExists(workspaceId);
     const executor = this.getExecutor(actionType);
     const tier = this.permissionEngine.resolveTier(actionType);
-    const integrationConnected = await this.isIntegrationConnected(workspaceId, executor.provider);
+    const { connected: integrationConnected, tokenExpiresAt } = await this.getIntegrationStatus(workspaceId, executor.provider);
 
     return {
       actionType,
@@ -48,6 +57,7 @@ export class ExecutionService {
       tier,
       requiresApproval: tier === 'execute_with_approval',
       integrationConnected,
+      tokenExpiresAt,
       payload,
     };
   }
@@ -197,8 +207,16 @@ export class ExecutionService {
   }
 
   private async isIntegrationConnected(workspaceId: string, provider: IntegrationProvider): Promise<boolean> {
+    return (await this.getIntegrationStatus(workspaceId, provider)).connected;
+  }
+
+  private async getIntegrationStatus(
+    workspaceId: string,
+    provider: IntegrationProvider,
+  ): Promise<{ connected: boolean; tokenExpiresAt: string | null }> {
     const integrations = await this.integrationService.listForWorkspace(workspaceId);
-    return integrations.some((integration) => integration.provider === provider && integration.enabled);
+    const integration = integrations.find((candidate) => candidate.provider === provider);
+    return { connected: integration?.enabled ?? false, tokenExpiresAt: integration?.tokenExpiresAt ?? null };
   }
 
   private async assertWorkspaceExists(workspaceId: string): Promise<void> {

@@ -123,3 +123,52 @@ test('StubCalendarConnector.listEvents returns all sample events with no range, 
   assert.ok(filtered.every((event) => event.startsAt >= all[1].startsAt));
   assert.ok(filtered.length < all.length);
 });
+
+// Phase 2.7 additions —————————————————————————————————————————————
+
+test('StubGmailConnector.listUnreadMessages and searchMessages (Phase 2.7)', async () => {
+  const connector = new StubGmailConnector();
+  const credentials = { accessToken: 'a', refreshToken: 'b' };
+
+  const unread = await connector.listUnreadMessages(credentials);
+  assert.ok(unread.length > 0);
+
+  const found = await connector.searchMessages(credentials, 'invoice');
+  assert.ok(found.length > 0);
+  assert.ok(found.every((message) => message.subject.toLowerCase().includes('invoice') || message.snippet.toLowerCase().includes('invoice')));
+
+  const none = await connector.searchMessages(credentials, 'not-a-real-term-xyz');
+  assert.equal(none.length, 0);
+
+  await assert.rejects(() => connector.searchMessages({}, 'invoice'));
+});
+
+test('StubGitHubConnector.listPullRequests returns deterministic sample data (Phase 2.7)', async () => {
+  const connector = new StubGitHubConnector();
+  const credentials = { accessToken: 'a' };
+
+  const pullRequests = await connector.listPullRequests(credentials, 'RomanCreativeStudio/AIMA');
+  assert.ok(pullRequests.length > 0);
+
+  const unknownRepo = await connector.listPullRequests(credentials, 'someone/unknown');
+  assert.equal(unknownRepo.length, 0);
+});
+
+test('StubCalendarConnector.listCalendars, createEvent, updateEvent, and deleteEvent (Phase 2.7)', async () => {
+  const connector = new StubCalendarConnector();
+  const credentials = { accessToken: 'a', refreshToken: 'b' };
+
+  const calendars = await connector.listCalendars(credentials);
+  assert.ok(calendars.some((calendar) => calendar.primary));
+
+  const created = await connector.createEvent(credentials, { title: 'Kickoff', startsAt: '2026-08-01T10:00:00.000Z', endsAt: '2026-08-01T10:30:00.000Z' });
+  assert.match(created.eventId, /^mock-event-/);
+  await assert.rejects(() => connector.createEvent(credentials, { title: '', startsAt: '', endsAt: '' }));
+
+  const updated = await connector.updateEvent(credentials, created.eventId, { title: 'Kickoff (moved)' });
+  assert.equal(updated.eventId, created.eventId);
+  await assert.rejects(() => connector.updateEvent(credentials, created.eventId, {}));
+
+  await connector.deleteEvent(credentials, created.eventId);
+  await assert.rejects(() => connector.deleteEvent(credentials, ''));
+});

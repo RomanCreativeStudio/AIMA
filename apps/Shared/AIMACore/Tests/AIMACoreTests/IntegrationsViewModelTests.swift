@@ -76,6 +76,48 @@ final class IntegrationsViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorMessage)
     }
 
+    func testStartOAuthConnectionReturnsTheAuthorizationURL() async {
+        let apiClient = MockAPIClient()
+        let viewModel = IntegrationsViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.load()
+
+        let url = await viewModel.startOAuthConnection(provider: .gmail)
+
+        XCTAssertNotNil(url)
+        XCTAssertNil(viewModel.errorMessage)
+        // Never itself connects anything — the mock's OAuth callback is a separate, explicit step.
+        let gmail = viewModel.integrations.first { $0.provider == .gmail }
+        XCTAssertEqual(gmail?.enabled, false)
+    }
+
+    func testStartOAuthConnectionSurfacesAPIErrorsAsUserFacingMessages() async {
+        let apiClient = MockAPIClient()
+        await apiClient.setShouldFail(true)
+        let viewModel = IntegrationsViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+
+        let url = await viewModel.startOAuthConnection(provider: .gmail)
+
+        XCTAssertNil(url)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
+    func testOAuthCallbackCompletionIsReflectedOnlyAfterAnExplicitReload() async {
+        let apiClient = MockAPIClient()
+        let viewModel = IntegrationsViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.load()
+        _ = await viewModel.startOAuthConnection(provider: .gmail)
+        // The backend completes the connection server-side; the view model only reflects it on its next load().
+        XCTAssertEqual(viewModel.integrations.first { $0.provider == .gmail }?.enabled, false)
+
+        await apiClient.simulateOAuthCallback(workspaceId: "mock-ws-rcs", provider: .gmail)
+        await viewModel.load()
+
+        let gmail = viewModel.integrations.first { $0.provider == .gmail }
+        XCTAssertEqual(gmail?.enabled, true)
+        XCTAssertEqual(gmail?.status, .connected)
+        XCTAssertNotNil(gmail?.tokenExpiresAt, "a completed OAuth connection carries a token expiration")
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)

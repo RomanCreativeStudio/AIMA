@@ -221,6 +221,14 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).integration
     }
 
+    public func startIntegrationOAuth(workspaceId: String, provider: IntegrationProvider) async throws -> String {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/integrations/\(provider.rawValue)/oauth/start",
+            envelope: OAuthAuthorizationEnvelope.self
+        ).authorizationUrl
+    }
+
     // MARK: - Workflows
 
     public func listWorkflowDefinitions() async throws -> [WorkflowDefinition] {
@@ -454,6 +462,7 @@ private struct PreferencesEnvelope: Decodable { let preferences: [Preference] }
 private struct DeletedEnvelope: Decodable { let deleted: Bool }
 private struct IntegrationsEnvelope: Decodable { let integrations: [WorkspaceIntegration] }
 private struct IntegrationEnvelope: Decodable { let integration: WorkspaceIntegration }
+private struct OAuthAuthorizationEnvelope: Decodable { let authorizationUrl: String }
 private struct WorkflowDefinitionsEnvelope: Decodable { let workflows: [WorkflowDefinition] }
 private struct WorkflowRunsEnvelope: Decodable { let runs: [WorkflowRun] }
 private struct WorkflowRunEnvelope: Decodable { let run: WorkflowRunDetail }

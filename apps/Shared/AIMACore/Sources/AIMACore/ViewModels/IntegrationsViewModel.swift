@@ -65,6 +65,29 @@ public final class IntegrationsViewModel {
         }
     }
 
+    /// Starts an OAuth connection (or reconnection) for `provider` (Phase 2.7, item 8) — returns the URL the view
+    /// should open in the system browser. Unlike `connect`, this never itself marks the integration connected:
+    /// the backend completes the connection server-side once the provider redirects back, so the view must call
+    /// `load()` again (e.g. from a "Refresh Status" button) to see the result — there is no background polling.
+    public func startOAuthConnection(provider: IntegrationProvider) async -> URL? {
+        errorMessage = nil
+        lastActionConfirmation = nil
+        do {
+            let authorizationUrl = try await apiClient.startIntegrationOAuth(workspaceId: workspaceId, provider: provider)
+            guard let url = URL(string: authorizationUrl) else {
+                errorMessage = "The server returned an invalid authorization URL."
+                return nil
+            }
+            return url
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+            return nil
+        } catch {
+            errorMessage = error.localizedDescription
+            return nil
+        }
+    }
+
     public func rotate(provider: IntegrationProvider, credentials: [String: String]) async {
         errorMessage = nil
         lastActionConfirmation = nil

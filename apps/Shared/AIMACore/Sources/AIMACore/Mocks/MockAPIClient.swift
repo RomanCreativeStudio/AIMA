@@ -170,29 +170,39 @@ public actor MockAPIClient: APIClient {
             rcs.id: [
                 WorkspaceIntegration(
                     workspaceId: rcs.id, provider: .gmail, enabled: false, status: .disconnected,
-                    connectedAt: nil, lastValidatedAt: nil, createdAt: "", updatedAt: "",
+                    connectedAt: nil, lastValidatedAt: nil, tokenExpiresAt: nil, createdAt: "", updatedAt: "",
                     displayName: "Gmail",
-                    description: "Read-only access to Gmail messages, plus preparing drafts for review before anything is sent.",
+                    description: "Send, save drafts, read the inbox/unread messages, and search a connected Gmail account.",
                     capabilities: [
                         IntegrationCapability(actionType: "read_email", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "send_email", tier: "execute_with_approval"),
                         IntegrationCapability(actionType: "draft_gmail_email", tier: "execute_with_approval"),
                     ],
                     requiredCredentialFields: ["accessToken", "refreshToken"]
                 ),
                 WorkspaceIntegration(
                     workspaceId: rcs.id, provider: .github, enabled: true, status: .connected,
-                    connectedAt: now, lastValidatedAt: now, createdAt: now, updatedAt: now,
+                    connectedAt: now, lastValidatedAt: now, tokenExpiresAt: nil, createdAt: now, updatedAt: now,
                     displayName: "GitHub",
-                    description: "Read-only access to repositories and issues.",
-                    capabilities: [IntegrationCapability(actionType: "read_repositories", tier: "execute_with_approval")],
+                    description: "Read repositories, issues, and pull requests, plus creating issues and pull requests on a connected repository.",
+                    capabilities: [
+                        IntegrationCapability(actionType: "read_repositories", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "create_github_issue", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "create_github_pull_request", tier: "execute_with_approval"),
+                    ],
                     requiredCredentialFields: ["accessToken"]
                 ),
                 WorkspaceIntegration(
                     workspaceId: rcs.id, provider: .calendar, enabled: false, status: .disconnected,
-                    connectedAt: nil, lastValidatedAt: nil, createdAt: "", updatedAt: "",
+                    connectedAt: nil, lastValidatedAt: nil, tokenExpiresAt: nil, createdAt: "", updatedAt: "",
                     displayName: "Calendar",
-                    description: "Read-only access to calendar events.",
-                    capabilities: [IntegrationCapability(actionType: "read_calendar", tier: "execute_with_approval")],
+                    description: "List calendars, read events, and create/update/delete events on a connected Calendar account.",
+                    capabilities: [
+                        IntegrationCapability(actionType: "read_calendar", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "create_calendar_event", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "update_calendar_event", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "delete_calendar_event", tier: "execute_with_approval"),
+                    ],
                     requiredCredentialFields: ["accessToken", "refreshToken"]
                 ),
             ],
@@ -494,7 +504,7 @@ public actor MockAPIClient: APIClient {
         let existing = integrations[index]
         integrations[index] = WorkspaceIntegration(
             workspaceId: workspaceId, provider: provider, enabled: true, status: .connected,
-            connectedAt: now, lastValidatedAt: now,
+            connectedAt: now, lastValidatedAt: now, tokenExpiresAt: Self.mockTokenExpiry(from: now),
             createdAt: existing.createdAt.isEmpty ? now : existing.createdAt, updatedAt: now,
             displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
             requiredCredentialFields: existing.requiredCredentialFields
@@ -513,7 +523,7 @@ public actor MockAPIClient: APIClient {
         let existing = integrations[index]
         integrations[index] = WorkspaceIntegration(
             workspaceId: workspaceId, provider: provider, enabled: false, status: .disconnected,
-            connectedAt: existing.connectedAt, lastValidatedAt: existing.lastValidatedAt,
+            connectedAt: existing.connectedAt, lastValidatedAt: existing.lastValidatedAt, tokenExpiresAt: nil,
             createdAt: existing.createdAt, updatedAt: ISO8601DateFormatter().string(from: Date()),
             displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
             requiredCredentialFields: existing.requiredCredentialFields
@@ -539,13 +549,48 @@ public actor MockAPIClient: APIClient {
         let existing = integrations[index]
         integrations[index] = WorkspaceIntegration(
             workspaceId: workspaceId, provider: provider, enabled: true, status: .connected,
-            connectedAt: existing.connectedAt, lastValidatedAt: now,
+            connectedAt: existing.connectedAt, lastValidatedAt: now, tokenExpiresAt: Self.mockTokenExpiry(from: now),
             createdAt: existing.createdAt, updatedAt: now,
             displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
             requiredCredentialFields: existing.requiredCredentialFields
         )
         integrationsByWorkspace[workspaceId] = integrations
         return integrations[index]
+    }
+
+    /// Mirrors `OAuthService.startAuthorization` — never connects anything itself; only `simulateOAuthCallback` (the mock's stand-in for the backend's real callback) actually marks the integration connected.
+    public func startIntegrationOAuth(workspaceId: String, provider: IntegrationProvider) async throws -> String {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        return "https://example.test/oauth/\(provider.rawValue)/authorize?state=mock-state"
+    }
+
+    /// Test hook (Phase 2.7): simulates the backend's OAuth callback completing server-side — the real flow the
+    /// macOS app drives is "open a browser to `startIntegrationOAuth`'s URL, then refresh status," since the
+    /// backend itself completes the connection once the provider redirects back, with no client-side step in
+    /// between. This lets `IntegrationsViewModel`/UI tests exercise "OAuth connect finished" without a real browser.
+    public func simulateOAuthCallback(workspaceId: String, provider: IntegrationProvider) {
+        guard var integrations = integrationsByWorkspace[workspaceId],
+              let index = integrations.firstIndex(where: { $0.provider == provider }) else {
+            return
+        }
+        let now = ISO8601DateFormatter().string(from: Date())
+        let existing = integrations[index]
+        integrations[index] = WorkspaceIntegration(
+            workspaceId: workspaceId, provider: provider, enabled: true, status: .connected,
+            connectedAt: now, lastValidatedAt: now, tokenExpiresAt: Self.mockTokenExpiry(from: now),
+            createdAt: existing.createdAt.isEmpty ? now : existing.createdAt, updatedAt: now,
+            displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
+            requiredCredentialFields: existing.requiredCredentialFields
+        )
+        integrationsByWorkspace[workspaceId] = integrations
+    }
+
+    private static func mockTokenExpiry(from now: String) -> String? {
+        guard let date = ISO8601DateFormatter().date(from: now) else { return nil }
+        return ISO8601DateFormatter().string(from: date.addingTimeInterval(3600))
     }
 
     /// Mirrors `IntegrationRegistry`'s `requiredCredentialFields` (backend/src/integrations/registry.ts) so the mock

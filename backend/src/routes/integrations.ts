@@ -120,9 +120,7 @@ function summarize(integration: WorkspaceIntegration, deps: IntegrationsRouterDe
     throw new Error(`Unregistered integration provider: "${integration.provider}"`);
   }
 
-  const capabilityActionTypes = [definition.readCapability, definition.writeCapability].filter(
-    (actionType): actionType is string => Boolean(actionType),
-  );
+  const capabilityActionTypes = [definition.readCapability, ...definition.writeCapabilities];
 
   return {
     ...integration,

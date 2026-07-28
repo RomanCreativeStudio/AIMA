@@ -12,6 +12,9 @@ import { DraftService } from './drafts/draftService';
 import { ExecutionIntentMatcher } from './execution/executionIntentMatcher';
 import { ExecutionRegistry } from './execution/registry';
 import { ExecutionService } from './execution/executionService';
+import { CalendarCreateEventExecutor } from './execution/executors/calendarCreateEventExecutor';
+import { CalendarUpdateEventExecutor } from './execution/executors/calendarUpdateEventExecutor';
+import { CalendarDeleteEventExecutor } from './execution/executors/calendarDeleteEventExecutor';
 import { GmailSaveDraftExecutor } from './execution/executors/gmailSaveDraftExecutor';
 import { GmailSendEmailExecutor } from './execution/executors/gmailSendEmailExecutor';
 import { GitHubCreateIssueExecutor } from './execution/executors/githubCreateIssueExecutor';
@@ -22,9 +25,9 @@ import { ConversationIntelligenceService } from './insights/conversationIntellig
 import { TaskIntelligenceService } from './insights/taskIntelligenceService';
 import { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import { IntentEngine } from './intent/intentEngine';
-import { StubCalendarConnector } from './integrations/connectors/calendarConnector';
-import { StubGitHubConnector } from './integrations/connectors/githubConnector';
-import { StubGmailConnector } from './integrations/connectors/gmailConnector';
+import { GoogleCalendarConnector } from './integrations/connectors/googleCalendarConnector';
+import { LiveGitHubConnector } from './integrations/connectors/liveGitHubConnector';
+import { GoogleGmailConnector } from './integrations/connectors/googleGmailConnector';
 import type { IntegrationConnector } from './integrations/connectors/types';
 import { AesGcmCredentialEncryptor } from './integrations/encryption';
 import { IntegrationService } from './integrations/integrationService';
@@ -32,6 +35,10 @@ import { IntegrationRegistry } from './integrations/registry';
 import type { IntegrationProvider } from './integrations/types';
 import { DocumentService } from './knowledge/documentService';
 import { MemoryService } from './memory/memoryService';
+import { GitHubOAuthProvider } from './oauth/githubOAuthProvider';
+import { GOOGLE_OAUTH_SCOPES, GoogleOAuthProvider } from './oauth/googleOAuthProvider';
+import { OAuthService } from './oauth/oauthService';
+import type { OAuthProvider } from './oauth/types';
 import { PreferenceService } from './preferences/preferenceService';
 import { CapabilityRegistry } from './permissions/registry';
 import { PermissionEngine } from './permissions/engine';
@@ -72,14 +79,42 @@ async function main(): Promise<void> {
   const draftService = new DraftService(pool);
   const integrationRegistry = new IntegrationRegistry();
   const credentialEncryptor = new AesGcmCredentialEncryptor(config.credentialEncryptionKey);
-  const gmailConnector = new StubGmailConnector();
-  const githubConnector = new StubGitHubConnector();
+  const gmailConnector = new GoogleGmailConnector();
+  const githubConnector = new LiveGitHubConnector();
+  const calendarConnector = new GoogleCalendarConnector();
   const connectors: Record<IntegrationProvider, IntegrationConnector> = {
     gmail: gmailConnector,
     github: githubConnector,
-    calendar: new StubCalendarConnector(),
+    calendar: calendarConnector,
   };
-  const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
+
+  // One Google OAuth app covers both `gmail` and `calendar` — same client
+  // id/secret, different scopes and (necessarily) different redirect_uris,
+  // since Google's authorization server routes strictly by redirect_uri.
+  const oauthProviders: Partial<Record<IntegrationProvider, OAuthProvider>> = {
+    gmail: new GoogleOAuthProvider(
+      'gmail',
+      config.googleOAuthClientId,
+      config.googleOAuthClientSecret,
+      `${config.publicBackendUrl}/api/oauth/gmail/callback`,
+      GOOGLE_OAUTH_SCOPES.gmail,
+    ),
+    calendar: new GoogleOAuthProvider(
+      'calendar',
+      config.googleOAuthClientId,
+      config.googleOAuthClientSecret,
+      `${config.publicBackendUrl}/api/oauth/calendar/callback`,
+      GOOGLE_OAUTH_SCOPES.calendar,
+    ),
+    github: new GitHubOAuthProvider(
+      config.githubOAuthClientId,
+      config.githubOAuthClientSecret,
+      `${config.publicBackendUrl}/api/oauth/github/callback`,
+    ),
+  };
+
+  const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor, oauthProviders);
+  const oauthService = new OAuthService(pool, oauthProviders, integrationService);
   const userService = new UserService(pool);
   const workspaceService = new WorkspaceService(pool);
   const healthService = new HealthService(pool, aiProvider);
@@ -127,6 +162,9 @@ async function main(): Promise<void> {
     new GmailSaveDraftExecutor(gmailConnector),
     new GitHubCreateIssueExecutor(githubConnector),
     new GitHubCreatePullRequestExecutor(githubConnector),
+    new CalendarCreateEventExecutor(calendarConnector),
+    new CalendarUpdateEventExecutor(calendarConnector),
+    new CalendarDeleteEventExecutor(calendarConnector),
   ]);
   const executionService = new ExecutionService(pool, executionRegistry, integrationService, approvalEngine, permissionEngine);
   const executionIntentMatcher = new ExecutionIntentMatcher(executionRegistry);
@@ -162,6 +200,7 @@ async function main(): Promise<void> {
     draftService,
     integrationService,
     integrationRegistry,
+    oauthService,
     workflowService,
     workflowRegistry,
     approvalEngine,

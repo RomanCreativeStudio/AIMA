@@ -28,6 +28,7 @@ import type { IntegrationConnector } from '../integrations/connectors/types';
 import { AesGcmCredentialEncryptor } from '../integrations/encryption';
 import { IntegrationService } from '../integrations/integrationService';
 import { IntegrationRegistry } from '../integrations/registry';
+import { OAuthService } from '../oauth/oauthService';
 import type { IntegrationProvider } from '../integrations/types';
 import { CreateGithubIssueDraftWorkflowHandler } from '../workflows/handlers/createGithubIssueDraftWorkflow';
 import { DailyWorkspaceBriefingWorkflowHandler } from '../workflows/handlers/dailyWorkspaceBriefingWorkflow';
@@ -79,6 +80,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     calendar: new StubCalendarConnector(),
   };
   const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
+  const oauthService = new OAuthService(pool, {}, integrationService);
   const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     actionLogger,
     integrationService,
     integrationRegistry,
+    oauthService,
     workflowService,
     workflowRegistry,
     memoryService,
@@ -228,7 +231,7 @@ test('GET /api/workspaces/:id/integrations lists all three providers, disconnect
       assert.equal(gmail.displayName, 'Gmail');
       assert.deepEqual(
         gmail.capabilities.map((c) => c.actionType).sort(),
-        ['draft_gmail_email', 'read_email'],
+        ['draft_gmail_email', 'read_email', 'send_email'],
       );
       assert.ok(gmail.capabilities.every((c) => c.tier === 'execute_with_approval'));
       assert.deepEqual(gmail.requiredCredentialFields, ['accessToken', 'refreshToken']);

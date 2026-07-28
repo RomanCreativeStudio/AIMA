@@ -139,6 +139,15 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 - LLM provider keys, auth provider keys, and any third-party service keys are treated as secrets (below) — never committed, never logged, never sent to any client.
 - Client apps never hold provider API keys directly; all provider calls are proxied through `backend/`/`ai-engine/`, consistent with the Technical Architecture's rule that clients have no direct AI/database access.
 
+### OAuth Configuration (Phase 2.7)
+- Gmail, GitHub, and Calendar are connected via real OAuth 2.0 (docs/decisions/0015-live-integration-providers.md) — a workspace never types in an access token by hand as the primary path; the backend drives the authorization-code flow and stores the resulting tokens itself, encrypted (Phase 2.3's `CredentialEncryptor`, unchanged).
+- One Google Cloud OAuth app (https://console.cloud.google.com/apis/credentials) covers both `gmail` and `calendar` — same `GOOGLE_OAUTH_CLIENT_ID`/`GOOGLE_OAUTH_CLIENT_SECRET`, different scopes and redirect URIs. Register two authorized redirect URIs on that one app:
+  - `{PUBLIC_BACKEND_URL}/api/oauth/gmail/callback`
+  - `{PUBLIC_BACKEND_URL}/api/oauth/calendar/callback`
+- A separate GitHub OAuth app (https://github.com/settings/developers) provides `GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`, with an authorization callback URL of `{PUBLIC_BACKEND_URL}/api/oauth/github/callback`.
+- `PUBLIC_BACKEND_URL` is this backend process's own reachable URL (`http://127.0.0.1:4000` for local development) — it's how the fixed OAuth redirect URIs above get built, and it must match exactly what's registered with each provider, protocol and port included.
+- All five variables (`PUBLIC_BACKEND_URL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`) are required at startup the same way `CREDENTIAL_ENCRYPTION_KEY` is (`backend/.env.example`) — `npm run dev` fails fast with a clear message if any is missing. Tests never need real values: every OAuth/connector test in `backend/`'s suite injects a fake `fetch` (`backend/src/testUtils/fakeFetch.ts`) and never reaches a real provider.
+
 ### Secrets Management
 - Local development: secrets live in a `.env` file at the relevant app/service root, listed in `.gitignore`, never committed.
 - Production: secrets live in the hosting platform's managed secrets store (Technical Architecture §8), injected as environment variables at runtime — never baked into a build artifact.

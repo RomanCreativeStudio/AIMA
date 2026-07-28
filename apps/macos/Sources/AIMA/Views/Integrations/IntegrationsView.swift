@@ -1,4 +1,5 @@
 import AIMACore
+import AppKit
 import SwiftUI
 
 /// The Integrations screen (Phase 2.3, item 5): connection status,
@@ -29,7 +30,8 @@ struct IntegrationsView: View {
                 ForEach(viewModel.integrations) { integration in
                     IntegrationCardView(
                         integration: integration,
-                        onConnect: { sheetContext = ConnectSheetContext(integration: integration, mode: .connect) },
+                        onConnectViaOAuth: { connectViaOAuth(provider: integration.provider) },
+                        onEnterCredentialsManually: { sheetContext = ConnectSheetContext(integration: integration, mode: .connect) },
                         onRotate: { sheetContext = ConnectSheetContext(integration: integration, mode: .rotate) },
                         onDisconnect: { Task { await viewModel.disconnect(provider: integration.provider) } }
                     )
@@ -39,6 +41,15 @@ struct IntegrationsView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .navigationTitle("Integrations")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await viewModel.load() }
+                } label: {
+                    Label("Refresh Status", systemImage: "arrow.clockwise")
+                }
+            }
+        }
         .overlay {
             if viewModel.isLoading && viewModel.integrations.isEmpty {
                 ProgressView()
@@ -61,6 +72,17 @@ struct IntegrationsView: View {
                 case .rotate:
                     await viewModel.rotate(provider: context.integration.provider, credentials: credentials)
                 }
+            }
+        }
+    }
+
+    /// Opens the system browser to the OAuth authorization URL (Phase 2.7, item 8). The connection itself
+    /// completes server-side once the user approves in the browser — this view only learns about it by the
+    /// user tapping "Refresh Status" afterward, matching the "no background polling" constraint.
+    private func connectViaOAuth(provider: IntegrationProvider) {
+        Task {
+            if let url = await viewModel.startOAuthConnection(provider: provider) {
+                NSWorkspace.shared.open(url)
             }
         }
     }

@@ -15,6 +15,7 @@ import type { TaskIntelligenceService } from './insights/taskIntelligenceService
 import type { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import type { IntegrationService } from './integrations/integrationService';
 import type { IntegrationRegistry } from './integrations/registry';
+import type { OAuthService } from './oauth/oauthService';
 import type { DocumentService } from './knowledge/documentService';
 import type { MemoryService } from './memory/memoryService';
 import type { PreferenceService } from './preferences/preferenceService';
@@ -36,6 +37,7 @@ import { draftsRouter } from './routes/drafts';
 import { executionsRouter } from './routes/executions';
 import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
+import { oauthRouter } from './routes/oauth';
 import { preferencesRouter } from './routes/preferences';
 import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
@@ -54,6 +56,7 @@ export interface AppDependencies {
   draftService: DraftService;
   integrationService: IntegrationService;
   integrationRegistry: IntegrationRegistry;
+  oauthService: OAuthService;
   workflowService: WorkflowService;
   workflowRegistry: WorkflowRegistry;
   preferenceService: PreferenceService;
@@ -135,6 +138,7 @@ export function createApp(deps: AppDependencies): Application {
       permissionEngine: deps.permissionEngine,
     }),
   );
+  app.use('/api', oauthRouter({ oauthService: deps.oauthService }));
   app.use(
     '/api',
     workflowsRouter({

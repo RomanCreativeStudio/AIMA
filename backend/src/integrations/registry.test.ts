@@ -15,14 +15,21 @@ test('get returns the definition for a known provider', () => {
   const gmail = registry.get('gmail');
   assert.ok(gmail);
   assert.equal(gmail?.readCapability, 'read_email');
-  assert.equal(gmail?.writeCapability, 'draft_gmail_email');
+  assert.deepEqual(gmail?.writeCapabilities, ['send_email', 'draft_gmail_email']);
 });
 
-test('github has no writeCapability — it is read-only per Phase 2.3 scope', () => {
+test('github has two write capabilities as of Phase 2.6/2.7 — create issue and create pull request', () => {
   const registry = new IntegrationRegistry();
   const github = registry.get('github');
   assert.ok(github);
-  assert.equal(github?.writeCapability, undefined);
+  assert.deepEqual(github?.writeCapabilities, ['create_github_issue', 'create_github_pull_request']);
+});
+
+test('calendar has three write capabilities as of Phase 2.7 — create, update, and delete event', () => {
+  const registry = new IntegrationRegistry();
+  const calendar = registry.get('calendar');
+  assert.ok(calendar);
+  assert.deepEqual(calendar?.writeCapabilities, ['create_calendar_event', 'update_calendar_event', 'delete_calendar_event']);
 });
 
 test('register throws when a provider is already registered', () => {

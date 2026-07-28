@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { StubCalendarConnector } from '../../integrations/connectors/calendarConnector';
 import { StubGitHubConnector } from '../../integrations/connectors/githubConnector';
 import { StubGmailConnector } from '../../integrations/connectors/gmailConnector';
+import { CalendarCreateEventExecutor } from './calendarCreateEventExecutor';
+import { CalendarDeleteEventExecutor } from './calendarDeleteEventExecutor';
+import { CalendarUpdateEventExecutor } from './calendarUpdateEventExecutor';
 import { GitHubCreateIssueExecutor } from './githubCreateIssueExecutor';
 import { GitHubCreatePullRequestExecutor } from './githubCreatePullRequestExecutor';
 import { GmailSaveDraftExecutor } from './gmailSaveDraftExecutor';
@@ -9,6 +13,7 @@ import { GmailSendEmailExecutor } from './gmailSendEmailExecutor';
 
 const GMAIL_CREDENTIALS = { accessToken: 'a', refreshToken: 'b' };
 const GITHUB_CREDENTIALS = { accessToken: 'a' };
+const CALENDAR_CREDENTIALS = { accessToken: 'a', refreshToken: 'b' };
 
 test('GmailSendEmailExecutor executes and summarizes the result', async () => {
   const executor = new GmailSendEmailExecutor(new StubGmailConnector());
@@ -96,6 +101,76 @@ test('GitHubCreatePullRequestExecutor rejects a malformed payload', async () => 
       credentials: GITHUB_CREDENTIALS,
     }),
     /required strings/,
+  );
+});
+
+test('CalendarCreateEventExecutor executes and summarizes the result', async () => {
+  const executor = new CalendarCreateEventExecutor(new StubCalendarConnector());
+  const outcome = await executor.execute({
+    workspaceId: 'w1',
+    payload: { title: 'Kickoff', startsAt: '2026-08-01T10:00:00.000Z', endsAt: '2026-08-01T10:30:00.000Z' },
+    credentials: CALENDAR_CREDENTIALS,
+  });
+
+  assert.equal(executor.actionType, 'create_calendar_event');
+  assert.equal(executor.provider, 'calendar');
+  assert.ok(typeof outcome.responseSummary.eventId === 'string');
+});
+
+test('CalendarCreateEventExecutor rejects a malformed payload before contacting the connector', async () => {
+  const executor = new CalendarCreateEventExecutor(new StubCalendarConnector());
+  await assert.rejects(
+    executor.execute({ workspaceId: 'w1', payload: { title: 'Kickoff' }, credentials: CALENDAR_CREDENTIALS }),
+    /required strings/,
+  );
+});
+
+test('CalendarUpdateEventExecutor executes and summarizes the result', async () => {
+  const executor = new CalendarUpdateEventExecutor(new StubCalendarConnector());
+  const outcome = await executor.execute({
+    workspaceId: 'w1',
+    payload: { eventId: 'event-1', title: 'Renamed' },
+    credentials: CALENDAR_CREDENTIALS,
+  });
+
+  assert.equal(executor.actionType, 'update_calendar_event');
+  assert.equal(outcome.responseSummary.eventId, 'event-1');
+});
+
+test('CalendarUpdateEventExecutor rejects when no updatable field is provided', async () => {
+  const executor = new CalendarUpdateEventExecutor(new StubCalendarConnector());
+  await assert.rejects(
+    executor.execute({ workspaceId: 'w1', payload: { eventId: 'event-1' }, credentials: CALENDAR_CREDENTIALS }),
+    /at least one/,
+  );
+});
+
+test('CalendarUpdateEventExecutor rejects a missing eventId', async () => {
+  const executor = new CalendarUpdateEventExecutor(new StubCalendarConnector());
+  await assert.rejects(
+    executor.execute({ workspaceId: 'w1', payload: { title: 'Renamed' }, credentials: CALENDAR_CREDENTIALS }),
+    /eventId is required/,
+  );
+});
+
+test('CalendarDeleteEventExecutor executes and summarizes the result', async () => {
+  const executor = new CalendarDeleteEventExecutor(new StubCalendarConnector());
+  const outcome = await executor.execute({
+    workspaceId: 'w1',
+    payload: { eventId: 'event-1' },
+    credentials: CALENDAR_CREDENTIALS,
+  });
+
+  assert.equal(executor.actionType, 'delete_calendar_event');
+  assert.equal(outcome.responseSummary.eventId, 'event-1');
+  assert.equal(outcome.responseSummary.deleted, true);
+});
+
+test('CalendarDeleteEventExecutor rejects a missing eventId', async () => {
+  const executor = new CalendarDeleteEventExecutor(new StubCalendarConnector());
+  await assert.rejects(
+    executor.execute({ workspaceId: 'w1', payload: {}, credentials: CALENDAR_CREDENTIALS }),
+    /eventId is required/,
   );
 });
 

@@ -14,8 +14,15 @@ export interface IntegrationDefinition {
   description: string;
   /** The capability gating read access through this integration. */
   readCapability: string;
-  /** The capability gating write/draft access through this integration, if it has one. */
-  writeCapability?: string;
+  /**
+   * The capability/capabilities gating write access through this integration
+   * (Phase 2.7): plural because Phase 2.6/2.7 added more than one per
+   * provider (GitHub's create-issue/create-pull-request, Calendar's
+   * create/update/delete-event) — a single `writeCapability` string could
+   * only ever describe one action, not "every write this integration can
+   * do." Empty for a provider with no write action at all.
+   */
+  writeCapabilities: string[];
   /** Credential fields a connector needs to authenticate — validated by `IntegrationService` before ever calling a connector. */
   requiredCredentialFields: string[];
 }
@@ -24,23 +31,25 @@ export const DEFAULT_INTEGRATIONS: IntegrationDefinition[] = [
   {
     provider: 'gmail',
     displayName: 'Gmail',
-    description: 'Read-only access to Gmail messages, plus preparing drafts for review before anything is sent.',
+    description: 'Send, save drafts, read the inbox/unread messages, and search a connected Gmail account.',
     readCapability: 'read_email',
-    writeCapability: 'draft_gmail_email',
+    writeCapabilities: ['send_email', 'draft_gmail_email'],
     requiredCredentialFields: ['accessToken', 'refreshToken'],
   },
   {
     provider: 'github',
     displayName: 'GitHub',
-    description: 'Read-only access to repositories and issues.',
+    description: 'Read repositories, issues, and pull requests, plus creating issues and pull requests on a connected repository.',
     readCapability: 'read_repositories',
+    writeCapabilities: ['create_github_issue', 'create_github_pull_request'],
     requiredCredentialFields: ['accessToken'],
   },
   {
     provider: 'calendar',
     displayName: 'Calendar',
-    description: 'Read-only access to calendar events.',
+    description: 'List calendars, read events, and create/update/delete events on a connected Calendar account.',
     readCapability: 'read_calendar',
+    writeCapabilities: ['create_calendar_event', 'update_calendar_event', 'delete_calendar_event'],
     requiredCredentialFields: ['accessToken', 'refreshToken'],
   },
 ];

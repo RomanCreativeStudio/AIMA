@@ -26,6 +26,7 @@ import type { IntegrationConnector } from '../integrations/connectors/types';
 import { AesGcmCredentialEncryptor } from '../integrations/encryption';
 import { IntegrationService } from '../integrations/integrationService';
 import { IntegrationRegistry } from '../integrations/registry';
+import { OAuthService } from '../oauth/oauthService';
 import type { IntegrationProvider } from '../integrations/types';
 import { BriefingService } from '../insights/briefingService';
 import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
@@ -81,6 +82,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     calendar: new StubCalendarConnector(),
   };
   const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
+  const oauthService = new OAuthService(pool, {}, integrationService);
   const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
@@ -149,6 +151,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     actionLogger,
     integrationService,
     integrationRegistry,
+    oauthService,
     workflowService,
     workflowRegistry,
     memoryService,
@@ -248,6 +251,38 @@ test('POST .../executions/preview reports requiresApproval and integrationConnec
       });
       const afterBody = (await after.json()) as { preview: { integrationConnected: boolean } };
       assert.equal(afterBody.preview.integrationConnected, true);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../executions/preview surfaces the connected integration\'s live tokenExpiresAt (Phase 2.7)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const disconnected = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionType: 'send_email', payload: {} }),
+      });
+      const disconnectedBody = (await disconnected.json()) as { preview: { tokenExpiresAt: string | null } };
+      assert.equal(disconnectedBody.preview.tokenExpiresAt, null);
+
+      const expiresAt = new Date(Date.now() + 3600_000).toISOString();
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b', expiresAt } }),
+      });
+
+      const connected = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actionType: 'send_email', payload: {} }),
+      });
+      const connectedBody = (await connected.json()) as { preview: { tokenExpiresAt: string | null } };
+      assert.equal(connectedBody.preview.tokenExpiresAt, expiresAt);
     } finally {
       await cleanupWorkspace(pool, userId);
     }

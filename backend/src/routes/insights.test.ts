@@ -26,6 +26,7 @@ import type { IntegrationConnector } from '../integrations/connectors/types';
 import { AesGcmCredentialEncryptor } from '../integrations/encryption';
 import { IntegrationService } from '../integrations/integrationService';
 import { IntegrationRegistry } from '../integrations/registry';
+import { OAuthService } from '../oauth/oauthService';
 import type { IntegrationProvider } from '../integrations/types';
 import { BriefingService } from '../insights/briefingService';
 import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
@@ -81,6 +82,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     calendar: new StubCalendarConnector(),
   };
   const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
+  const oauthService = new OAuthService(pool, {}, integrationService);
   const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
@@ -153,6 +155,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     actionLogger,
     integrationService,
     integrationRegistry,
+    oauthService,
     workflowService,
     workflowRegistry,
     memoryService,

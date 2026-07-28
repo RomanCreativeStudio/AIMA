@@ -161,6 +161,15 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(integration.enabled, false)
     }
 
+    func testStartIntegrationOAuthUnwrapsTheAuthorizationUrlEnvelope() async throws {
+        let body = #"{"authorizationUrl":"https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=y"}"#.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/integrations/gmail/oauth/start"] = .init(statusCode: 200, body: body)
+
+        let authorizationUrl = try await client.startIntegrationOAuth(workspaceId: "w1", provider: .gmail)
+
+        XCTAssertEqual(authorizationUrl, "https://accounts.google.com/o/oauth2/v2/auth?client_id=x&state=y")
+    }
+
     func testNonSuccessStatusThrowsServerErrorWithBackendMessage() async {
         MockURLProtocol.stubs["GET /api/workspaces/missing/tasks"] = .init(
             statusCode: 404,

@@ -1,5 +1,17 @@
+import { randomUUID } from 'node:crypto';
 import type { IntegrationCredentials } from '../types';
-import type { CalendarConnector, CalendarEventSummary, ConnectionTestResult } from './types';
+import type {
+  CalendarConnector,
+  CalendarEventSummary,
+  CalendarSummary,
+  ConnectionTestResult,
+  CreateEventInput,
+  CreateEventResult,
+  UpdateEventInput,
+  UpdateEventResult,
+} from './types';
+
+const SAMPLE_CALENDARS: CalendarSummary[] = [{ id: 'primary', summary: 'Primary calendar', primary: true }];
 
 const SAMPLE_EVENTS: CalendarEventSummary[] = [
   { id: 'sample-event-1', title: 'Client check-in — Acme', startsAt: '2026-07-28T15:00:00.000Z', endsAt: '2026-07-28T15:30:00.000Z' },
@@ -7,12 +19,11 @@ const SAMPLE_EVENTS: CalendarEventSummary[] = [
 ];
 
 /**
- * A read-only Calendar connector (Phase 2.3, item 2). Like the other two
- * connectors, this is a deterministic stub, not a live client — a real
- * implementation would call a calendar provider's API (e.g. Google
- * Calendar's `GET /calendars/primary/events`) with an OAuth2 token, but
- * this phase ships only the connector's shape (docs/decisions/0011-
- * external-integrations-foundation.md).
+ * A deterministic stub Calendar connector (Phase 2.3, item 2; extended
+ * Phase 2.7). Not a live client — kept alongside `GoogleCalendarConnector`
+ * for tests and any caller that wants the connector's shape without a real
+ * Google Calendar account (docs/decisions/0011-external-integrations-
+ * foundation.md, docs/decisions/0015-live-integration-providers.md).
  */
 export class StubCalendarConnector implements CalendarConnector {
   readonly provider = 'calendar' as const;
@@ -24,9 +35,17 @@ export class StubCalendarConnector implements CalendarConnector {
     return { ok: true };
   }
 
+  async listCalendars(credentials: IntegrationCredentials): Promise<CalendarSummary[]> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot list calendars: ${result.detail}`);
+    }
+    return SAMPLE_CALENDARS;
+  }
+
   async listEvents(
     credentials: IntegrationCredentials,
-    options: { from?: string; to?: string } = {},
+    options: { calendarId?: string; from?: string; to?: string } = {},
   ): Promise<CalendarEventSummary[]> {
     const result = await this.testConnection(credentials);
     if (!result.ok) {
@@ -40,5 +59,47 @@ export class StubCalendarConnector implements CalendarConnector {
       if (options.to && event.startsAt > options.to) return false;
       return true;
     });
+  }
+
+  /** Phase 2.7 — deterministic stub for "Create Event": real write, Tier 3 (`create_calendar_event`). */
+  async createEvent(credentials: IntegrationCredentials, input: CreateEventInput & { calendarId?: string }): Promise<CreateEventResult> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot create event: ${result.detail}`);
+    }
+    if (!input.title || !input.startsAt || !input.endsAt) {
+      throw new Error('title, startsAt, and endsAt are all required to create an event');
+    }
+    return { eventId: `mock-event-${randomUUID()}` };
+  }
+
+  /** Phase 2.7 — deterministic stub for "Update Event": real write, Tier 3 (`update_calendar_event`). */
+  async updateEvent(
+    credentials: IntegrationCredentials,
+    eventId: string,
+    input: UpdateEventInput & { calendarId?: string },
+  ): Promise<UpdateEventResult> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot update event: ${result.detail}`);
+    }
+    if (!eventId) {
+      throw new Error('eventId is required to update an event');
+    }
+    if (input.title === undefined && input.startsAt === undefined && input.endsAt === undefined && input.description === undefined) {
+      throw new Error('at least one field must be provided to update an event');
+    }
+    return { eventId };
+  }
+
+  /** Phase 2.7 — deterministic stub for "Delete Event": real write, Tier 3 (`delete_calendar_event`). */
+  async deleteEvent(credentials: IntegrationCredentials, eventId: string): Promise<void> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot delete event: ${result.detail}`);
+    }
+    if (!eventId) {
+      throw new Error('eventId is required to delete an event');
+    }
   }
 }

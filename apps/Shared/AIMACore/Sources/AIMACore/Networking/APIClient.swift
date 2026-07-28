@@ -39,6 +39,8 @@ public protocol APIClient: Sendable {
     func connectIntegration(workspaceId: String, provider: IntegrationProvider, credentials: [String: String]) async throws -> WorkspaceIntegration
     func disconnectIntegration(workspaceId: String, provider: IntegrationProvider) async throws -> WorkspaceIntegration
     func rotateIntegrationCredentials(workspaceId: String, provider: IntegrationProvider, credentials: [String: String]) async throws -> WorkspaceIntegration
+    /// Starts an OAuth 2.0 authorization flow (Phase 2.7) — returns the URL the client should open in the system browser. The connection itself completes server-side once the provider redirects back; the client learns about it only by re-fetching `listIntegrations`.
+    func startIntegrationOAuth(workspaceId: String, provider: IntegrationProvider) async throws -> String
 
     func listWorkflowDefinitions() async throws -> [WorkflowDefinition]
     func listWorkflowRuns(workspaceId: String) async throws -> [WorkflowRun]

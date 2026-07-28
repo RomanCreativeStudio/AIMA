@@ -25,6 +25,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0012_workflows.sql` | Adds `github_issue` to `draft_type` (a new draft kind for "Create GitHub issue draft"), a `workflow_key` enum (the four built-in workflows), `workflow_run_status`/`workflow_step_status` enums, and `workflow_runs`/`workflow_step_runs` (execution state, with a monotonic `sequence` column on `workflow_runs` for stable history ordering) — the Workflow Orchestration Foundation's storage layer (docs/decisions/0012-workflow-orchestration-foundation.md). |
 | `0013_action_log_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `action_log`, so `ActionLogger.list` (Phase 2.5's "recent activity") has a stable newest-first order independent of `created_at` collisions — the same fix as `0003_message_sequence.sql`/`0006_approval_lifecycle.sql`/`0010_conversation_sequence.sql`/`0012_workflows.sql`, now applied to a fifth table. |
 | `0014_executions.sql` | Adds an `execution_status` enum (`pending`/`awaiting_approval`/`succeeded`/`failed`) and the `executions` table (request payload, response summary, error details, a nullable `pending_approval_id` FK, started/completed timestamps, and a monotonic `sequence` column from the start — the sixth table needing that fix, after `messages`/`pending_approvals`/`conversations`/`workflow_runs`/`action_log`) — the Action Execution Foundation's storage layer (docs/decisions/0014-action-execution-foundation.md). |
+| `0015_oauth_token_expiry.sql` | Adds a non-secret `token_expires_at` column to `workspace_integrations` — the OAuth Framework's expiry-visibility layer (docs/decisions/0015-live-integration-providers.md): lets a client see when a connected integration's token expires without ever decrypting `integration_credentials`, which continues to hold the actual token material. |
 
 ## Entities
 
@@ -43,7 +44,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `pending_approvals` | Tier 3 intents awaiting explicit user confirmation. Lifecycle `status` is `pending`/`approved`/`rejected`; a fourth state, `expired`, is derived from `expires_at` at read time and never stored (`0006_approval_lifecycle.sql`). Created/read by `backend/src/approval/approvalEngine.ts`. |
 | `drafts` | Held content — `email`/`proposal`/`client_response`/`report` — a user reviews before anything is sent, workspace-scoped (`0007_drafts.sql`). Created/read by `backend/src/drafts/draftService.ts`. |
 | `preferences` | Structured, categorized workspace settings (`writing_style`/`response_preferences`/`workflow_preferences`/`project_rules`) that shape assistant behavior, unique per (workspace, category, key) (`0009_preferences.sql`). Created/read by `backend/src/preferences/preferenceService.ts`. |
-| `workspace_integrations` | One row per (`workspace`, provider) — `enabled`, `status`, `connected_at`, `last_validated_at` (`0011_integrations.sql`). Never a row exists without a connect attempt; a provider a workspace hasn't connected simply has no row (the service layer fills in a disconnected placeholder). Created/read by `backend/src/integrations/integrationService.ts`. |
+| `workspace_integrations` | One row per (`workspace`, provider) — `enabled`, `status`, `connected_at`, `last_validated_at`, and (Phase 2.7) `token_expires_at` — a non-secret expiry timestamp for the client to display, kept separate from the encrypted token itself (`0011_integrations.sql`, `0015_oauth_token_expiry.sql`). Never a row exists without a connect attempt; a provider a workspace hasn't connected simply has no row (the service layer fills in a disconnected placeholder). Created/read by `backend/src/integrations/integrationService.ts`. |
 | `integration_credentials` | The encrypted credential material for a connected integration — `encrypted_payload`/`iv`/`auth_tag` (AES-256-GCM, `backend/src/integrations/encryption.ts`), 1:1 with `workspace_integrations` via `integration_id`, deleted outright on disconnect. Never queried directly by a route — only `IntegrationService.getDecryptedCredentials` reads it. |
 | `workflow_runs` | One row per started workflow execution — `workflow_key`, `status`, `current_step_index`, `input`/`result` (JSONB), ordered by a monotonic `sequence` column for stable "newest first" history (`0012_workflows.sql`). Created/read by `backend/src/workflows/workflowService.ts`. |
 | `workflow_step_runs` | One row per step attempt within a `workflow_runs` row — `step_index`, `step_key`, `status`, a denormalized `capability_id` FK, and `pending_approval_id` (nullable, `ON DELETE SET NULL` — see `0012_workflows.sql`'s own comment on why not the default `RESTRICT`), plus the step's `output` once it runs. |
@@ -68,6 +69,7 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0011_integrations.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0012_workflows.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0013_action_log_sequence.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0014_executions.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0015_oauth_token_expiry.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -92,6 +94,7 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0011_integrations.sq
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0012_workflows.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0013_action_log_sequence.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0014_executions.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0015_oauth_token_expiry.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.

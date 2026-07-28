@@ -157,6 +157,27 @@ export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description:
       'Open a pull request directly on a connected GitHub repository. External write — permanently locked at Tier 3 minimum.',
   },
+  {
+    actionType: 'create_calendar_event',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Create an event directly on a connected Calendar integration. External write — permanently locked at Tier 3 minimum.',
+  },
+  {
+    actionType: 'update_calendar_event',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Update an existing event directly on a connected Calendar integration. External write — permanently locked at Tier 3 minimum.',
+  },
+  {
+    actionType: 'delete_calendar_event',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Delete an existing event directly on a connected Calendar integration. External write — permanently locked at Tier 3 minimum.',
+  },
 ];
 
 export class CapabilityRegistry {

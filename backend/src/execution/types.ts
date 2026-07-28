@@ -38,6 +38,8 @@ export interface ExecutionPreview {
   tier: string;
   requiresApproval: boolean;
   integrationConnected: boolean;
+  /** Live provider metadata (Phase 2.7, item 7) — when the connected integration's OAuth token expires, or null if it doesn't (or nothing is connected). Never the token itself. */
+  tokenExpiresAt: string | null;
   payload: ExecutionRequestPayload;
 }
 

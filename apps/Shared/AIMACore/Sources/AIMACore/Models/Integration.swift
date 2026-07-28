@@ -46,6 +46,8 @@ public struct WorkspaceIntegration: Codable, Identifiable, Equatable, Sendable {
     public let status: IntegrationStatus
     public let connectedAt: String?
     public let lastValidatedAt: String?
+    /// When the connected OAuth access token expires, or nil if it doesn't (or nothing is connected) — Phase 2.7's "Token expiration" client affordance. Never the token itself, which the client never sees.
+    public let tokenExpiresAt: String?
     public let createdAt: String
     public let updatedAt: String
     public let displayName: String
@@ -63,6 +65,7 @@ public struct WorkspaceIntegration: Codable, Identifiable, Equatable, Sendable {
         status: IntegrationStatus,
         connectedAt: String?,
         lastValidatedAt: String?,
+        tokenExpiresAt: String?,
         createdAt: String,
         updatedAt: String,
         displayName: String,
@@ -76,6 +79,7 @@ public struct WorkspaceIntegration: Codable, Identifiable, Equatable, Sendable {
         self.status = status
         self.connectedAt = connectedAt
         self.lastValidatedAt = lastValidatedAt
+        self.tokenExpiresAt = tokenExpiresAt
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.displayName = displayName

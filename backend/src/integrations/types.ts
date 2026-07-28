@@ -28,6 +28,8 @@ export interface WorkspaceIntegration {
   lastValidatedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** When the stored OAuth access token expires, or null if it doesn't (or the provider never reported an expiry) — Phase 2.7's "Token expiration" client affordance. Never the token itself, which stays exclusively in encrypted `integration_credentials`. */
+  tokenExpiresAt: string | null;
 }
 
 /** Free-form key/value credential material (e.g. `{ accessToken, refreshToken }`) — shape varies per provider. */

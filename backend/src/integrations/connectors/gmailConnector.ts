@@ -58,6 +58,34 @@ export class StubGmailConnector implements GmailConnector {
     return SAMPLE_MESSAGES.slice(0, options.limit ?? SAMPLE_MESSAGES.length);
   }
 
+  /** Phase 2.7 — deterministic stub for "Read Unread": every sample message is treated as unread. */
+  async listUnreadMessages(
+    credentials: IntegrationCredentials,
+    options: { limit?: number } = {},
+  ): Promise<EmailMessageSummary[]> {
+    return this.listMessages(credentials, options);
+  }
+
+  /** Phase 2.7 — deterministic stub for "Search Messages": a case-insensitive substring match over subject/snippet/from. */
+  async searchMessages(
+    credentials: IntegrationCredentials,
+    query: string,
+    options: { limit?: number } = {},
+  ): Promise<EmailMessageSummary[]> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot search messages: ${result.detail}`);
+    }
+    const needle = query.toLowerCase();
+    const matches = SAMPLE_MESSAGES.filter(
+      (message) =>
+        message.subject.toLowerCase().includes(needle) ||
+        message.snippet.toLowerCase().includes(needle) ||
+        message.from.toLowerCase().includes(needle),
+    );
+    return matches.slice(0, options.limit ?? matches.length);
+  }
+
   /**
    * Phase 2.6 — deterministic stub for `send_email`: a real implementation
    * would call `POST https://gmail.googleapis.com/gmail/v1/users/me/
