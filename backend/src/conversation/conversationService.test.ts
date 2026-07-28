@@ -17,6 +17,10 @@ import { PermissionEngine } from '../permissions/engine';
 import { WorkspaceService } from '../workspaces/workspaceService';
 import { WorkflowRegistry } from '../workflows/registry';
 import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
+import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
+import { ExecutionRegistry } from '../execution/registry';
+import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExecutor';
+import { StubGmailConnector } from '../integrations/connectors/gmailConnector';
 import { ConversationService, type ConversationServiceDependencies } from './conversationService';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { ConversationNotFoundError } from './errors';
@@ -55,6 +59,9 @@ function buildService(
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine, workspaceService);
   const workflowIntentMatcher = new WorkflowIntentMatcher(new WorkflowRegistry());
+  const executionIntentMatcher = new ExecutionIntentMatcher(
+    new ExecutionRegistry([new GmailSendEmailExecutor(new StubGmailConnector())]),
+  );
 
   const service = new ConversationService({
     db: client,
@@ -62,6 +69,7 @@ function buildService(
     actionLogger,
     permissionEngine,
     workflowIntentMatcher,
+    executionIntentMatcher,
     ...overrides,
   });
 
@@ -440,6 +448,39 @@ test('sendMessage leaves workflowSuggestion null for ordinary chat', async () =>
   });
 });
 
+test('sendMessage attaches an execution suggestion when the message matches a real external action', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Send an email to client@example.com about the invoice',
+    });
+
+    assert.ok(result.executionSuggestion);
+    assert.equal(result.executionSuggestion?.actionType, 'send_email');
+  });
+});
+
+test('sendMessage leaves executionSuggestion null for ordinary chat', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'What time is it?',
+    });
+
+    assert.equal(result.executionSuggestion, null);
+  });
+});
+
 test('sendMessage result matches the full response schema', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');
@@ -451,6 +492,7 @@ test('sendMessage result matches the full response schema', async () => {
     assert.deepEqual(Object.keys(result).sort(), [
       'approvalDecision',
       'assistantMessage',
+      'executionSuggestion',
       'intent',
       'retrievedDocumentChunks',
       'retrievedMemories',

@@ -28,6 +28,8 @@ public final class ChatViewModel {
     public private(set) var lastPendingApproval: PendingApproval?
     /// An advisory workflow preview (Phase 2.4) for the most recent reply — never itself a running `WorkflowRun`, just a suggestion the user can act on from the Workflows screen.
     public private(set) var lastWorkflowSuggestion: WorkflowSuggestion?
+    /// An advisory execution preview (Phase 2.6) for the most recent reply — never itself a running `ExecutionRecord`, just a suggestion the user can act on from the Executions screen.
+    public private(set) var lastExecutionSuggestion: ExecutionSuggestion?
     /// The selected conversation's Conversation Intelligence (Phase 2.5, item 3) — summary, suggested follow-ups, and related memories. Fetched only on explicit request (`loadConversationIntelligence`), never automatically, matching the phase's "no automatic actions" rule.
     public private(set) var conversationIntelligence: ConversationIntelligence?
     public private(set) var isLoadingIntelligence = false
@@ -79,6 +81,7 @@ public final class ChatViewModel {
         lastApprovalDecision = nil
         lastPendingApproval = nil
         lastWorkflowSuggestion = nil
+        lastExecutionSuggestion = nil
         conversationIntelligence = nil
         do {
             messages = try await apiClient.listMessages(workspaceId: workspaceId, conversationId: conversationId, limit: nil)
@@ -104,6 +107,7 @@ public final class ChatViewModel {
             lastApprovalDecision = result.approvalDecision
             lastPendingApproval = nil
             lastWorkflowSuggestion = result.workflowSuggestion
+            lastExecutionSuggestion = result.executionSuggestion
             if let approvalId = result.approvalDecision.pendingApprovalId {
                 lastPendingApproval = try? await apiClient.getApproval(workspaceId: workspaceId, approvalId: approvalId)
             }

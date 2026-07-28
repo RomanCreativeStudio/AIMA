@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The top-level screens: Dashboard and Chat (Phase 2.1, item 2), Tasks and
 /// Approvals (Phase 2.2, items 3–4), Integrations (Phase 2.3, item 5),
-/// Workflows (Phase 2.4, item 5), Workspace and Settings (Phase 2.1).
+/// Workflows (Phase 2.4, item 5), Executions (Phase 2.6, item 8), Workspace
+/// and Settings (Phase 2.1).
 enum AppSection: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case chat = "Chat"
@@ -11,6 +12,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case approvals = "Approvals"
     case integrations = "Integrations"
     case workflows = "Workflows"
+    case executions = "Executions"
     case workspace = "Workspace"
     case settings = "Settings"
 
@@ -24,6 +26,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .approvals: return "checkmark.seal"
         case .integrations: return "puzzlepiece.extension"
         case .workflows: return "flowchart"
+        case .executions: return "bolt.fill"
         case .workspace: return "square.stack.3d.up"
         case .settings: return "gearshape"
         }
@@ -80,6 +83,8 @@ struct RootNavigationView: View {
             workspaceScopedView { IntegrationsView(container: container, workspaceId: $0) }
         case .workflows:
             workspaceScopedView { WorkflowsView(container: container, workspaceId: $0) }
+        case .executions:
+            workspaceScopedView { ExecutionsView(container: container, workspaceId: $0) }
         case .workspace:
             WorkspaceSwitcherView(viewModel: workspaceViewModel)
         case .settings:

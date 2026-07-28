@@ -164,6 +164,54 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.lastWorkflowSuggestion, "an ordinary follow-up message must not keep a stale suggestion around")
     }
 
+    func testSendDraftMessageSurfacesAForcedExecutionSuggestion() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ExecutionSuggestion(
+            actionType: "send_email", provider: .gmail, confidence: 0.8,
+            extractedPayload: ["to": .string("client@example.com")]
+        )
+        await apiClient.forceNextMessageToSuggestExecution(suggestion)
+
+        viewModel.draftMessage = "send an email to the client"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertEqual(viewModel.lastExecutionSuggestion?.actionType, "send_email")
+    }
+
+    func testExecutionSuggestionDoesNotPersistPastTheNextOrdinaryMessage() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ExecutionSuggestion(actionType: "send_email", provider: .gmail, confidence: 0.6, extractedPayload: [:])
+        await apiClient.forceNextMessageToSuggestExecution(suggestion)
+        viewModel.draftMessage = "send an email"
+        await viewModel.sendDraftMessage()
+        precondition(viewModel.lastExecutionSuggestion != nil, "sanity check: the suggestion exists before the next message")
+
+        viewModel.draftMessage = "thanks"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertNil(viewModel.lastExecutionSuggestion, "an ordinary follow-up message must not keep a stale suggestion around")
+    }
+
+    func testSelectingAConversationClearsStaleExecutionSuggestion() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await viewModel.startNewConversation(title: "Second thread")
+        let suggestion = ExecutionSuggestion(actionType: "send_email", provider: .gmail, confidence: 0.8, extractedPayload: [:])
+        await apiClient.forceNextMessageToSuggestExecution(suggestion)
+        viewModel.draftMessage = "send an email"
+        await viewModel.sendDraftMessage()
+        XCTAssertNotNil(viewModel.lastExecutionSuggestion, "sanity check: the suggestion exists before switching")
+
+        await viewModel.selectConversation(viewModel.conversations.last!.id)
+
+        XCTAssertNil(viewModel.lastExecutionSuggestion)
+    }
+
     func testLoadConversationIntelligencePopulatesSummaryFollowUpsAndRelatedMemories() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

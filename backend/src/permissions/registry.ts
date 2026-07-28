@@ -142,6 +142,21 @@ export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description:
       'Read events from a connected Calendar integration. External account data — permanently locked at Tier 3 minimum.',
   },
+  {
+    actionType: 'create_github_issue',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Create an issue directly on a connected GitHub repository — distinct from draft_github_issue, which only ' +
+      'ever writes to the local draft queue. External write — permanently locked at Tier 3 minimum.',
+  },
+  {
+    actionType: 'create_github_pull_request',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Open a pull request directly on a connected GitHub repository. External write — permanently locked at Tier 3 minimum.',
+  },
 ];
 
 export class CapabilityRegistry {

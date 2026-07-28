@@ -314,6 +314,46 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/workspaces/\(workspaceId)/insights", envelope: WorkspaceInsightsEnvelope.self).insights
     }
 
+    // MARK: - Action Execution
+
+    public func previewExecution(workspaceId: String, actionType: String, payload: [String: JSONValue]) async throws -> ExecutionPreview {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/executions/preview",
+            body: CreateExecutionRequest(actionType: actionType, payload: payload),
+            envelope: ExecutionPreviewEnvelope.self
+        ).preview
+    }
+
+    public func createExecutionRequest(workspaceId: String, actionType: String, payload: [String: JSONValue]) async throws -> ExecutionRecord {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/executions",
+            body: CreateExecutionRequest(actionType: actionType, payload: payload),
+            envelope: ExecutionEnvelope.self
+        ).execution
+    }
+
+    public func executeExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/executions/\(executionId)/execute",
+            envelope: ExecutionEnvelope.self
+        ).execution
+    }
+
+    public func listExecutions(workspaceId: String) async throws -> [ExecutionRecord] {
+        try await send("GET", "/api/workspaces/\(workspaceId)/executions", envelope: ExecutionsEnvelope.self).executions
+    }
+
+    public func getExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/executions/\(executionId)",
+            envelope: ExecutionEnvelope.self
+        ).execution
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -421,3 +461,6 @@ private struct BriefingEnvelope: Decodable { let briefing: DailyBriefing }
 private struct TaskIntelligenceEnvelope: Decodable { let taskIntelligence: TaskIntelligence }
 private struct ConversationIntelligenceEnvelope: Decodable { let conversationIntelligence: ConversationIntelligence }
 private struct WorkspaceInsightsEnvelope: Decodable { let insights: WorkspaceInsights }
+private struct ExecutionPreviewEnvelope: Decodable { let preview: ExecutionPreview }
+private struct ExecutionEnvelope: Decodable { let execution: ExecutionRecord }
+private struct ExecutionsEnvelope: Decodable { let executions: [ExecutionRecord] }

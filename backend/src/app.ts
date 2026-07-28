@@ -7,6 +7,7 @@ import type { ActionLogger } from './actionLog/logger';
 import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
 import type { DraftService } from './drafts/draftService';
+import type { ExecutionService } from './execution/executionService';
 import type { HealthService } from './health/healthService';
 import type { BriefingService } from './insights/briefingService';
 import type { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
@@ -32,6 +33,7 @@ import { memoriesRouter } from './routes/memories';
 import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
+import { executionsRouter } from './routes/executions';
 import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
 import { preferencesRouter } from './routes/preferences';
@@ -65,6 +67,7 @@ export interface AppDependencies {
   taskIntelligenceService: TaskIntelligenceService;
   conversationIntelligenceService: ConversationIntelligenceService;
   workspaceInsightsService: WorkspaceInsightsService;
+  executionService: ExecutionService;
   corsOrigins: string[];
 }
 
@@ -152,6 +155,7 @@ export function createApp(deps: AppDependencies): Application {
       workspaceInsightsService: deps.workspaceInsightsService,
     }),
   );
+  app.use('/api', executionsRouter({ executionService: deps.executionService }));
 
   app.use(errorHandler);
 

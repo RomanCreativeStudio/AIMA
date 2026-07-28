@@ -281,6 +281,66 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(insights.workspaceId, "w1")
     }
 
+    func testPreviewExecutionSendsActionTypeAndPayloadAndUnwrapsThePreviewEnvelope() async throws {
+        let body = """
+        {"preview":{"actionType":"send_email","provider":"gmail","tier":"execute_with_approval","requiresApproval":true,"integrationConnected":true,"payload":{"to":"client@example.com"}}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/executions/preview"] = .init(statusCode: 200, body: body)
+
+        let preview = try await client.previewExecution(workspaceId: "w1", actionType: "send_email", payload: ["to": .string("client@example.com")])
+        XCTAssertEqual(preview.provider, .gmail)
+        XCTAssertTrue(preview.requiresApproval)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let sentBody = try XCTUnwrap(recorded.httpBody)
+        let sentJSON = try JSONSerialization.jsonObject(with: sentBody) as? [String: Any]
+        XCTAssertEqual(sentJSON?["actionType"] as? String, "send_email")
+    }
+
+    func testCreateExecutionRequestPostsToTheExecutionsRouteAndUnwrapsTheExecutionEnvelope() async throws {
+        let body = """
+        {"execution":{"id":"exec-1","workspaceId":"w1","provider":"gmail","actionType":"send_email","status":"awaiting_approval","requestPayload":{"to":"client@example.com"},"responseSummary":null,"errorDetails":null,"pendingApprovalId":"a1","startedAt":null,"completedAt":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/executions"] = .init(statusCode: 201, body: body)
+
+        let execution = try await client.createExecutionRequest(workspaceId: "w1", actionType: "send_email", payload: ["to": .string("client@example.com")])
+        XCTAssertEqual(execution.status, .awaitingApproval)
+        XCTAssertEqual(execution.pendingApprovalId, "a1")
+    }
+
+    func testExecuteExecutionPostsToTheExecuteRouteAndUnwrapsTheExecutionEnvelope() async throws {
+        let body = """
+        {"execution":{"id":"exec-1","workspaceId":"w1","provider":"gmail","actionType":"send_email","status":"succeeded","requestPayload":{},"responseSummary":{"messageId":"mock-message-1"},"errorDetails":null,"pendingApprovalId":null,"startedAt":"2026-01-01T00:00:00.000Z","completedAt":"2026-01-01T00:00:01.000Z","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:01.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/executions/exec-1/execute"] = .init(statusCode: 200, body: body)
+
+        let execution = try await client.executeExecution(workspaceId: "w1", executionId: "exec-1")
+        XCTAssertEqual(execution.status, .succeeded)
+        XCTAssertEqual(execution.responseSummary?["messageId"], .string("mock-message-1"))
+    }
+
+    func testListExecutionsUnwrapsTheExecutionsEnvelope() async throws {
+        let body = """
+        {"executions":[{"id":"exec-1","workspaceId":"w1","provider":"github","actionType":"create_github_issue","status":"pending","requestPayload":{},"responseSummary":null,"errorDetails":null,"pendingApprovalId":null,"startedAt":null,"completedAt":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/executions"] = .init(statusCode: 200, body: body)
+
+        let executions = try await client.listExecutions(workspaceId: "w1")
+        XCTAssertEqual(executions.count, 1)
+        XCTAssertEqual(executions[0].actionType, "create_github_issue")
+    }
+
+    func testGetExecutionUnwrapsTheExecutionEnvelope() async throws {
+        let body = """
+        {"execution":{"id":"exec-1","workspaceId":"w1","provider":"gmail","actionType":"draft_gmail_email","status":"failed","requestPayload":{},"responseSummary":null,"errorDetails":"Integration not connected","pendingApprovalId":null,"startedAt":"2026-01-01T00:00:00.000Z","completedAt":"2026-01-01T00:00:01.000Z","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:01.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/executions/exec-1"] = .init(statusCode: 200, body: body)
+
+        let execution = try await client.getExecution(workspaceId: "w1", executionId: "exec-1")
+        XCTAssertEqual(execution.status, .failed)
+        XCTAssertEqual(execution.errorDetails, "Integration not connected")
+    }
+
     func testSendMessageDecodesUnwrappedSendMessageResult() async throws {
         let body = """
         {

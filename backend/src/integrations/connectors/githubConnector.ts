@@ -1,5 +1,15 @@
+import { randomUUID } from 'node:crypto';
 import type { IntegrationCredentials } from '../types';
-import type { ConnectionTestResult, GitHubConnector, IssueSummary, RepositorySummary } from './types';
+import type {
+  ConnectionTestResult,
+  CreateIssueInput,
+  CreateIssueResult,
+  CreatePullRequestInput,
+  CreatePullRequestResult,
+  GitHubConnector,
+  IssueSummary,
+  RepositorySummary,
+} from './types';
 
 const SAMPLE_REPOSITORIES: RepositorySummary[] = [
   { id: 'sample-repo-1', fullName: 'RomanCreativeStudio/AIMA', description: "AIMA's own monorepo.", isPrivate: true },
@@ -46,5 +56,36 @@ export class StubGitHubConnector implements GitHubConnector {
       return [];
     }
     return SAMPLE_ISSUES;
+  }
+
+  /**
+   * Phase 2.6 — deterministic stub for `create_github_issue`: a real
+   * implementation would call `POST /repos/:owner/:repo/issues`; this
+   * validates credentials and input, returning a synthesized issue number,
+   * with no network call (docs/decisions/0014-action-execution-foundation.md).
+   * Distinct from `draft_github_issue` (Phase 2.4), which only ever writes
+   * to AIMA's own local drafts table.
+   */
+  async createIssue(credentials: IntegrationCredentials, input: CreateIssueInput): Promise<CreateIssueResult> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot create issue: ${result.detail}`);
+    }
+    if (!input.repository || !input.title) {
+      throw new Error('repository and title are required to create an issue');
+    }
+    return { issueId: `mock-issue-${randomUUID()}`, number: 1000 + SAMPLE_ISSUES.length };
+  }
+
+  /** Phase 2.6 — deterministic stub for `create_github_pull_request`: a real implementation would call `POST /repos/:owner/:repo/pulls`. */
+  async createPullRequest(credentials: IntegrationCredentials, input: CreatePullRequestInput): Promise<CreatePullRequestResult> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot create pull request: ${result.detail}`);
+    }
+    if (!input.repository || !input.title || !input.head || !input.base) {
+      throw new Error('repository, title, head, and base are all required to create a pull request');
+    }
+    return { pullRequestId: `mock-pr-${randomUUID()}`, number: 2000 + SAMPLE_ISSUES.length };
   }
 }

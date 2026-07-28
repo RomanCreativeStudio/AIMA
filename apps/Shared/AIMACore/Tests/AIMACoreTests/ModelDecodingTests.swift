@@ -416,6 +416,69 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(insights.taskMetrics.completionRate, 0.5)
     }
 
+    func testExecutionStatusRawValuesMatchBackendEnum() {
+        // backend/database/migrations/0014_executions.sql's execution_status enum.
+        XCTAssertEqual(ExecutionStatus.pending.rawValue, "pending")
+        XCTAssertEqual(ExecutionStatus.awaitingApproval.rawValue, "awaiting_approval")
+        XCTAssertEqual(ExecutionStatus.succeeded.rawValue, "succeeded")
+        XCTAssertEqual(ExecutionStatus.failed.rawValue, "failed")
+    }
+
+    func testDecodesExecutionRecord() throws {
+        let json = """
+        {
+          "id":"exec-1","workspaceId":"w1","provider":"gmail","actionType":"send_email","status":"awaiting_approval",
+          "requestPayload":{"to":"client@example.com"},"responseSummary":null,"errorDetails":null,
+          "pendingApprovalId":"a1","startedAt":null,"completedAt":null,
+          "createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let execution = try decoder.decode(ExecutionRecord.self, from: json)
+        XCTAssertEqual(execution.provider, .gmail)
+        XCTAssertEqual(execution.status, .awaitingApproval)
+        XCTAssertEqual(execution.requestPayload["to"], .string("client@example.com"))
+        XCTAssertEqual(execution.pendingApprovalId, "a1")
+        XCTAssertNil(execution.responseSummary)
+    }
+
+    func testDecodesExecutionPreview() throws {
+        let json = """
+        {
+          "actionType":"create_github_issue","provider":"github","tier":"execute_with_approval",
+          "requiresApproval":true,"integrationConnected":true,
+          "payload":{"repository":"romancreativestudio/aima","title":"Bug"}
+        }
+        """.data(using: .utf8)!
+
+        let preview = try decoder.decode(ExecutionPreview.self, from: json)
+        XCTAssertEqual(preview.provider, .github)
+        XCTAssertTrue(preview.requiresApproval)
+        XCTAssertTrue(preview.integrationConnected)
+        XCTAssertEqual(preview.payload["title"], .string("Bug"))
+    }
+
+    func testDecodesSendMessageResultWithExecutionSuggestion() throws {
+        let json = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"send an email to Acme","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"Sure.","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "executionSuggestion": {
+            "actionType":"send_email","provider":"gmail","confidence":0.7,
+            "extractedPayload":{"to":"client@example.com"}
+          }
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SendMessageResult.self, from: json)
+        XCTAssertEqual(result.executionSuggestion?.actionType, "send_email")
+        XCTAssertEqual(result.executionSuggestion?.provider, .gmail)
+        XCTAssertEqual(result.executionSuggestion?.confidence, 0.7)
+    }
+
     func testEncodesUpdateUserProfileRequestDistinguishingAbsentFromNullDefaultWorkspace() throws {
         let encoder = JSONEncoder()
 

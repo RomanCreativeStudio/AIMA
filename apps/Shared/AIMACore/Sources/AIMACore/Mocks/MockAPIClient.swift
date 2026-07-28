@@ -25,6 +25,7 @@ public actor MockAPIClient: APIClient {
     private var preferencesByWorkspace: [String: [Preference]]
     private var integrationsByWorkspace: [String: [WorkspaceIntegration]]
     private var workflowRunsByWorkspace: [String: [WorkflowRunDetail]] = [:]
+    private var executionsByWorkspace: [String: [ExecutionRecord]] = [:]
     /// Phase 2.5's "recent activity" source — `MockAPIClient` has no write-side `ActionLogger` equivalent, so this
     /// is seeded fixed data rather than something `createTask`/etc. append to.
     private var actionLogByWorkspace: [String: [ActionLogRecord]]
@@ -40,6 +41,24 @@ public actor MockAPIClient: APIClient {
     /// workflow-suggestion card (Phase 2.4) without needing to type one of
     /// `WorkflowIntentMatcher`'s exact trigger phrases.
     private var forcedNextWorkflowSuggestion: WorkflowSuggestion?
+
+    /// Set by `forceNextMessageToSuggestExecution`, consumed by the next
+    /// `sendMessage` call — lets tests/previews exercise the Chat screen's
+    /// execution-suggestion card (Phase 2.6) without needing to type one of
+    /// `ExecutionIntentMatcher`'s exact trigger phrases.
+    private var forcedNextExecutionSuggestion: ExecutionSuggestion?
+
+    /// Mirrors `backend/src/permissions/registry.ts`: all four built-in execution action types are permanently
+    /// tier-locked at Tier 3 (`execute_with_approval`) — none of them auto-execute.
+    private static let executionTier = "execute_with_approval"
+
+    /// Mirrors `backend/src/execution/registry.ts`'s seeded executors — which provider handles each action type.
+    private static let executionActionProviders: [String: IntegrationProvider] = [
+        "send_email": .gmail,
+        "draft_gmail_email": .gmail,
+        "create_github_issue": .github,
+        "create_github_pull_request": .github,
+    ]
 
     /// Mirrors `backend/src/workflows/registry.ts#DEFAULT_WORKFLOWS` — the
     /// four built-in workflow definitions `GET /api/workflows` returns.
@@ -302,6 +321,9 @@ public actor MockAPIClient: APIClient {
         let workflowSuggestion = forcedNextWorkflowSuggestion
         forcedNextWorkflowSuggestion = nil
 
+        let executionSuggestion = forcedNextExecutionSuggestion
+        forcedNextExecutionSuggestion = nil
+
         return SendMessageResult(
             userMessage: userMessage,
             assistantMessage: assistantMessage,
@@ -309,7 +331,8 @@ public actor MockAPIClient: APIClient {
             retrievedDocumentChunks: [],
             intent: intent,
             approvalDecision: approvalDecision,
-            workflowSuggestion: workflowSuggestion
+            workflowSuggestion: workflowSuggestion,
+            executionSuggestion: executionSuggestion
         )
     }
 
@@ -334,6 +357,14 @@ public actor MockAPIClient: APIClient {
     /// trigger phrase.
     public func forceNextMessageToSuggestWorkflow(_ suggestion: WorkflowSuggestion) {
         forcedNextWorkflowSuggestion = suggestion
+    }
+
+    /// Test hook (Phase 2.6): makes the next `sendMessage` call return the
+    /// given `ExecutionSuggestion` — simulating `ExecutionIntentMatcher`
+    /// matching the user's message, without needing to type an exact
+    /// trigger phrase.
+    public func forceNextMessageToSuggestExecution(_ suggestion: ExecutionSuggestion) {
+        forcedNextExecutionSuggestion = suggestion
     }
 
     public func listTasks(workspaceId: String, status: TaskStatus?) async throws -> [TaskItem] {
@@ -764,6 +795,147 @@ public actor MockAPIClient: APIClient {
             taskMetrics: Self.summarizeTasks(tasks),
             generatedAt: ISO8601DateFormatter().string(from: Date())
         )
+    }
+
+    // MARK: - Action Execution
+
+    /// Mirrors `ExecutionService.preview` (backend/src/execution/executionService.ts): pure, read-only, never persists anything.
+    public func previewExecution(workspaceId: String, actionType: String, payload: [String: JSONValue]) async throws -> ExecutionPreview {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        guard let provider = Self.executionActionProviders[actionType] else {
+            throw APIError.server(statusCode: 400, message: "Unsupported action type: \(actionType)")
+        }
+        let integrationConnected = (integrationsByWorkspace[workspaceId] ?? []).contains { $0.provider == provider && $0.enabled }
+        return ExecutionPreview(
+            actionType: actionType, provider: provider, tier: Self.executionTier,
+            requiresApproval: true, integrationConnected: integrationConnected, payload: payload
+        )
+    }
+
+    /// Mirrors `ExecutionService.createExecutionRequest`: rejects before creating anything if the integration isn't
+    /// connected, then persists a real `awaiting_approval` execution backed by a real seeded `PendingApproval` —
+    /// every built-in execution action type is Tier 3, so none of them auto-execute.
+    public func createExecutionRequest(workspaceId: String, actionType: String, payload: [String: JSONValue]) async throws -> ExecutionRecord {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        guard let provider = Self.executionActionProviders[actionType] else {
+            throw APIError.server(statusCode: 400, message: "Unsupported action type: \(actionType)")
+        }
+        let integrationConnected = (integrationsByWorkspace[workspaceId] ?? []).contains { $0.provider == provider && $0.enabled }
+        guard integrationConnected else {
+            throw APIError.server(statusCode: 404, message: "No connected \(provider.rawValue) integration")
+        }
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let approval = PendingApproval(
+            id: UUID().uuidString, workspaceId: workspaceId, actionType: actionType,
+            payload: .object(payload), status: .pending, createdAt: now, expiresAt: now, resolvedAt: nil
+        )
+        approvalsByWorkspace[workspaceId, default: []].append(approval)
+
+        let execution = ExecutionRecord(
+            id: UUID().uuidString, workspaceId: workspaceId, provider: provider, actionType: actionType,
+            status: .awaitingApproval, requestPayload: payload, responseSummary: nil, errorDetails: nil,
+            pendingApprovalId: approval.id, startedAt: nil, completedAt: nil, createdAt: now, updatedAt: now
+        )
+        executionsByWorkspace[workspaceId, default: []].append(execution)
+        return execution
+    }
+
+    /// Mirrors `ExecutionService.execute`: advances at most one attempt and is idempotent on a terminal record —
+    /// calling this again after success/failure just returns the stored result, no provider re-contact.
+    public func executeExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord {
+        try await maybeFail()
+        let execution = try findExecution(workspaceId: workspaceId, executionId: executionId)
+        if execution.status == .succeeded || execution.status == .failed {
+            return execution
+        }
+
+        if execution.status == .awaitingApproval {
+            guard let approvalId = execution.pendingApprovalId,
+                  let approval = (approvalsByWorkspace[workspaceId] ?? []).first(where: { $0.id == approvalId }) else {
+                throw APIError.server(statusCode: 404, message: "Pending approval not found for execution: \(executionId)")
+            }
+            switch approval.status {
+            case .pending:
+                throw APIError.server(statusCode: 409, message: "Approval has not yet been granted for this execution")
+            case .rejected, .expired:
+                return finishExecution(execution, status: .failed, responseSummary: nil, errorDetails: "Approval was \(approval.status.rawValue)")
+            case .approved:
+                break
+            }
+        }
+
+        return runMockExecutor(execution)
+    }
+
+    public func listExecutions(workspaceId: String) async throws -> [ExecutionRecord] {
+        try await maybeFail()
+        // Newest-first, approximating the real `sequence DESC` ordering (executionService.ts#listHistory) with reverse insertion order.
+        return (executionsByWorkspace[workspaceId] ?? []).reversed()
+    }
+
+    public func getExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord {
+        try await maybeFail()
+        return try findExecution(workspaceId: workspaceId, executionId: executionId)
+    }
+
+    /// Mirrors `ExecutionService.runExecutor`: re-checks the integration is still connected immediately before
+    /// producing a mock provider response, since credentials/connection state are never trusted from creation time.
+    private func runMockExecutor(_ execution: ExecutionRecord) -> ExecutionRecord {
+        let integrationConnected = (integrationsByWorkspace[execution.workspaceId] ?? []).contains { $0.provider == execution.provider && $0.enabled }
+        guard integrationConnected else {
+            return finishExecution(execution, status: .failed, responseSummary: nil, errorDetails: "Integration not connected: \(execution.provider.rawValue)")
+        }
+        let responseSummary = mockExecutionResponse(actionType: execution.actionType)
+        return finishExecution(execution, status: .succeeded, responseSummary: responseSummary, errorDetails: nil)
+    }
+
+    /// A plausible mock effect for each built-in execution action type — not wired to any real provider, mirroring
+    /// `StubGmailConnector`/`StubGitHubConnector`'s deterministic synthesized-ID responses.
+    private func mockExecutionResponse(actionType: String) -> [String: JSONValue] {
+        switch actionType {
+        case "send_email":
+            return ["messageId": .string("mock-message-\(UUID().uuidString)")]
+        case "draft_gmail_email":
+            return ["draftId": .string("mock-draft-\(UUID().uuidString)")]
+        case "create_github_issue":
+            return ["issueId": .string("mock-issue-\(UUID().uuidString)"), "number": .number(1)]
+        case "create_github_pull_request":
+            return ["pullRequestId": .string("mock-pr-\(UUID().uuidString)"), "number": .number(1)]
+        default:
+            return [:]
+        }
+    }
+
+    private func finishExecution(_ execution: ExecutionRecord, status: ExecutionStatus, responseSummary: [String: JSONValue]?, errorDetails: String?) -> ExecutionRecord {
+        let now = ISO8601DateFormatter().string(from: Date())
+        let updated = ExecutionRecord(
+            id: execution.id, workspaceId: execution.workspaceId, provider: execution.provider, actionType: execution.actionType,
+            status: status, requestPayload: execution.requestPayload, responseSummary: responseSummary,
+            errorDetails: errorDetails, pendingApprovalId: execution.pendingApprovalId,
+            startedAt: execution.startedAt ?? now, completedAt: now, createdAt: execution.createdAt, updatedAt: now
+        )
+        saveExecution(updated)
+        return updated
+    }
+
+    private func findExecution(workspaceId: String, executionId: String) throws -> ExecutionRecord {
+        guard let execution = (executionsByWorkspace[workspaceId] ?? []).first(where: { $0.id == executionId }) else {
+            throw APIError.server(statusCode: 404, message: "Execution not found: \(executionId)")
+        }
+        return execution
+    }
+
+    private func saveExecution(_ execution: ExecutionRecord) {
+        guard var executions = executionsByWorkspace[execution.workspaceId], let index = executions.firstIndex(where: { $0.id == execution.id }) else { return }
+        executions[index] = execution
+        executionsByWorkspace[execution.workspaceId] = executions
     }
 
     // MARK: - Productivity Intelligence pure helpers (mirror backend/src/insights/taskAnalysis.ts and workspaceInsightsService.ts)

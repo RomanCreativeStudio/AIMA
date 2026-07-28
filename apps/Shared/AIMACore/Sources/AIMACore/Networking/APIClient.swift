@@ -53,4 +53,10 @@ public protocol APIClient: Sendable {
     func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence
     func getConversationIntelligence(workspaceId: String, conversationId: String) async throws -> ConversationIntelligence
     func getWorkspaceInsights(workspaceId: String) async throws -> WorkspaceInsights
+
+    func previewExecution(workspaceId: String, actionType: String, payload: [String: JSONValue]) async throws -> ExecutionPreview
+    func createExecutionRequest(workspaceId: String, actionType: String, payload: [String: JSONValue]) async throws -> ExecutionRecord
+    func executeExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord
+    func listExecutions(workspaceId: String) async throws -> [ExecutionRecord]
+    func getExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord
 }

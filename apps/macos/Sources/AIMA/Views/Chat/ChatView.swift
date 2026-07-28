@@ -48,6 +48,10 @@ struct ChatView: View {
                     WorkflowSuggestionCardView(suggestion: suggestion)
                 }
 
+                if let suggestion = viewModel.lastExecutionSuggestion {
+                    ExecutionSuggestionCardView(suggestion: suggestion)
+                }
+
                 if let intelligence = viewModel.conversationIntelligence {
                     ConversationIntelligenceCardView(intelligence: intelligence)
                 }

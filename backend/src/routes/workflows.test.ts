@@ -7,6 +7,13 @@ import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
+import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
+import { ExecutionRegistry } from '../execution/registry';
+import { ExecutionService } from '../execution/executionService';
+import { GmailSaveDraftExecutor } from '../execution/executors/gmailSaveDraftExecutor';
+import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExecutor';
+import { GitHubCreateIssueExecutor } from '../execution/executors/githubCreateIssueExecutor';
+import { GitHubCreatePullRequestExecutor } from '../execution/executors/githubCreatePullRequestExecutor';
 import { BriefingService } from '../insights/briefingService';
 import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
 import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
@@ -67,9 +74,10 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const integrationRegistry = new IntegrationRegistry();
   const credentialEncryptor = new AesGcmCredentialEncryptor(TEST_CREDENTIAL_ENCRYPTION_KEY);
   const gmailConnector = new StubGmailConnector();
+  const githubConnector = new StubGitHubConnector();
   const connectors: Record<IntegrationProvider, IntegrationConnector> = {
     gmail: gmailConnector,
-    github: new StubGitHubConnector(),
+    github: githubConnector,
     calendar: new StubCalendarConnector(),
   };
   const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
@@ -110,12 +118,21 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   };
   const workflowService = new WorkflowService(pool, workflowRegistry, workflowHandlers, approvalEngine);
   const workflowIntentMatcher = new WorkflowIntentMatcher(workflowRegistry);
+  const executionRegistry = new ExecutionRegistry([
+    new GmailSendEmailExecutor(gmailConnector),
+    new GmailSaveDraftExecutor(gmailConnector),
+    new GitHubCreateIssueExecutor(githubConnector),
+    new GitHubCreatePullRequestExecutor(githubConnector),
+  ]);
+  const executionService = new ExecutionService(pool, executionRegistry, integrationService, approvalEngine, permissionEngine);
+  const executionIntentMatcher = new ExecutionIntentMatcher(executionRegistry);
   const conversationService = new ConversationService({
     db: pool,
     aimaCoreService,
     actionLogger,
     permissionEngine,
     workflowIntentMatcher,
+    executionIntentMatcher,
   });
 
   const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
@@ -152,6 +169,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     taskIntelligenceService,
     conversationIntelligenceService,
     workspaceInsightsService,
+    executionService,
     aiProvider,
     corsOrigins: [],
   });

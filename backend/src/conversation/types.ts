@@ -3,6 +3,7 @@ import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
 import type { WorkflowSuggestion } from '../workflows/types';
+import type { ExecutionSuggestion } from '../execution/types';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -42,4 +43,6 @@ export interface SendMessageResult {
   approvalDecision: ApprovalDecision;
   /** An advisory workflow preview (Phase 2.4, item 4), present when the message matches one of the built-in workflows. Never itself creates or executes a run. */
   workflowSuggestion: WorkflowSuggestion | null;
+  /** An advisory execution preview (Phase 2.6, item 5), present when the message matches a real external action. Never itself creates or runs an execution — the user must go through a dedicated execution request. */
+  executionSuggestion: ExecutionSuggestion | null;
 }

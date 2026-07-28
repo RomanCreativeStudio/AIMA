@@ -1,5 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import type { IntegrationCredentials } from '../types';
-import type { ConnectionTestResult, EmailMessageSummary, GmailConnector } from './types';
+import type {
+  ConnectionTestResult,
+  EmailMessageSummary,
+  GmailConnector,
+  SaveDraftInput,
+  SaveDraftResult,
+  SendEmailInput,
+  SendEmailResult,
+} from './types';
 
 const SAMPLE_MESSAGES: EmailMessageSummary[] = [
   {
@@ -47,5 +56,36 @@ export class StubGmailConnector implements GmailConnector {
       throw new Error(`Cannot list messages: ${result.detail}`);
     }
     return SAMPLE_MESSAGES.slice(0, options.limit ?? SAMPLE_MESSAGES.length);
+  }
+
+  /**
+   * Phase 2.6 — deterministic stub for `send_email`: a real implementation
+   * would call `POST https://gmail.googleapis.com/gmail/v1/users/me/
+   * messages/send`; this validates credentials and the input shape and
+   * returns a synthesized message id, with no network call, the same
+   * "framework genuinely tested, live call out of scope" precedent as
+   * `listMessages` (docs/decisions/0014-action-execution-foundation.md).
+   */
+  async sendEmail(credentials: IntegrationCredentials, input: SendEmailInput): Promise<SendEmailResult> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot send email: ${result.detail}`);
+    }
+    if (!input.to || !input.subject || !input.body) {
+      throw new Error('to, subject, and body are all required to send an email');
+    }
+    return { messageId: `mock-message-${randomUUID()}` };
+  }
+
+  /** Phase 2.6 — deterministic stub for `draft_gmail_email`, saving directly within the connected account (not the local drafts table). */
+  async saveDraft(credentials: IntegrationCredentials, input: SaveDraftInput): Promise<SaveDraftResult> {
+    const result = await this.testConnection(credentials);
+    if (!result.ok) {
+      throw new Error(`Cannot save draft: ${result.detail}`);
+    }
+    if (!input.to || !input.subject || !input.body) {
+      throw new Error('to, subject, and body are all required to save a draft');
+    }
+    return { draftId: `mock-draft-${randomUUID()}` };
   }
 }

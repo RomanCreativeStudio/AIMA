@@ -17,6 +17,8 @@ import { PermissionEngine } from '../permissions/engine';
 import { WorkspaceService } from '../workspaces/workspaceService';
 import { WorkflowRegistry } from '../workflows/registry';
 import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
+import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
+import { ExecutionRegistry } from '../execution/registry';
 import { ConversationService } from '../conversation/conversationService';
 import { ConversationNotFoundError } from '../conversation/errors';
 import { ConversationIntelligenceService } from './conversationIntelligenceService';
@@ -48,6 +50,7 @@ function buildService(client: Client, aiProvider: AIProvider) {
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
   const workflowIntentMatcher = new WorkflowIntentMatcher(new WorkflowRegistry());
+  const executionIntentMatcher = new ExecutionIntentMatcher(new ExecutionRegistry());
 
   const conversationService = new ConversationService({
     db: client,
@@ -55,6 +58,7 @@ function buildService(client: Client, aiProvider: AIProvider) {
     actionLogger,
     permissionEngine,
     workflowIntentMatcher,
+    executionIntentMatcher,
   });
 
   const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
