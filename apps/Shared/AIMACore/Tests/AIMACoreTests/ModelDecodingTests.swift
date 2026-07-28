@@ -256,7 +256,8 @@ final class ModelDecodingTests: XCTestCase {
             "database":{"status":"ok","detail":null},
             "aiProvider":{"status":"ok","detail":"mock"},
             "memory":{"status":"ok","detail":null},
-            "knowledge":{"status":"ok","detail":null}
+            "knowledge":{"status":"ok","detail":null},
+            "integrations":{"status":"ok","detail":"gmail, github, calendar"}
           }
         }
         """.data(using: .utf8)!
@@ -264,6 +265,7 @@ final class ModelDecodingTests: XCTestCase {
         let health = try decoder.decode(SystemHealth.self, from: json)
         XCTAssertTrue(health.isHealthy)
         XCTAssertEqual(health.checks.aiProvider.detail, "mock")
+        XCTAssertEqual(health.checks.integrations.detail, "gmail, github, calendar")
     }
 
     func testWorkflowKeyRawValuesMatchBackendEnum() {

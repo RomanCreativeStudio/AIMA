@@ -228,7 +228,17 @@ public actor MockAPIClient: APIClient {
     public func getHealth() async throws -> SystemHealth {
         try await maybeFail()
         let ok = SystemHealth.CheckResult(status: "ok", detail: nil)
-        return SystemHealth(status: "ok", timestamp: ISO8601DateFormatter().string(from: Date()), checks: .init(database: ok, aiProvider: .init(status: "ok", detail: "mock"), memory: ok, knowledge: ok))
+        return SystemHealth(
+            status: "ok",
+            timestamp: ISO8601DateFormatter().string(from: Date()),
+            checks: .init(
+                database: ok,
+                aiProvider: .init(status: "ok", detail: "mock"),
+                memory: ok,
+                knowledge: ok,
+                integrations: .init(status: "ok", detail: "gmail, github, calendar")
+            )
+        )
     }
 
     public func getUser(id: String) async throws -> UserProfile {

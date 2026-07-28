@@ -18,12 +18,20 @@ public struct SystemHealth: Codable, Equatable, Sendable {
         public let aiProvider: CheckResult
         public let memory: CheckResult
         public let knowledge: CheckResult
+        public let integrations: CheckResult
 
-        public init(database: CheckResult, aiProvider: CheckResult, memory: CheckResult, knowledge: CheckResult) {
+        public init(
+            database: CheckResult,
+            aiProvider: CheckResult,
+            memory: CheckResult,
+            knowledge: CheckResult,
+            integrations: CheckResult
+        ) {
             self.database = database
             self.aiProvider = aiProvider
             self.memory = memory
             self.knowledge = knowledge
+            self.integrations = integrations
         }
     }
 

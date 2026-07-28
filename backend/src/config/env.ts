@@ -1,7 +1,14 @@
+export const NODE_ENVS = ['development', 'test', 'production'] as const;
+export type NodeEnv = (typeof NODE_ENVS)[number];
+
 export interface AppConfig {
   port: number;
-  nodeEnv: string;
+  nodeEnv: NodeEnv;
   databaseUrl: string;
+  /** Whether to negotiate TLS with Postgres (Phase 3.1) — most managed providers (Supabase, Render, Fly Postgres) need this in production; `rejectUnauthorized: false` since these providers commonly present a certificate not chained to a public CA. */
+  databaseSsl: boolean;
+  /** Max simultaneous connections in the pool (Phase 3.1) — bounded so a traffic spike can't exhaust the database's own connection limit. */
+  databasePoolMax: number;
   corsOrigins: string[];
   /** Base64-encoded 32-byte AES-256 key backing `AesGcmCredentialEncryptor` (Phase 2.3). Generate with `openssl rand -base64 32`. */
   credentialEncryptionKey: string;
@@ -18,9 +25,15 @@ export interface AppConfig {
 /**
  * Loads and validates process.env into a typed config object. Fails fast at
  * startup rather than letting a missing variable surface as a confusing
- * runtime error later (docs/DEVELOPMENT_SETUP.md §5).
+ * runtime error later (docs/DEVELOPMENT_SETUP.md §5). Phase 3.1 adds
+ * production-only checks (docs/decisions/0016-production-deployment-
+ * foundation.md) — these never require real external credentials, only
+ * that the *shape* of what's already required is production-safe (e.g. a
+ * real TLS callback URL, not `http://localhost`).
  */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const nodeEnv = validateNodeEnv(env.NODE_ENV);
+
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error(
@@ -36,12 +49,24 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         'Generate one with `openssl rand -base64 32` and copy backend/.env.example to backend/.env.',
     );
   }
+  if (Buffer.from(credentialEncryptionKey, 'base64').length !== 32) {
+    throw new Error(
+      `CREDENTIAL_ENCRYPTION_KEY must decode to exactly 32 bytes (got ${Buffer.from(credentialEncryptionKey, 'base64').length}). ` +
+        'Generate one with `openssl rand -base64 32`.',
+    );
+  }
 
   const publicBackendUrl = env.PUBLIC_BACKEND_URL;
   if (!publicBackendUrl) {
     throw new Error(
       'PUBLIC_BACKEND_URL is required (Phase 2.7 OAuth flows redirect back to this process). ' +
         'Set it to this backend\'s own reachable URL, e.g. http://127.0.0.1:4000 for local development.',
+    );
+  }
+  if (nodeEnv === 'production' && !publicBackendUrl.startsWith('https://')) {
+    throw new Error(
+      `PUBLIC_BACKEND_URL must be an https:// URL in production (got "${publicBackendUrl}") — OAuth providers ` +
+        'redirect real users here, and a plaintext callback would leak authorization codes in transit.',
     );
   }
 
@@ -65,8 +90,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     port: Number(env.PORT ?? 4000),
-    nodeEnv: env.NODE_ENV ?? 'development',
+    nodeEnv,
     databaseUrl,
+    databaseSsl: env.DATABASE_SSL === 'true',
+    databasePoolMax: Number(env.DATABASE_POOL_MAX ?? 10),
     corsOrigins: (env.CORS_ORIGINS ?? '')
       .split(',')
       .map((origin) => origin.trim())
@@ -78,4 +105,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     githubOAuthClientId,
     githubOAuthClientSecret,
   };
+}
+
+function validateNodeEnv(value: string | undefined): NodeEnv {
+  const candidate = value ?? 'development';
+  if (!(NODE_ENVS as readonly string[]).includes(candidate)) {
+    throw new Error(`NODE_ENV must be one of ${NODE_ENVS.join('/')} (got "${candidate}").`);
+  }
+  return candidate as NodeEnv;
 }

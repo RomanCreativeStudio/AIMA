@@ -26,6 +26,12 @@ import type { CapabilityRegistry } from './permissions/registry';
 import type { PermissionEngine } from './permissions/engine';
 import type { WorkflowRegistry } from './workflows/registry';
 import type { WorkflowService } from './workflows/workflowService';
+import type { NodeEnv } from './config/env';
+import type { Logger } from './logging/types';
+import { ConsoleLogger } from './logging/consoleLogger';
+import type { ErrorReporter } from './monitoring/types';
+import { ConsoleErrorReporter } from './monitoring/consoleErrorReporter';
+import { requestLogger } from './middleware/requestLogger';
 import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
@@ -43,7 +49,7 @@ import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
 import { workspacesRouter } from './routes/workspaces';
-import { errorHandler } from './middleware/errorHandler';
+import { createErrorHandler } from './middleware/errorHandler';
 
 export interface AppDependencies {
   pool: Pool;
@@ -72,6 +78,10 @@ export interface AppDependencies {
   workspaceInsightsService: WorkspaceInsightsService;
   executionService: ExecutionService;
   corsOrigins: string[];
+  /** Phase 3.1: optional so every existing call site (tests included) keeps compiling — `createApp` builds a `ConsoleLogger`/`ConsoleErrorReporter` when these are omitted. */
+  nodeEnv?: NodeEnv;
+  logger?: Logger;
+  errorReporter?: ErrorReporter;
 }
 
 /**
@@ -81,11 +91,14 @@ export interface AppDependencies {
  */
 export function createApp(deps: AppDependencies): Application {
   const app = express();
+  const logger = deps.logger ?? new ConsoleLogger(deps.nodeEnv ?? 'development');
+  const errorReporter = deps.errorReporter ?? new ConsoleErrorReporter(logger);
 
   app.use(helmet());
   // No CORS_ORIGINS configured => deny all cross-origin requests by default.
   app.use(cors({ origin: deps.corsOrigins.length > 0 ? deps.corsOrigins : false }));
   app.use(express.json());
+  app.use(requestLogger(logger));
 
   app.use(healthRouter(deps.healthService));
   app.use('/api', capabilitiesRouter(deps.registry));
@@ -161,7 +174,7 @@ export function createApp(deps: AppDependencies): Application {
   );
   app.use('/api', executionsRouter({ executionService: deps.executionService }));
 
-  app.use(errorHandler);
+  app.use(createErrorHandler(errorReporter));
 
   return app;
 }

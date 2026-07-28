@@ -73,3 +73,24 @@ test('a single failing subsystem does not mask the others', async () => {
     assert.equal(health.status, 'error');
   });
 });
+
+test('check() reports integrations ok by default (all providers registered)', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new HealthService(client, okProvider);
+    const health = await service.check();
+
+    assert.equal(health.checks.integrations.status, 'ok');
+    assert.equal(health.checks.integrations.detail, 'gmail, github, calendar');
+  });
+});
+
+test('check() reports integrations error and names the missing providers', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new HealthService(client, okProvider, { gmail: true, github: false, calendar: false });
+    const health = await service.check();
+
+    assert.equal(health.checks.integrations.status, 'error');
+    assert.equal(health.checks.integrations.detail, 'Not configured: github, calendar');
+    assert.equal(health.status, 'error');
+  });
+});

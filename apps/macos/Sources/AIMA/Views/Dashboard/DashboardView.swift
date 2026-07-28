@@ -71,6 +71,7 @@ struct DashboardView: View {
                     statusRow("AI Provider", isHealthy: health.checks.aiProvider.status == "ok", detail: health.checks.aiProvider.detail)
                     statusRow("Memory", isHealthy: health.checks.memory.status == "ok")
                     statusRow("Knowledge", isHealthy: health.checks.knowledge.status == "ok")
+                    statusRow("Integrations", isHealthy: health.checks.integrations.status == "ok", detail: health.checks.integrations.detail)
                 }
             } else {
                 Text("No status yet.").foregroundStyle(.secondary)

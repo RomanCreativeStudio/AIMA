@@ -19,12 +19,14 @@ import { GmailSaveDraftExecutor } from './execution/executors/gmailSaveDraftExec
 import { GmailSendEmailExecutor } from './execution/executors/gmailSendEmailExecutor';
 import { GitHubCreateIssueExecutor } from './execution/executors/githubCreateIssueExecutor';
 import { GitHubCreatePullRequestExecutor } from './execution/executors/githubCreatePullRequestExecutor';
-import { HealthService } from './health/healthService';
+import { HealthService, type IntegrationReadiness } from './health/healthService';
 import { BriefingService } from './insights/briefingService';
 import { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
 import { TaskIntelligenceService } from './insights/taskIntelligenceService';
 import { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import { IntentEngine } from './intent/intentEngine';
+import { ConsoleLogger } from './logging/consoleLogger';
+import { ConsoleErrorReporter } from './monitoring/consoleErrorReporter';
 import { GoogleCalendarConnector } from './integrations/connectors/googleCalendarConnector';
 import { LiveGitHubConnector } from './integrations/connectors/liveGitHubConnector';
 import { GoogleGmailConnector } from './integrations/connectors/googleGmailConnector';
@@ -58,7 +60,9 @@ import { WorkflowService } from './workflows/workflowService';
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const pool = createPool(config.databaseUrl);
+  const logger = new ConsoleLogger(config.nodeEnv);
+  const errorReporter = new ConsoleErrorReporter(logger);
+  const pool = createPool(config.databaseUrl, { ssl: config.databaseSsl, maxConnections: config.databasePoolMax });
   const registry = new CapabilityRegistry();
 
   // Gives the DB a stable row per capability (e.g. for pending_approvals'
@@ -117,7 +121,12 @@ async function main(): Promise<void> {
   const oauthService = new OAuthService(pool, oauthProviders, integrationService);
   const userService = new UserService(pool);
   const workspaceService = new WorkspaceService(pool);
-  const healthService = new HealthService(pool, aiProvider);
+  const integrationReadiness: IntegrationReadiness = {
+    gmail: Boolean(oauthProviders.gmail),
+    github: Boolean(oauthProviders.github),
+    calendar: Boolean(oauthProviders.calendar),
+  };
+  const healthService = new HealthService(pool, aiProvider, integrationReadiness);
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
 
@@ -216,6 +225,9 @@ async function main(): Promise<void> {
     workspaceInsightsService,
     executionService,
     corsOrigins: config.corsOrigins,
+    nodeEnv: config.nodeEnv,
+    logger,
+    errorReporter,
   });
 
   app.listen(config.port, () => {

@@ -1,9 +1,9 @@
 # AIMA Development Setup Guide
 
-**Version:** 0.1 (Founding Draft)
-**Status:** Official Engineering Workflow — companion to `docs/PRODUCT_BIBLE.md` and `docs/TECHNICAL_ARCHITECTURE.md`
+**Version:** 0.2
+**Status:** Official Engineering Workflow — companion to `docs/PRODUCT_BIBLE.md`, `docs/TECHNICAL_ARCHITECTURE.md`, and `docs/PRODUCTION_SETUP.md`
 **Owner:** Lead Developer
-**Last Updated:** 2026-07-27
+**Last Updated:** 2026-07-28
 
 This document defines how AIMA is actually built, day to day: tools, repository layout, git workflow, environment setup, testing, and documentation standards. It exists so that development — even as a solo effort — proceeds with the discipline of a real engineering team. Every rule here exists to protect the guarantees made in the Product Bible (user control, workspace isolation, permission tiers, logging) as the codebase grows.
 
@@ -147,6 +147,11 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 - A separate GitHub OAuth app (https://github.com/settings/developers) provides `GITHUB_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_SECRET`, with an authorization callback URL of `{PUBLIC_BACKEND_URL}/api/oauth/github/callback`.
 - `PUBLIC_BACKEND_URL` is this backend process's own reachable URL (`http://127.0.0.1:4000` for local development) — it's how the fixed OAuth redirect URIs above get built, and it must match exactly what's registered with each provider, protocol and port included.
 - All five variables (`PUBLIC_BACKEND_URL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`) are required at startup the same way `CREDENTIAL_ENCRYPTION_KEY` is (`backend/.env.example`) — `npm run dev` fails fast with a clear message if any is missing. Tests never need real values: every OAuth/connector test in `backend/`'s suite injects a fake `fetch` (`backend/src/testUtils/fakeFetch.ts`) and never reaches a real provider.
+
+### Production Configuration (Phase 3.1)
+- Running the backend anywhere other than a developer's own machine — a staging host, a production deployment — is covered in full by `docs/PRODUCTION_SETUP.md`, not this document. In short: set `NODE_ENV=production`, use `backend/.env.production.example` as your template, and `PUBLIC_BACKEND_URL` must be `https://` (enforced by `loadConfig()`, `backend/src/config/env.ts`).
+- Two additional optional variables control database connection behavior in any environment: `DATABASE_SSL` (set `true` for managed Postgres providers that require TLS) and `DATABASE_POOL_MAX` (bounds simultaneous connections; defaults to 10).
+- This phase adds no requirement for real OAuth credentials or a live deployment — it only makes the backend's existing configuration production-ready (validation, logging, error monitoring, health checks). See `docs/decisions/0016-production-deployment-foundation.md`.
 
 ### Secrets Management
 - Local development: secrets live in a `.env` file at the relevant app/service root, listed in `.gitignore`, never committed.
