@@ -50,3 +50,8 @@ export type {
 export type { MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from './memory/types';
 export { RuleBasedMemoryExtractor } from './memory/RuleBasedMemoryExtractor';
 export { rankMemoryCandidates } from './memory/ranking';
+
+export type { OccurrenceEvent, RecurringPattern, TrendDirection, TrendResult } from './proactive/types';
+export { DEFAULT_MIN_OCCURRENCES, computeRecurrenceConfidence, detectRecurringPatterns, detectTrend } from './proactive/patternEngine';
+export type { RankableSuggestion } from './proactive/ranking';
+export { rankSuggestions } from './proactive/ranking';

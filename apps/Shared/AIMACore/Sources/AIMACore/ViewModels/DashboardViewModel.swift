@@ -21,6 +21,12 @@ public final class DashboardViewModel {
     public private(set) var taskIntelligence: TaskIntelligence?
     /// Backs the Insight Cards (Phase 2.5, item 5): activity/workflow/approval/task-completion metrics.
     public private(set) var workspaceInsights: WorkspaceInsights?
+    /// Backs the Pattern Insights section (Phase 3.5, item 8) — every deterministically-detected pattern, not
+    /// just the subset `dailyBriefing.suggestedNextActions` turned into a suggestion.
+    public private(set) var patterns: [Pattern] = []
+    /// Backs the Recommendations section (Phase 3.5, item 8) — the full, ranked suggestion list. Advisory only:
+    /// nothing here is ever acted on without an explicit, separate user action elsewhere in the app.
+    public private(set) var suggestions: [Suggestion] = []
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
 
@@ -52,9 +58,12 @@ public final class DashboardViewModel {
             async let briefingResult = apiClient.getDailyBriefing(workspaceId: workspaceId)
             async let taskIntelligenceResult = apiClient.getTaskIntelligence(workspaceId: workspaceId)
             async let insightsResult = apiClient.getWorkspaceInsights(workspaceId: workspaceId)
+            async let patternsResult = apiClient.getProactivePatterns(workspaceId: workspaceId)
+            async let suggestionsResult = apiClient.getProactiveSuggestions(workspaceId: workspaceId)
 
-            let (workspace, health, approvals, tasks, briefing, taskIntelligence, insights) = try await (
-                workspaceResult, healthResult, approvalsResult, tasksResult, briefingResult, taskIntelligenceResult, insightsResult
+            let (workspace, health, approvals, tasks, briefing, taskIntelligence, insights, patterns, suggestions) = try await (
+                workspaceResult, healthResult, approvalsResult, tasksResult, briefingResult, taskIntelligenceResult,
+                insightsResult, patternsResult, suggestionsResult
             )
             self.workspace = workspace
             self.systemHealth = health
@@ -63,6 +72,8 @@ public final class DashboardViewModel {
             self.dailyBriefing = briefing
             self.taskIntelligence = taskIntelligence
             self.workspaceInsights = insights
+            self.patterns = patterns
+            self.suggestions = suggestions
         } catch let error as APIError {
             errorMessage = error.userMessage
         } catch {

@@ -37,4 +37,28 @@ final class WorkspaceViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.activeWorkspaceId, originalActiveId)
     }
+
+    func testLoadActivitySummaryPopulatesTheActiveWorkspacesInsights() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        await viewModel.load()
+        XCTAssertNil(viewModel.activitySummary, "sanity check: nothing loaded yet")
+
+        await viewModel.loadActivitySummary()
+
+        let summary = try! XCTUnwrap(viewModel.activitySummary)
+        XCTAssertEqual(summary.workspaceId, viewModel.activeWorkspaceId)
+    }
+
+    func testSwitchWorkspaceClearsTheStaleActivitySummary() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        await viewModel.load()
+        await viewModel.loadActivitySummary()
+        let personal = try! XCTUnwrap(viewModel.workspaces.first { $0.slug == .personal })
+
+        viewModel.switchWorkspace(to: personal.id)
+
+        XCTAssertNil(viewModel.activitySummary)
+    }
 }

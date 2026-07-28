@@ -229,6 +229,18 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.errorMessage)
     }
 
+    func testLoadWorkspaceSuggestionsPopulatesAdvisoryRecommendations() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        XCTAssertTrue(viewModel.workspaceSuggestions.isEmpty, "sanity check: nothing loaded yet")
+
+        await viewModel.loadWorkspaceSuggestions()
+
+        XCTAssertFalse(viewModel.workspaceSuggestions.isEmpty)
+        XCTAssertFalse(viewModel.isLoadingSuggestions)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
     func testLoadConversationIntelligenceDoesNothingWithoutASelectedConversation() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

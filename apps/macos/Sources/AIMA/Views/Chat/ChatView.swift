@@ -56,9 +56,13 @@ struct ChatView: View {
                     ConversationIntelligenceCardView(intelligence: intelligence)
                 }
 
-                if viewModel.selectedConversationId != nil {
-                    HStack {
-                        Spacer()
+                if !viewModel.workspaceSuggestions.isEmpty {
+                    RecommendationsCardView(suggestions: viewModel.workspaceSuggestions)
+                }
+
+                HStack {
+                    Spacer()
+                    if viewModel.selectedConversationId != nil {
                         Button {
                             Task { await viewModel.loadConversationIntelligence() }
                         } label: {
@@ -70,10 +74,21 @@ struct ChatView: View {
                         }
                         .disabled(viewModel.isLoadingIntelligence)
                         .buttonStyle(.bordered)
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
                     }
+                    Button {
+                        Task { await viewModel.loadWorkspaceSuggestions() }
+                    } label: {
+                        if viewModel.isLoadingSuggestions {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Show Recommendations", systemImage: "lightbulb")
+                        }
+                    }
+                    .disabled(viewModel.isLoadingSuggestions)
+                    .buttonStyle(.bordered)
                 }
+                .padding(.horizontal, 12)
+                .padding(.top, 4)
 
                 MessageInputView(viewModel: viewModel)
             }

@@ -900,14 +900,34 @@ public actor MockAPIClient: APIClient {
         let activeWorkflows = (workflowRunsByWorkspace[workspaceId] ?? []).map(\.asRun).filter { Self.activeWorkflowRunStatuses.contains($0.status) }
         let priorityTasks = Array(Self.rankTasksByPriority(openTasks, now: now, dueSoonWindow: Self.defaultDueSoonWindow).prefix(5))
         let recentActivity = actionLogByWorkspace[workspaceId] ?? []
+        let recentMemories = memoriesByWorkspace[workspaceId] ?? []
+        let suggestedNextActions = Array((workspaceId == "mock-ws-rcs" ? Self.seedSuggestions : []).prefix(3))
 
         return DailyBriefing(
             workspaceId: workspaceId, workspaceName: workspace.name,
             pendingApprovalCount: pendingApprovals.count, pendingApprovals: pendingApprovals,
             activeWorkflowCount: activeWorkflows.count, activeWorkflows: activeWorkflows,
             priorityTasks: priorityTasks, recentActivity: recentActivity,
+            recentMemories: recentMemories, calendarHighlights: [],
+            suggestedNextActions: suggestedNextActions,
             generatedAt: ISO8601DateFormatter().string(from: now)
         )
+    }
+
+    public func getProactivePatterns(workspaceId: String) async throws -> [Pattern] {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        return workspaceId == "mock-ws-rcs" ? Self.seedPatterns : []
+    }
+
+    public func getProactiveSuggestions(workspaceId: String) async throws -> [Suggestion] {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        return workspaceId == "mock-ws-rcs" ? Self.seedSuggestions : []
     }
 
     public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {
@@ -1372,6 +1392,35 @@ public actor MockAPIClient: APIClient {
             content: "Acme's project timeline was pushed back two weeks last quarter.",
             source: nil, conversationId: nil, projectKey: nil, metadata: [:],
             createdAt: "2026-01-01T00:00:00.000Z", score: 0.82
+        ),
+    ]
+
+    private static let seedPatterns: [Pattern] = [
+        Pattern(
+            workspaceId: "mock-ws-rcs", type: .frequentWorkflow,
+            description: "The \"daily_workspace_briefing\" workflow has been run 3 times.",
+            confidence: 0.75, occurrences: 3,
+            detectedAt: "2026-01-01T00:00:00.000Z",
+            metadata: ["workflowKey": .string("daily_workspace_briefing")]
+        ),
+    ]
+
+    private static let seedSuggestions: [Suggestion] = [
+        Suggestion(
+            id: "workflow:daily_workspace_briefing", workspaceId: "mock-ws-rcs", type: .workflow,
+            title: "Run \"daily_workspace_briefing\" again",
+            explanation: "The \"daily_workspace_briefing\" workflow has been run 3 times.",
+            confidence: 0.75, source: "frequent_workflow_pattern",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            payload: ["workflowKey": .string("daily_workspace_briefing")]
+        ),
+        Suggestion(
+            id: "integration:calendar", workspaceId: "mock-ws-rcs", type: .integration,
+            title: "Connect Calendar",
+            explanation: "Calendar isn't connected yet — connecting it lets AIMA read and, with your approval, act on that account.",
+            confidence: 0.3, source: "integration_not_connected",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            payload: ["provider": .string("calendar")]
         ),
     ]
 

@@ -444,6 +444,66 @@ final class ModelDecodingTests: XCTestCase {
         let briefing = try decoder.decode(DailyBriefing.self, from: json)
         XCTAssertEqual(briefing.workspaceName, "Roman Creative Studio")
         XCTAssertEqual(briefing.pendingApprovalCount, 1)
+        // Pre-Phase-3.5 payload — no recentMemories/calendarHighlights/suggestedNextActions — still decodes.
+        XCTAssertEqual(briefing.recentMemories, [])
+        XCTAssertEqual(briefing.calendarHighlights, [])
+        XCTAssertEqual(briefing.suggestedNextActions, [])
+    }
+
+    func testDecodesDailyBriefingWithPhase35ProactiveFields() throws {
+        let json = """
+        {
+          "workspaceId":"w1","workspaceName":"Roman Creative Studio",
+          "pendingApprovalCount":0,"pendingApprovals":[],
+          "activeWorkflowCount":0,"activeWorkflows":[],
+          "priorityTasks":[],"recentActivity":[],
+          "recentMemories":[
+            {"id":"m1","workspaceId":"w1","scope":"workspace","content":"x","source":null,
+             "conversationId":null,"projectKey":null,"metadata":{},"createdAt":"2026-01-01T00:00:00.000Z"}
+          ],
+          "calendarHighlights":[
+            {"id":"a1","workspaceId":"w1","actionType":"create_calendar_event","tier":"execute_with_approval",
+             "summary":"Created a calendar event","payload":null,"outcome":"success","createdAt":"2026-01-01T00:00:00.000Z"}
+          ],
+          "suggestedNextActions":[
+            {"id":"workflow:x","workspaceId":"w1","type":"workflow","title":"Run x again",
+             "explanation":"x ran 3 times.","confidence":0.75,"source":"frequent_workflow_pattern",
+             "timestamp":"2026-01-01T00:00:00.000Z","payload":{"workflowKey":"x"}}
+          ],
+          "generatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let briefing = try decoder.decode(DailyBriefing.self, from: json)
+        XCTAssertEqual(briefing.recentMemories.count, 1)
+        XCTAssertEqual(briefing.calendarHighlights.count, 1)
+        XCTAssertEqual(briefing.suggestedNextActions.count, 1)
+        XCTAssertEqual(briefing.suggestedNextActions[0].type, .workflow)
+    }
+
+    func testDecodesSuggestion() throws {
+        let json = """
+        {"id":"workflow:x","workspaceId":"w1","type":"workflow","title":"Run x again",
+         "explanation":"x ran 3 times.","confidence":0.75,"source":"frequent_workflow_pattern",
+         "timestamp":"2026-01-01T00:00:00.000Z","payload":{"workflowKey":"x"}}
+        """.data(using: .utf8)!
+
+        let suggestion = try decoder.decode(Suggestion.self, from: json)
+        XCTAssertEqual(suggestion.type, .workflow)
+        XCTAssertEqual(suggestion.confidence, 0.75)
+        XCTAssertEqual(suggestion.source, "frequent_workflow_pattern")
+    }
+
+    func testDecodesPattern() throws {
+        let json = """
+        {"workspaceId":"w1","type":"repeated_task","description":"2 tasks share a keyword.",
+         "confidence":0.5,"occurrences":2,"detectedAt":"2026-01-01T00:00:00.000Z",
+         "metadata":{"keyword":"acme"}}
+        """.data(using: .utf8)!
+
+        let pattern = try decoder.decode(Pattern.self, from: json)
+        XCTAssertEqual(pattern.type, .repeatedTask)
+        XCTAssertEqual(pattern.occurrences, 2)
     }
 
     func testDecodesTaskIntelligenceWithRelatedGroups() throws {

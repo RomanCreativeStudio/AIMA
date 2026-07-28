@@ -83,4 +83,7 @@ public protocol APIClient: Sendable {
     func updateMemory(workspaceId: String, memoryId: String, request: UpdateMemoryRequest) async throws -> MemoryRecord
     func archiveMemory(workspaceId: String, memoryId: String) async throws -> MemoryRecord
     func deleteMemory(workspaceId: String, memoryId: String) async throws
+
+    func getProactivePatterns(workspaceId: String) async throws -> [Pattern]
+    func getProactiveSuggestions(workspaceId: String) async throws -> [Suggestion]
 }

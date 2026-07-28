@@ -535,4 +535,27 @@ final class URLSessionAPIClientTests: XCTestCase {
         let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
         XCTAssertEqual(recorded.httpMethod, "DELETE")
     }
+
+    func testGetProactivePatternsUnwrapsThePatternsEnvelope() async throws {
+        let body = """
+        {"patterns":[{"workspaceId":"w1","type":"repeated_task","description":"2 tasks share a keyword.","confidence":0.5,"occurrences":2,"detectedAt":"2026-01-01T00:00:00.000Z","metadata":{"keyword":"acme"}}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/proactive/patterns"] = .init(statusCode: 200, body: body)
+
+        let patterns = try await client.getProactivePatterns(workspaceId: "w1")
+        XCTAssertEqual(patterns.count, 1)
+        XCTAssertEqual(patterns[0].type, .repeatedTask)
+    }
+
+    func testGetProactiveSuggestionsUnwrapsTheSuggestionsEnvelope() async throws {
+        let body = """
+        {"suggestions":[{"id":"workflow:x","workspaceId":"w1","type":"workflow","title":"Run x again","explanation":"x ran 3 times.","confidence":0.75,"source":"frequent_workflow_pattern","timestamp":"2026-01-01T00:00:00.000Z","payload":{"workflowKey":"x"}}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/proactive/suggestions"] = .init(statusCode: 200, body: body)
+
+        let suggestions = try await client.getProactiveSuggestions(workspaceId: "w1")
+        XCTAssertEqual(suggestions.count, 1)
+        XCTAssertEqual(suggestions[0].type, .workflow)
+        XCTAssertEqual(suggestions[0].confidence, 0.75)
+    }
 }

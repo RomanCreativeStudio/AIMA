@@ -59,6 +59,17 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(insights.workflowMetrics.totalRuns, 0)
     }
 
+    func testLoadPopulatesPatternsAndSuggestions() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        XCTAssertFalse(viewModel.patterns.isEmpty)
+        XCTAssertFalse(viewModel.suggestions.isEmpty)
+        XCTAssertTrue(viewModel.patterns.allSatisfy { $0.workspaceId == "mock-ws-rcs" })
+    }
+
     func testTaskCountsRollUpByStatus() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)

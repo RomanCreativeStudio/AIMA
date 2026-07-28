@@ -33,6 +33,12 @@ public final class ChatViewModel {
     /// The selected conversation's Conversation Intelligence (Phase 2.5, item 3) — summary, suggested follow-ups, and related memories. Fetched only on explicit request (`loadConversationIntelligence`), never automatically, matching the phase's "no automatic actions" rule.
     public private(set) var conversationIntelligence: ConversationIntelligence?
     public private(set) var isLoadingIntelligence = false
+    /// Advisory recommendation cards for the active workspace (Phase 3.5, item 8) — workspace-scoped, not tied
+    /// to any single message, so it isn't reset on `selectConversation`. Fetched only on explicit request
+    /// (`loadWorkspaceSuggestions`), never automatically — the same "no automatic actions" rule
+    /// `loadConversationIntelligence` follows, and never itself creates/executes/sends anything.
+    public private(set) var workspaceSuggestions: [Suggestion] = []
+    public private(set) var isLoadingSuggestions = false
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -154,6 +160,23 @@ public final class ChatViewModel {
 
         do {
             conversationIntelligence = try await apiClient.getConversationIntelligence(workspaceId: workspaceId, conversationId: conversationId)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Fetches the Proactive Intelligence Engine's suggestions (Phase 3.5) for this workspace — a summary read,
+    /// same posture as `loadConversationIntelligence`. Never creates, executes, or sends anything; a view
+    /// renders these as dismissible advisory cards, not a popup or notification.
+    public func loadWorkspaceSuggestions() async {
+        isLoadingSuggestions = true
+        errorMessage = nil
+        defer { isLoadingSuggestions = false }
+
+        do {
+            workspaceSuggestions = try await apiClient.getProactiveSuggestions(workspaceId: workspaceId)
         } catch let error as APIError {
             errorMessage = error.userMessage
         } catch {

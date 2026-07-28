@@ -17,6 +17,10 @@ public final class WorkspaceViewModel {
     public private(set) var activeWorkspaceId: String?
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
+    /// The active workspace's activity summary (Phase 3.5, item 8) — reuses the existing, Phase 2.5
+    /// `WorkspaceInsights` read rather than introducing a parallel metric; fetched only on explicit request
+    /// (`loadActivitySummary`), not automatically on every `switchWorkspace`.
+    public private(set) var activitySummary: WorkspaceInsights?
 
     private let apiClient: APIClient
     private let userId: String
@@ -54,5 +58,19 @@ public final class WorkspaceViewModel {
     public func switchWorkspace(to workspaceId: String) {
         guard workspaces.contains(where: { $0.id == workspaceId }) else { return }
         activeWorkspaceId = workspaceId
+        activitySummary = nil
+    }
+
+    /// Fetches the active workspace's activity summary — a plain read, never automatic.
+    public func loadActivitySummary() async {
+        guard let workspaceId = activeWorkspaceId else { return }
+        errorMessage = nil
+        do {
+            activitySummary = try await apiClient.getWorkspaceInsights(workspaceId: workspaceId)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }

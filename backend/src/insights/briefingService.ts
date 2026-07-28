@@ -1,5 +1,7 @@
-import type { ActionLogger } from '../actionLog/logger';
+import type { ActionLogger, ActionLogRecord } from '../actionLog/logger';
 import type { ApprovalEngine } from '../approval/approvalEngine';
+import type { MemoryService } from '../memory/memoryService';
+import type { ProactiveIntelligenceService } from '../proactive/proactiveIntelligenceService';
 import type { TaskService } from '../tasks/taskService';
 import type { WorkflowService } from '../workflows/workflowService';
 import type { WorkspaceService } from '../workspaces/workspaceService';
@@ -9,6 +11,10 @@ import { ACTIVE_WORKFLOW_RUN_STATUSES, type DailyBriefing } from './types';
 const DEFAULT_PRIORITY_TASK_LIMIT = 5;
 const DEFAULT_RECENT_ACTIVITY_LIMIT = 10;
 const DEFAULT_DUE_SOON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // 3 days, matching TaskIntelligenceService's default
+const DEFAULT_RECENT_MEMORY_LIMIT = 5;
+const DEFAULT_SUGGESTED_ACTION_LIMIT = 3;
+/** Real writes that already went through Tier 3 approval — see `DailyBriefing.calendarHighlights`'s doc comment. */
+const CALENDAR_ACTION_TYPES = new Set(['create_calendar_event', 'update_calendar_event', 'delete_calendar_event']);
 
 /**
  * The Daily Briefing (Phase 2.5, item 1): a synchronous, read-only
@@ -28,16 +34,21 @@ export class BriefingService {
     private readonly approvalEngine: ApprovalEngine,
     private readonly workflowService: WorkflowService,
     private readonly actionLogger: ActionLogger,
+    /** Additive (Phase 3.5) — optional so every pre-3.5 call site (mostly test files that only need `BriefingService` to exist for router wiring, not its full output) keeps compiling unchanged. Omitting it just means `recentMemories`/`suggestedNextActions` come back empty. */
+    private readonly memoryService?: MemoryService,
+    private readonly proactiveIntelligenceService?: ProactiveIntelligenceService,
   ) {}
 
   async getDailyBriefing(workspaceId: string): Promise<DailyBriefing> {
     const workspace = await this.workspaceService.getWorkspace(workspaceId);
 
-    const [tasks, pendingApprovals, workflowRuns, recentActivity] = await Promise.all([
+    const [tasks, pendingApprovals, workflowRuns, recentActivity, recentMemories, suggestions] = await Promise.all([
       this.taskService.listTasks(workspaceId),
       this.approvalEngine.list(workspaceId, 'pending'),
       this.workflowService.listRuns(workspaceId),
       this.actionLogger.list(workspaceId, DEFAULT_RECENT_ACTIVITY_LIMIT),
+      this.memoryService?.listMemories({ workspaceId, limit: DEFAULT_RECENT_MEMORY_LIMIT }) ?? Promise.resolve([]),
+      this.proactiveIntelligenceService?.getSuggestions(workspaceId) ?? Promise.resolve([]),
     ]);
 
     const activeWorkflows = workflowRuns.filter((run) => ACTIVE_WORKFLOW_RUN_STATUSES.includes(run.status));
@@ -55,7 +66,14 @@ export class BriefingService {
       activeWorkflows,
       priorityTasks,
       recentActivity,
+      recentMemories,
+      calendarHighlights: recentActivity.filter((entry) => isCalendarActivity(entry)),
+      suggestedNextActions: suggestions.slice(0, DEFAULT_SUGGESTED_ACTION_LIMIT),
       generatedAt: new Date().toISOString(),
     };
   }
+}
+
+function isCalendarActivity(entry: ActionLogRecord): boolean {
+  return entry.actionType !== null && CALENDAR_ACTION_TYPES.has(entry.actionType);
 }

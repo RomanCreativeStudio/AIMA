@@ -33,6 +33,8 @@ struct DashboardView: View {
                 dailyBriefingSection
                 productivityWidgetsSection
                 insightCardsSection
+                recommendationsSection
+                patternInsightsSection
                 pendingApprovalsSection
                 tasksOverviewSection
             }
@@ -178,6 +180,70 @@ struct DashboardView: View {
                         Text("Recent Activity").font(.subheadline).fontWeight(.medium)
                         ForEach(briefing.recentActivity) { entry in
                             Text("• \(entry.summary)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if !briefing.recentMemories.isEmpty {
+                        Text("Recent Memories").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.recentMemories) { memory in
+                            Text("• \(memory.content)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
+                    if !briefing.calendarHighlights.isEmpty {
+                        Text("Calendar Highlights").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.calendarHighlights) { entry in
+                            Text("• \(entry.summary)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    if !briefing.suggestedNextActions.isEmpty {
+                        Text("Suggested Actions").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.suggestedNextActions) { suggestion in
+                            SuggestionRow(suggestion: suggestion)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// The Recommendations section (Phase 3.5, item 8) — every advisory suggestion the Proactive Intelligence
+    /// Engine currently has for this workspace, not just the capped subset in the Daily Briefing card above.
+    /// Purely informational: nothing here is a button that creates, executes, or sends anything.
+    @ViewBuilder
+    private var recommendationsSection: some View {
+        if !viewModel.suggestions.isEmpty {
+            SectionCard(title: "Recommendations") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(viewModel.suggestions) { suggestion in
+                        SuggestionRow(suggestion: suggestion)
+                    }
+                }
+            }
+        }
+    }
+
+    /// Pattern Insights (Phase 3.5, item 8) — the raw, deterministically-detected patterns behind the
+    /// recommendations above, for anyone who wants to see why something was suggested.
+    @ViewBuilder
+    private var patternInsightsSection: some View {
+        if !viewModel.patterns.isEmpty {
+            SectionCard(title: "Pattern Insights") {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(viewModel.patterns) { pattern in
+                        HStack(alignment: .top) {
+                            Text("• \(pattern.description)")
+                                .font(.callout)
+                            Spacer()
+                            Text("\(Int(pattern.confidence * 100))%")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }

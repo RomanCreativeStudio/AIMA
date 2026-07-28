@@ -18,6 +18,7 @@ import type { IntegrationRegistry } from './integrations/registry';
 import type { OAuthService } from './oauth/oauthService';
 import type { DocumentService } from './knowledge/documentService';
 import type { MemoryService } from './memory/memoryService';
+import type { ProactiveIntelligenceService } from './proactive/proactiveIntelligenceService';
 import type { PreferenceService } from './preferences/preferenceService';
 import type { TaskService } from './tasks/taskService';
 import type { UserService } from './users/userService';
@@ -46,6 +47,7 @@ import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
 import { oauthRouter } from './routes/oauth';
 import { preferencesRouter } from './routes/preferences';
+import { proactiveRouter } from './routes/proactive';
 import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
@@ -85,6 +87,8 @@ export interface AppDependencies {
   nodeEnv?: NodeEnv;
   logger?: Logger;
   errorReporter?: ErrorReporter;
+  /** Phase 3.5: optional so every pre-existing call site keeps compiling — the `/proactive/*` routes are simply not mounted when this is omitted. */
+  proactiveIntelligenceService?: ProactiveIntelligenceService;
 }
 
 /**
@@ -177,6 +181,9 @@ export function createApp(deps: AppDependencies): Application {
   );
   app.use('/api', executionsRouter({ executionService: deps.executionService }));
   app.use('/api', voiceRouter({ voiceService: deps.voiceService }));
+  if (deps.proactiveIntelligenceService) {
+    app.use('/api', proactiveRouter({ proactiveIntelligenceService: deps.proactiveIntelligenceService }));
+  }
 
   app.use(createErrorHandler(errorReporter));
 

@@ -1,7 +1,8 @@
 import type { ActionLogRecord } from '../actionLog/logger';
 import type { PendingApproval } from '../approval/types';
 import type { Message } from '../conversation/types';
-import type { RankedMemoryResult } from '../memory/types';
+import type { MemoryRecord, RankedMemoryResult } from '../memory/types';
+import type { Suggestion } from '../proactive/types';
 import type { Task } from '../tasks/types';
 import type { WorkflowRun, WorkflowRunStatus } from '../workflows/types';
 
@@ -34,6 +35,18 @@ export interface DailyBriefing {
   activeWorkflows: WorkflowRun[];
   priorityTasks: Task[];
   recentActivity: ActionLogRecord[];
+  /** Most recently created/updated memories (Phase 3.5, item 2) — a plain, non-search read via `MemoryService.listMemories`, not a similarity search (there's no query to rank against in a briefing). */
+  recentMemories: MemoryRecord[];
+  /**
+   * Calendar-related entries from `recentActivity` (Phase 3.5, item 2) — deliberately derived from the action
+   * log, never a live call to the Calendar connector's `listEvents`: reading a connected calendar is Tier 3 and
+   * tier-locked (`read_calendar`, permanently requires approval), and a plain briefing GET must never bypass
+   * that. This only ever reflects calendar writes that already went through approval
+   * (`create_calendar_event`/`update_calendar_event`/`delete_calendar_event`).
+   */
+  calendarHighlights: ActionLogRecord[];
+  /** Top advisory suggestions from the Proactive Intelligence Engine (Phase 3.5, item 1) — informational only; never itself creates, executes, or sends anything. */
+  suggestedNextActions: Suggestion[];
   generatedAt: string;
 }
 

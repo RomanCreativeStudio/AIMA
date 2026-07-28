@@ -31,6 +31,8 @@ import { ConversationIntelligenceService } from './insights/conversationIntellig
 import { TaskIntelligenceService } from './insights/taskIntelligenceService';
 import { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import { IntentEngine } from './intent/intentEngine';
+import { PatternDetectionService } from './proactive/patternDetectionService';
+import { ProactiveIntelligenceService } from './proactive/proactiveIntelligenceService';
 import { ConsoleLogger } from './logging/consoleLogger';
 import { ConsoleErrorReporter } from './monitoring/consoleErrorReporter';
 import { GoogleCalendarConnector } from './integrations/connectors/googleCalendarConnector';
@@ -201,7 +203,29 @@ async function main(): Promise<void> {
 
   const voiceService = new VoiceService(pool, conversationService, speechToTextProvider, textToSpeechProvider);
 
-  const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
+  const patternDetectionService = new PatternDetectionService(
+    workspaceService,
+    taskService,
+    workflowService,
+    approvalEngine,
+    actionLogger,
+    memoryService,
+  );
+  const proactiveIntelligenceService = new ProactiveIntelligenceService(
+    patternDetectionService,
+    memoryService,
+    integrationService,
+    integrationRegistry,
+  );
+  const briefingService = new BriefingService(
+    workspaceService,
+    taskService,
+    approvalEngine,
+    workflowService,
+    actionLogger,
+    memoryService,
+    proactiveIntelligenceService,
+  );
   const taskIntelligenceService = new TaskIntelligenceService(taskService);
   const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
   const workspaceInsightsService = new WorkspaceInsightsService(
@@ -237,6 +261,7 @@ async function main(): Promise<void> {
     taskIntelligenceService,
     conversationIntelligenceService,
     workspaceInsightsService,
+    proactiveIntelligenceService,
     executionService,
     voiceService,
     corsOrigins: config.corsOrigins,

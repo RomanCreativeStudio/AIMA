@@ -37,6 +37,8 @@ struct WorkspaceSwitcherView: View {
                 }
                 .buttonStyle(.plain)
             }
+
+            activitySummarySection
         }
         .navigationTitle("Workspace")
         .overlay {
@@ -47,6 +49,25 @@ struct WorkspaceSwitcherView: View {
         .task {
             if viewModel.workspaces.isEmpty {
                 await viewModel.load()
+            }
+        }
+        .task(id: viewModel.activeWorkspaceId) {
+            await viewModel.loadActivitySummary()
+        }
+    }
+
+    /// Activity Summary (Phase 3.5, item 8) — reuses the existing Phase 2.5 `WorkspaceInsights` read, refreshed
+    /// whenever the active workspace changes.
+    @ViewBuilder
+    private var activitySummarySection: some View {
+        Section("Activity Summary") {
+            if let summary = viewModel.activitySummary {
+                LabeledContent("Actions Logged", value: "\(summary.activityMetrics.totalActions)")
+                LabeledContent("Workflow Runs", value: "\(summary.workflowMetrics.totalRuns)")
+                LabeledContent("Pending Approvals", value: "\(summary.approvalMetrics.pending)")
+                LabeledContent("Task Completion", value: "\(Int(summary.taskMetrics.completionRate * 100))%")
+            } else {
+                Text("No activity yet.").foregroundStyle(.secondary)
             }
         }
     }
