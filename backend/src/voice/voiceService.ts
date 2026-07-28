@@ -2,7 +2,7 @@ import type { SpeechToTextProvider, TextToSpeechProvider } from '@aima/ai-engine
 import type { ConversationService } from '../conversation/conversationService';
 import type { Queryable } from '../db/queryable';
 import { WorkspaceNotFoundError } from '../types/errors';
-import { InvalidVoiceSessionStateError, VoiceSessionNotFoundError } from './errors';
+import { InvalidVoiceSessionStateError, VoiceProviderError, VoiceSessionNotFoundError } from './errors';
 import type { SubmitVoiceRequestInput, VoiceResponse, VoiceSession, VoiceTurn } from './types';
 
 const VOICE_SESSION_CONVERSATION_TITLE = 'Voice Session';
@@ -106,10 +106,15 @@ export class VoiceService {
       throw new InvalidVoiceSessionStateError('submit a voice request to', session.status);
     }
 
-    const transcription = await this.speechToTextProvider.transcribe({
-      data: input.audioData,
-      mimeType: input.audioMimeType,
-    });
+    let transcription;
+    try {
+      transcription = await this.speechToTextProvider.transcribe({
+        data: input.audioData,
+        mimeType: input.audioMimeType,
+      });
+    } catch (error) {
+      throw new VoiceProviderError('speech-to-text', error);
+    }
 
     const sendResult = await this.conversationService.sendMessage({
       workspaceId: input.workspaceId,
@@ -117,7 +122,12 @@ export class VoiceService {
       content: transcription.text,
     });
 
-    const synthesis = await this.textToSpeechProvider.synthesize(sendResult.assistantMessage.content, input.configuration);
+    let synthesis;
+    try {
+      synthesis = await this.textToSpeechProvider.synthesize(sendResult.assistantMessage.content, input.configuration);
+    } catch (error) {
+      throw new VoiceProviderError('text-to-speech', error);
+    }
 
     const turnResult = await this.db.query<VoiceTurnRow>(
       `INSERT INTO voice_turns (voice_session_id, workspace_id, transcript_text, transcript_confidence, response_text)

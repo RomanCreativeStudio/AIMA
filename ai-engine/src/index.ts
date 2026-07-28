@@ -30,10 +30,19 @@ export type {
 } from './voice/types';
 export { MockSpeechToTextProvider } from './voice/MockSpeechToTextProvider';
 export { MockTextToSpeechProvider } from './voice/MockTextToSpeechProvider';
+export { OpenAISpeechToTextProvider } from './voice/OpenAISpeechToTextProvider';
+export type { OpenAISpeechToTextProviderOptions } from './voice/OpenAISpeechToTextProvider';
+export { OpenAITextToSpeechProvider } from './voice/OpenAITextToSpeechProvider';
+export type { OpenAITextToSpeechProviderOptions } from './voice/OpenAITextToSpeechProvider';
 export {
   createSpeechToTextProvider,
   createSpeechToTextProviderFromEnv,
   createTextToSpeechProvider,
   createTextToSpeechProviderFromEnv,
 } from './voice/registry';
-export type { SupportedSpeechToTextProvider, SupportedTextToSpeechProvider } from './voice/registry';
+export type {
+  SupportedSpeechToTextProvider,
+  SupportedTextToSpeechProvider,
+  SpeechToTextProviderConfig,
+  TextToSpeechProviderConfig,
+} from './voice/registry';

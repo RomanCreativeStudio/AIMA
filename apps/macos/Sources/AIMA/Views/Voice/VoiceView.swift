@@ -30,12 +30,19 @@ struct VoiceView: View {
             sessionControls
                 .padding()
             Divider()
+            providerStatusRow
+                .padding(.horizontal)
+                .padding(.top, 8)
+            Divider()
             transcriptList
             Divider()
             composer
                 .padding()
         }
         .navigationTitle("Voice")
+        .task {
+            await viewModel.loadProviderStatus()
+        }
     }
 
     private var sessionControls: some View {
@@ -67,6 +74,22 @@ struct VoiceView: View {
         return session.isActive ? "Session active" : "Session ended"
     }
 
+    /// Which speech-to-text/text-to-speech provider the backend is
+    /// configured to use (Phase 3.3) — a plain configuration display, not a
+    /// live vendor check (`VoiceSessionViewModel.loadProviderStatus`).
+    @ViewBuilder
+    private var providerStatusRow: some View {
+        if let status = viewModel.providerStatus {
+            HStack(spacing: 6) {
+                Image(systemName: status.status == "ok" ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(status.status == "ok" ? .secondary : .red)
+                Text("Voice provider: \(status.detail ?? "unknown")")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
     private var transcriptList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
@@ -81,9 +104,19 @@ struct VoiceView: View {
                 }
 
                 if let errorMessage = viewModel.errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Label(
+                            viewModel.isProviderError ? "Voice provider unavailable" : errorMessage,
+                            systemImage: viewModel.isProviderError ? "wifi.exclamationmark" : "exclamationmark.triangle.fill"
+                        )
                         .foregroundStyle(.red)
                         .font(.caption)
+                        if viewModel.isProviderError {
+                            Text(errorMessage)
+                                .foregroundStyle(.secondary)
+                                .font(.caption2)
+                        }
+                    }
                 }
             }
             .padding(.horizontal)

@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Client } from 'pg';
-import type { AICompletionRequest, AICompletionResult, AIProvider } from '@aima/ai-engine';
+import type {
+  AICompletionRequest,
+  AICompletionResult,
+  AIProvider,
+  SpeechToTextProvider,
+  TextToSpeechProvider,
+} from '@aima/ai-engine';
 import { MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { ActionLogger } from '../actionLog/logger';
@@ -23,7 +29,7 @@ import { ExecutionRegistry } from '../execution/registry';
 import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExecutor';
 import { StubGmailConnector } from '../integrations/connectors/gmailConnector';
 import { WorkspaceNotFoundError } from '../types/errors';
-import { InvalidVoiceSessionStateError, VoiceSessionNotFoundError } from './errors';
+import { InvalidVoiceSessionStateError, VoiceProviderError, VoiceSessionNotFoundError } from './errors';
 import { VoiceService } from './voiceService';
 
 /** Records the last request it received instead of calling a real provider — a spy, not a stub. */
@@ -43,7 +49,27 @@ class RecordingAIProvider implements AIProvider {
   }
 }
 
-function buildVoiceService(client: Client, provider: AIProvider = new RecordingAIProvider()): VoiceService {
+/** Always fails — used to test that a provider failure is wrapped in a safe VoiceProviderError. */
+class FailingSpeechToTextProvider implements SpeechToTextProvider {
+  readonly name = 'failing';
+  async transcribe(): Promise<never> {
+    throw new Error('vendor said: invalid api key sk-live-abc123');
+  }
+}
+
+class FailingTextToSpeechProvider implements TextToSpeechProvider {
+  readonly name = 'failing';
+  async synthesize(): Promise<never> {
+    throw new Error('vendor said: invalid api key sk-live-abc123');
+  }
+}
+
+function buildVoiceService(
+  client: Client,
+  provider: AIProvider = new RecordingAIProvider(),
+  speechToTextProvider: SpeechToTextProvider = new MockSpeechToTextProvider(),
+  textToSpeechProvider: TextToSpeechProvider = new MockTextToSpeechProvider(),
+): VoiceService {
   const registry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(client);
@@ -69,7 +95,7 @@ function buildVoiceService(client: Client, provider: AIProvider = new RecordingA
     executionIntentMatcher,
   });
 
-  return new VoiceService(client, conversationService, new MockSpeechToTextProvider(), new MockTextToSpeechProvider());
+  return new VoiceService(client, conversationService, speechToTextProvider, textToSpeechProvider);
 }
 
 test('startSession creates an active session backed by a real, listable conversation', async () => {
@@ -211,6 +237,53 @@ test('submitVoiceRequest rejects a request against an ended session', async () =
           audioMimeType: 'audio/wav',
         }),
       InvalidVoiceSessionStateError,
+    );
+  });
+});
+
+test('submitVoiceRequest wraps a speech-to-text provider failure in a safe VoiceProviderError', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client);
+    const voiceService = buildVoiceService(client, undefined, new FailingSpeechToTextProvider());
+    const session = await voiceService.startSession(workspaceId);
+
+    await assert.rejects(
+      () =>
+        voiceService.submitVoiceRequest({
+          workspaceId,
+          voiceSessionId: session.id,
+          audioData: Buffer.from('hello', 'utf-8'),
+          audioMimeType: 'audio/wav',
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof VoiceProviderError);
+        assert.equal(error.operation, 'speech-to-text');
+        assert.doesNotMatch(error.message, /sk-live-abc123/, 'the vendor error body must never reach the caller');
+        return true;
+      },
+    );
+  });
+});
+
+test('submitVoiceRequest wraps a text-to-speech provider failure in a safe VoiceProviderError', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client);
+    const voiceService = buildVoiceService(client, undefined, undefined, new FailingTextToSpeechProvider());
+    const session = await voiceService.startSession(workspaceId);
+
+    await assert.rejects(
+      () =>
+        voiceService.submitVoiceRequest({
+          workspaceId,
+          voiceSessionId: session.id,
+          audioData: Buffer.from('hello', 'utf-8'),
+          audioMimeType: 'audio/wav',
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof VoiceProviderError);
+        assert.equal(error.operation, 'text-to-speech');
+        return true;
+      },
     );
   });
 });

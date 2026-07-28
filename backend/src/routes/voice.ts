@@ -1,7 +1,7 @@
 import { Router, type Response } from 'express';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { ConversationNotFoundError } from '../conversation/errors';
-import { InvalidVoiceSessionStateError, VoiceSessionNotFoundError } from '../voice/errors';
+import { InvalidVoiceSessionStateError, VoiceProviderError, VoiceSessionNotFoundError } from '../voice/errors';
 import type { VoiceService } from '../voice/voiceService';
 import { isUuid } from '../util/uuid';
 
@@ -146,6 +146,11 @@ function handleKnownErrors(error: unknown, res: Response, next: (error: unknown)
   }
   if (error instanceof InvalidVoiceSessionStateError) {
     res.status(409).json({ error: error.message });
+    return;
+  }
+  if (error instanceof VoiceProviderError) {
+    // Deliberately generic — never forward a vendor's raw error body to the client.
+    res.status(502).json({ error: error.message });
     return;
   }
   next(error);

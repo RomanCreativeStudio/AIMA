@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { Pool } from 'pg';
+import type { SpeechToTextProvider, TextToSpeechProvider } from '@aima/ai-engine';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
@@ -62,7 +63,10 @@ interface SeededWorkspace {
   workspaceId: string;
 }
 
-async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>): Promise<void> {
+async function withTestServer(
+  fn: (baseUrl: string, pool: Pool) => Promise<void>,
+  voiceProviders: { speechToText?: SpeechToTextProvider; textToSpeech?: TextToSpeechProvider } = {},
+): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(registry);
@@ -135,7 +139,12 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     workflowIntentMatcher,
     executionIntentMatcher,
   });
-  const voiceService = new VoiceService(pool, conversationService, new MockSpeechToTextProvider(), new MockTextToSpeechProvider());
+  const voiceService = new VoiceService(
+    pool,
+    conversationService,
+    voiceProviders.speechToText ?? new MockSpeechToTextProvider(),
+    voiceProviders.textToSpeech ?? new MockTextToSpeechProvider(),
+  );
 
   const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
   const taskIntelligenceService = new TaskIntelligenceService(taskService);
@@ -362,6 +371,38 @@ test('GET .../voice/sessions/:id/turns lists submitted turns oldest-first', asyn
       await cleanupWorkspace(pool, userId);
     }
   });
+});
+
+test('POST .../voice/sessions/:id/turns returns 502 with a safe message when the STT provider fails', async () => {
+  const failingSpeechToText: SpeechToTextProvider = {
+    name: 'failing',
+    transcribe: async () => {
+      throw new Error('vendor said: invalid api key sk-live-abc123');
+    },
+  };
+
+  await withTestServer(
+    async (baseUrl, pool) => {
+      const { userId, workspaceId } = await seedWorkspace(pool);
+      try {
+        const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+        const { session } = (await start.json()) as { session: { id: string } };
+
+        const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audioBase64: Buffer.from('hi', 'utf-8').toString('base64'), audioMimeType: 'audio/wav' }),
+        });
+
+        assert.equal(response.status, 502);
+        const body = (await response.json()) as { error: string };
+        assert.doesNotMatch(body.error, /sk-live-abc123/, 'the vendor error body must never reach the client');
+      } finally {
+        await cleanupWorkspace(pool, userId);
+      }
+    },
+    { speechToText: failingSpeechToText },
+  );
 });
 
 test('voice session routes 404 across workspace isolation', async () => {

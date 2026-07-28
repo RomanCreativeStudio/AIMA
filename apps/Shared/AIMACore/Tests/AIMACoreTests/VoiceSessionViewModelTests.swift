@@ -116,4 +116,42 @@ final class VoiceSessionViewModelTests: XCTestCase {
         XCTAssertNotNil(viewModel.errorMessage)
         XCTAssertNil(viewModel.session)
     }
+
+    func testLoadProviderStatusPopulatesTheConfiguredProviderNames() async throws {
+        let apiClient = MockAPIClient()
+        let viewModel = VoiceSessionViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+
+        await viewModel.loadProviderStatus()
+
+        let status = try XCTUnwrap(viewModel.providerStatus)
+        XCTAssertEqual(status.status, "ok")
+        XCTAssertEqual(status.detail, "mock / mock")
+    }
+
+    func testSubmitVoiceRequestSetsIsProviderErrorOnA502() async {
+        let apiClient = MockAPIClient()
+        let viewModel = VoiceSessionViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.startSession()
+        await apiClient.forceNextVoiceRequestToFailWithProviderError()
+
+        await viewModel.submitVoiceRequest(audioData: Data("hello".utf8), audioMimeType: "audio/wav")
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.isProviderError)
+        XCTAssertTrue(viewModel.turns.isEmpty, "a failed turn must not be appended to history")
+    }
+
+    func testSubmitVoiceRequestClearsIsProviderErrorOnASubsequentSuccess() async {
+        let apiClient = MockAPIClient()
+        let viewModel = VoiceSessionViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.startSession()
+        await apiClient.forceNextVoiceRequestToFailWithProviderError()
+        await viewModel.submitVoiceRequest(audioData: Data("hello".utf8), audioMimeType: "audio/wav")
+        XCTAssertTrue(viewModel.isProviderError)
+
+        await viewModel.submitVoiceRequest(audioData: Data("hello again".utf8), audioMimeType: "audio/wav")
+
+        XCTAssertFalse(viewModel.isProviderError)
+        XCTAssertEqual(viewModel.turns.count, 1)
+    }
 }

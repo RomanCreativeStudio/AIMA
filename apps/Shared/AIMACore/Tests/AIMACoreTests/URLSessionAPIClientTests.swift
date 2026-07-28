@@ -69,7 +69,7 @@ final class URLSessionAPIClientTests: XCTestCase {
 
     func testGetHealthDecodesUnwrappedResponse() async throws {
         let body = """
-        {"status":"ok","timestamp":"2026-01-01T00:00:00.000Z","checks":{"database":{"status":"ok","detail":null},"aiProvider":{"status":"ok","detail":"mock"},"memory":{"status":"ok","detail":null},"knowledge":{"status":"ok","detail":null},"integrations":{"status":"ok","detail":"gmail, github, calendar"}}}
+        {"status":"ok","timestamp":"2026-01-01T00:00:00.000Z","checks":{"database":{"status":"ok","detail":null},"aiProvider":{"status":"ok","detail":"mock"},"memory":{"status":"ok","detail":null},"knowledge":{"status":"ok","detail":null},"integrations":{"status":"ok","detail":"gmail, github, calendar"},"voiceProviders":{"status":"ok","detail":"mock / mock"}}}
         """.data(using: .utf8)!
         MockURLProtocol.stubs["GET /health"] = .init(statusCode: 200, body: body)
 

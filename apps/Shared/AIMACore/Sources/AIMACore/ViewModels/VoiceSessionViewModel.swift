@@ -31,6 +31,16 @@ public final class VoiceSessionViewModel {
     public private(set) var lastResponseAudioMimeType: String?
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
+    /// Set when the most recent failure was the speech-to-text/text-to-speech
+    /// provider itself (backend `VoiceProviderError`, HTTP 502) rather than a
+    /// session-lifecycle or network problem — lets the view show a distinct
+    /// "voice provider unavailable" state instead of a generic error.
+    public private(set) var isProviderError = false
+    /// The backend's configured speech-to-text/text-to-speech provider names
+    /// (Phase 3.3) — fetched via `GET /health`, the same shallow,
+    /// configuration-only check the Dashboard's system status uses. `nil`
+    /// until `loadProviderStatus()` is called.
+    public private(set) var providerStatus: SystemHealth.CheckResult?
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -41,6 +51,18 @@ public final class VoiceSessionViewModel {
     }
 
     public var isSessionActive: Bool { session?.isActive ?? false }
+
+    /// Fetches the configured voice provider names for display — a plain
+    /// read, never a live call to the vendor itself (mirrors `HealthService.
+    /// checkVoiceProviders`'s shallow, configuration-only check).
+    public func loadProviderStatus() async {
+        do {
+            providerStatus = try await apiClient.getHealth().checks.voiceProviders
+        } catch {
+            // Non-fatal — the voice screen still works without this, so don't surface it as errorMessage.
+            providerStatus = nil
+        }
+    }
 
     /// Requires an explicit user-initiated call — starts a fresh session (and its backing conversation) every time.
     public func startSession() async {
@@ -81,6 +103,7 @@ public final class VoiceSessionViewModel {
         guard let sessionId = session?.id else { return }
         isLoading = true
         errorMessage = nil
+        isProviderError = false
         defer { isLoading = false }
 
         do {
@@ -97,6 +120,9 @@ public final class VoiceSessionViewModel {
             playbackState = .idle
         } catch let error as APIError {
             errorMessage = error.userMessage
+            if case .server(let statusCode, _) = error, statusCode == 502 {
+                isProviderError = true
+            }
         } catch {
             errorMessage = error.localizedDescription
         }

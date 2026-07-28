@@ -94,3 +94,26 @@ test('check() reports integrations error and names the missing providers', async
     assert.equal(health.status, 'error');
   });
 });
+
+test('check() reports voiceProviders ok with the mock provider names by default', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new HealthService(client, okProvider);
+    const health = await service.check();
+
+    assert.equal(health.checks.voiceProviders.status, 'ok');
+    assert.equal(health.checks.voiceProviders.detail, 'mock / mock');
+  });
+});
+
+test('check() reports voiceProviders ok with real provider names when configured', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new HealthService(client, okProvider, undefined, {
+      speechToText: 'openai',
+      textToSpeech: 'openai',
+    });
+    const health = await service.check();
+
+    assert.equal(health.checks.voiceProviders.status, 'ok');
+    assert.equal(health.checks.voiceProviders.detail, 'openai / openai');
+  });
+});

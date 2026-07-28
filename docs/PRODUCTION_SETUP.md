@@ -42,6 +42,7 @@ All variables `backend/.env.example` documents are required in every environment
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Yes | From a real Google Cloud OAuth app (see `docs/DEVELOPMENT_SETUP.md` §5) — registering one is outside this environment's scope, so these remain placeholders until you do. |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Yes | From a real GitHub OAuth app, same caveat. |
 | `AI_PROVIDER`, `AI_PROVIDER_API_KEY`, `AI_PROVIDER_MODEL` | No (defaults to `mock`) | Set `AI_PROVIDER=claude` and a real key for a live deployment; `mock` never calls out. |
+| `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` (+`_API_KEY`/`_MODEL`/`_TIMEOUT_MS`) | No (defaults to `mock`) | Set both to `openai` and an OpenAI API key for real voice transcription/synthesis (Phase 3.3); `mock` never calls out. |
 
 `loadConfig()` (`backend/src/config/env.ts`) is the single source of truth for every one of these checks — it fails fast at process startup with a descriptive error rather than letting a missing or malformed variable surface as a confusing runtime error later, the same philosophy the Foundation Sprint established.
 
@@ -82,6 +83,8 @@ The terminal error-handling middleware (`backend/src/middleware/errorHandler.ts`
 `GET /health` (`backend/src/health/healthService.ts`) now reports five independent checks: `database`, `aiProvider`, `memory`, `knowledge`, and (new in Phase 3.1) `integrations`.
 
 The `integrations` check reports which of Gmail/GitHub/Calendar have an OAuth provider registered — computed from the real `oauthProviders` map `index.ts` already builds from `GOOGLE_OAUTH_CLIENT_ID`/`GITHUB_OAUTH_CLIENT_ID` etc., not a raw re-check of environment variables. Like the existing `aiProvider` check, this is deliberately shallow — configuration-presence only, never a live network call to Google or GitHub — because a health endpoint that might be polled every few seconds should not incur a third-party network round-trip on every poll (the same reasoning `docs/decisions/0006-assistant-core-orchestration.md` gives for the AI provider check).
+
+The `voiceProviders` check (Phase 3.3) reports the configured speech-to-text/text-to-speech provider names (e.g. `openai / openai`) the same way — no live call, since a non-`mock` provider missing its API key already fails at process startup (`ai-engine/src/voice/registry.ts`), before `HealthService` ever runs.
 
 A missing integration provider reports `{"status":"error","detail":"Not configured: <providers>"}` on that one check without masking the others — `database`/`memory`/`knowledge`/`aiProvider` can still read `ok` independently, so a health dashboard can tell at a glance which subsystem needs attention.
 

@@ -16,8 +16,17 @@ export interface SystemHealth {
     memory: HealthCheckResult;
     knowledge: HealthCheckResult;
     integrations: HealthCheckResult;
+    voiceProviders: HealthCheckResult;
   };
 }
+
+/** The configured speech-to-text/text-to-speech provider names (Phase 3.3) — mirrors the `aiProvider` check: reports which provider is wired in, never a live call to it. */
+export interface VoiceProviderNames {
+  speechToText: string;
+  textToSpeech: string;
+}
+
+const DEFAULT_VOICE_PROVIDER_NAMES: VoiceProviderNames = { speechToText: 'mock', textToSpeech: 'mock' };
 
 /** Which OAuth-backed providers are registered and ready to use (Phase 3.1) — mirrors the `oauthProviders` map actually wired into `IntegrationService`/`OAuthService`, not a raw re-check of environment variables. */
 export interface IntegrationReadiness {
@@ -43,6 +52,7 @@ export class HealthService {
     private readonly db: Queryable,
     private readonly aiProvider: AIProvider,
     private readonly integrationReadiness: IntegrationReadiness = FULLY_READY,
+    private readonly voiceProviderNames: VoiceProviderNames = DEFAULT_VOICE_PROVIDER_NAMES,
   ) {}
 
   async check(): Promise<SystemHealth> {
@@ -54,8 +64,9 @@ export class HealthService {
 
     const aiProvider = this.checkAIProvider();
     const integrations = this.checkIntegrations();
+    const voiceProviders = this.checkVoiceProviders();
 
-    const checks = { database, aiProvider, memory, knowledge, integrations };
+    const checks = { database, aiProvider, memory, knowledge, integrations, voiceProviders };
     const status: CheckStatus = Object.values(checks).every((check) => check.status === 'ok') ? 'ok' : 'error';
 
     return { status, checks };
@@ -85,5 +96,13 @@ export class HealthService {
       return { status: 'error', detail: `Not configured: ${missing.join(', ')}` };
     }
     return { status: 'ok', detail: 'gmail, github, calendar' };
+  }
+
+  /** Deliberately shallow, same reasoning as `checkAIProvider` — no live call to the STT/TTS vendor on every poll. Provider construction itself already fails fast at startup if a selected non-mock provider is missing its API key (`ai-engine/src/voice/registry.ts`), so by the time this runs, the configured provider is already known-valid. */
+  private checkVoiceProviders(): HealthCheckResult {
+    if (!this.voiceProviderNames.speechToText || !this.voiceProviderNames.textToSpeech) {
+      return { status: 'error', detail: 'No speech-to-text/text-to-speech provider configured' };
+    }
+    return { status: 'ok', detail: `${this.voiceProviderNames.speechToText} / ${this.voiceProviderNames.textToSpeech}` };
   }
 }

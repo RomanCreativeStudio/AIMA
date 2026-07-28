@@ -28,6 +28,11 @@ public actor MockAPIClient: APIClient {
     private var executionsByWorkspace: [String: [ExecutionRecord]] = [:]
     private var voiceSessionsByWorkspace: [String: [VoiceSession]] = [:]
     private var voiceTurnsBySession: [String: [VoiceTurn]] = [:]
+    /// Set by `forceNextVoiceRequestToFailWithProviderError`, consumed by the
+    /// next `submitVoiceRequest` call — simulates the backend's
+    /// `VoiceProviderError` (HTTP 502) without needing a real vendor outage
+    /// (Phase 3.3).
+    private var forcedNextVoiceProviderFailure = false
     /// Phase 2.5's "recent activity" source — `MockAPIClient` has no write-side `ActionLogger` equivalent, so this
     /// is seeded fixed data rather than something `createTask`/etc. append to.
     private var actionLogByWorkspace: [String: [ActionLogRecord]]
@@ -238,7 +243,8 @@ public actor MockAPIClient: APIClient {
                 aiProvider: .init(status: "ok", detail: "mock"),
                 memory: ok,
                 knowledge: ok,
-                integrations: .init(status: "ok", detail: "gmail, github, calendar")
+                integrations: .init(status: "ok", detail: "gmail, github, calendar"),
+                voiceProviders: .init(status: "ok", detail: "mock / mock")
             )
         )
     }
@@ -387,6 +393,14 @@ public actor MockAPIClient: APIClient {
     /// trigger phrase.
     public func forceNextMessageToSuggestExecution(_ suggestion: ExecutionSuggestion) {
         forcedNextExecutionSuggestion = suggestion
+    }
+
+    /// Test hook (Phase 3.3): makes the next `submitVoiceRequest` call fail
+    /// as the backend's `VoiceProviderError` would (HTTP 502) — lets
+    /// `VoiceSessionViewModel`'s provider-error UI state be exercised
+    /// without a real vendor outage.
+    public func forceNextVoiceRequestToFailWithProviderError() {
+        forcedNextVoiceProviderFailure = true
     }
 
     public func listTasks(workspaceId: String, status: TaskStatus?) async throws -> [TaskItem] {
@@ -1002,6 +1016,10 @@ public actor MockAPIClient: APIClient {
                 statusCode: 409,
                 message: "Cannot submit a voice request to a voice session that is currently \"\(session.status.rawValue)\""
             )
+        }
+        if forcedNextVoiceProviderFailure {
+            forcedNextVoiceProviderFailure = false
+            throw APIError.server(statusCode: 502, message: "The speech-to-text provider failed to process this request")
         }
 
         let transcriptText = String(data: audioData, encoding: .utf8) ?? ""

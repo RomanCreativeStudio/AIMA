@@ -72,6 +72,7 @@ struct DashboardView: View {
                     statusRow("Memory", isHealthy: health.checks.memory.status == "ok")
                     statusRow("Knowledge", isHealthy: health.checks.knowledge.status == "ok")
                     statusRow("Integrations", isHealthy: health.checks.integrations.status == "ok", detail: health.checks.integrations.detail)
+                    statusRow("Voice Providers", isHealthy: health.checks.voiceProviders.status == "ok", detail: health.checks.voiceProviders.detail)
                 }
             } else {
                 Text("No status yet.").foregroundStyle(.secondary)

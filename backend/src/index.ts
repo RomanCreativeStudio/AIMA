@@ -135,7 +135,10 @@ async function main(): Promise<void> {
     github: Boolean(oauthProviders.github),
     calendar: Boolean(oauthProviders.calendar),
   };
-  const healthService = new HealthService(pool, aiProvider, integrationReadiness);
+  const healthService = new HealthService(pool, aiProvider, integrationReadiness, {
+    speechToText: speechToTextProvider.name,
+    textToSpeech: textToSpeechProvider.name,
+  });
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
 

@@ -1,6 +1,6 @@
 # AIMA Development Setup Guide
 
-**Version:** 0.3
+**Version:** 0.4
 **Status:** Official Engineering Workflow — companion to `docs/PRODUCT_BIBLE.md`, `docs/TECHNICAL_ARCHITECTURE.md`, and `docs/PRODUCTION_SETUP.md`
 **Owner:** Lead Developer
 **Last Updated:** 2026-07-28
@@ -148,9 +148,11 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 - `PUBLIC_BACKEND_URL` is this backend process's own reachable URL (`http://127.0.0.1:4000` for local development) — it's how the fixed OAuth redirect URIs above get built, and it must match exactly what's registered with each provider, protocol and port included.
 - All five variables (`PUBLIC_BACKEND_URL`, `GOOGLE_OAUTH_CLIENT_ID`, `GOOGLE_OAUTH_CLIENT_SECRET`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`) are required at startup the same way `CREDENTIAL_ENCRYPTION_KEY` is (`backend/.env.example`) — `npm run dev` fails fast with a clear message if any is missing. Tests never need real values: every OAuth/connector test in `backend/`'s suite injects a fake `fetch` (`backend/src/testUtils/fakeFetch.ts`) and never reaches a real provider.
 
-### Voice Provider Configuration (Phase 3.2)
-- Speech-to-text and text-to-speech are both provider abstractions (`ai-engine/src/voice/`), the same pattern as `AIProvider`/`EmbeddingProvider` — `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` both default to `mock`, so voice sessions work with zero vendor setup. There is no live vendor implementation yet — registering one (e.g. a cloud STT/TTS API) is later-phase scope, and would only require implementing the `SpeechToTextProvider`/`TextToSpeechProvider` interface and adding one `registry.ts` case, no call-site changes anywhere in `backend/`.
-- No microphone audio is ever persisted server-side, by design — only transcript text and response text are stored (`voice_turns`, `database/migrations/0016_voice.sql`).
+### Voice Provider Configuration (Phase 3.2, real provider in Phase 3.3)
+- Speech-to-text and text-to-speech are both provider abstractions (`ai-engine/src/voice/`), the same pattern as `AIProvider`/`EmbeddingProvider` — `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` both default to `mock`, so voice sessions work with zero vendor setup, and `mock` remains fully supported for local development and tests.
+- `"openai"` (Phase 3.3, docs/decisions/0018-real-voice-provider-integration.md) is the first real provider — set `SPEECH_TO_TEXT_PROVIDER=openai`/`TEXT_TO_SPEECH_PROVIDER=openai` and `SPEECH_TO_TEXT_PROVIDER_API_KEY`/`TEXT_TO_SPEECH_PROVIDER_API_KEY` (an OpenAI API key; both can share one key). Optional `_MODEL` (defaults: `whisper-1` for STT, `tts-1` for TTS) and `_TIMEOUT_MS` (default 30000) per provider. A missing API key for a non-`mock` selection fails fast at provider construction, the same fail-fast philosophy as every other required credential in this codebase.
+- A provider failure (timeout, vendor error, bad credentials) never reaches the client verbatim — `VoiceService` wraps it in a generic `VoiceProviderError`, returned as HTTP 502 with a safe message. No vendor's raw error body is ever forwarded.
+- No microphone audio is ever persisted server-side, by design — only transcript text and response text are stored (`voice_turns`, `database/migrations/0016_voice.sql`). This is unchanged by which provider (`mock` or `openai`) is configured.
 
 ### Production Configuration (Phase 3.1)
 - Running the backend anywhere other than a developer's own machine — a staging host, a production deployment — is covered in full by `docs/PRODUCTION_SETUP.md`, not this document. In short: set `NODE_ENV=production`, use `backend/.env.production.example` as your template, and `PUBLIC_BACKEND_URL` must be `https://` (enforced by `loadConfig()`, `backend/src/config/env.ts`).
