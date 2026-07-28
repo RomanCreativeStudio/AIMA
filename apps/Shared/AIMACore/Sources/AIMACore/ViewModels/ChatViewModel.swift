@@ -26,6 +26,8 @@ public final class ChatViewModel {
     /// the full `PendingApproval` (action type, payload, expiry) a card
     /// needs to render.
     public private(set) var lastPendingApproval: PendingApproval?
+    /// An advisory workflow preview (Phase 2.4) for the most recent reply — never itself a running `WorkflowRun`, just a suggestion the user can act on from the Workflows screen.
+    public private(set) var lastWorkflowSuggestion: WorkflowSuggestion?
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -73,6 +75,7 @@ public final class ChatViewModel {
         lastIntent = nil
         lastApprovalDecision = nil
         lastPendingApproval = nil
+        lastWorkflowSuggestion = nil
         do {
             messages = try await apiClient.listMessages(workspaceId: workspaceId, conversationId: conversationId, limit: nil)
         } catch let error as APIError {
@@ -96,6 +99,7 @@ public final class ChatViewModel {
             lastIntent = result.intent
             lastApprovalDecision = result.approvalDecision
             lastPendingApproval = nil
+            lastWorkflowSuggestion = result.workflowSuggestion
             if let approvalId = result.approvalDecision.pendingApprovalId {
                 lastPendingApproval = try? await apiClient.getApproval(workspaceId: workspaceId, approvalId: approvalId)
             }

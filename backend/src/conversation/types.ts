@@ -2,6 +2,7 @@ import type { ApprovalDecision } from '../approval/types';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
+import type { WorkflowSuggestion } from '../workflows/types';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -39,4 +40,6 @@ export interface SendMessageResult {
   intent: IntentAnalysis;
   /** The real approval lifecycle decision for the detected intent's mapped capability, if any (docs/decisions/0007-intent-and-approval-workflows.md). */
   approvalDecision: ApprovalDecision;
+  /** An advisory workflow preview (Phase 2.4, item 4), present when the message matches one of the built-in workflows. Never itself creates or executes a run. */
+  workflowSuggestion: WorkflowSuggestion | null;
 }

@@ -28,6 +28,15 @@ import { syncCapabilitiesToDatabase } from './permissions/syncCapabilities';
 import { TaskService } from './tasks/taskService';
 import { UserService } from './users/userService';
 import { WorkspaceService } from './workspaces/workspaceService';
+import { CreateGithubIssueDraftWorkflowHandler } from './workflows/handlers/createGithubIssueDraftWorkflow';
+import { DailyWorkspaceBriefingWorkflowHandler } from './workflows/handlers/dailyWorkspaceBriefingWorkflow';
+import { DraftEmailReplyWorkflowHandler } from './workflows/handlers/draftEmailReplyWorkflow';
+import { SummarizeUnreadEmailWorkflowHandler } from './workflows/handlers/summarizeUnreadEmailWorkflow';
+import type { WorkflowHandler } from './workflows/handlers/types';
+import { WorkflowRegistry } from './workflows/registry';
+import type { WorkflowKey } from './workflows/types';
+import { WorkflowIntentMatcher } from './workflows/workflowIntentMatcher';
+import { WorkflowService } from './workflows/workflowService';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -52,8 +61,9 @@ async function main(): Promise<void> {
   const draftService = new DraftService(pool);
   const integrationRegistry = new IntegrationRegistry();
   const credentialEncryptor = new AesGcmCredentialEncryptor(config.credentialEncryptionKey);
+  const gmailConnector = new StubGmailConnector();
   const connectors: Record<IntegrationProvider, IntegrationConnector> = {
-    gmail: new StubGmailConnector(),
+    gmail: gmailConnector,
     github: new StubGitHubConnector(),
     calendar: new StubCalendarConnector(),
   };
@@ -63,11 +73,49 @@ async function main(): Promise<void> {
   const healthService = new HealthService(pool, aiProvider);
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
+
+  const workflowRegistry = new WorkflowRegistry();
+  const getWorkflowDefinition = (key: WorkflowKey) => {
+    const definition = workflowRegistry.get(key);
+    if (!definition) {
+      throw new Error(`Unregistered workflow: "${key}"`);
+    }
+    return definition;
+  };
+  const workflowHandlers: Record<WorkflowKey, WorkflowHandler> = {
+    draft_email_reply: new DraftEmailReplyWorkflowHandler(
+      getWorkflowDefinition('draft_email_reply'),
+      aiProvider,
+      draftService,
+    ),
+    create_github_issue_draft: new CreateGithubIssueDraftWorkflowHandler(
+      getWorkflowDefinition('create_github_issue_draft'),
+      aiProvider,
+      draftService,
+    ),
+    summarize_unread_email: new SummarizeUnreadEmailWorkflowHandler(
+      getWorkflowDefinition('summarize_unread_email'),
+      aiProvider,
+      integrationService,
+      gmailConnector,
+    ),
+    daily_workspace_briefing: new DailyWorkspaceBriefingWorkflowHandler(
+      getWorkflowDefinition('daily_workspace_briefing'),
+      aiProvider,
+      taskService,
+      approvalEngine,
+      healthService,
+    ),
+  };
+  const workflowService = new WorkflowService(pool, workflowRegistry, workflowHandlers, approvalEngine);
+  const workflowIntentMatcher = new WorkflowIntentMatcher(workflowRegistry);
+
   const conversationService = new ConversationService({
     db: pool,
     aimaCoreService,
     actionLogger,
     permissionEngine,
+    workflowIntentMatcher,
   });
 
   const app = createApp({
@@ -81,6 +129,8 @@ async function main(): Promise<void> {
     draftService,
     integrationService,
     integrationRegistry,
+    workflowService,
+    workflowRegistry,
     approvalEngine,
     preferenceService,
     userService,

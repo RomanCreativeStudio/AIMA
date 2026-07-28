@@ -44,6 +44,10 @@ struct ChatView: View {
                     )
                 }
 
+                if let suggestion = viewModel.lastWorkflowSuggestion {
+                    WorkflowSuggestionCardView(suggestion: suggestion)
+                }
+
                 MessageInputView(viewModel: viewModel)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

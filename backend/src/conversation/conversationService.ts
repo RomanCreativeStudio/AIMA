@@ -4,6 +4,7 @@ import type { Queryable } from '../db/queryable';
 import type { PermissionEngine } from '../permissions/engine';
 import { isWorkspaceSlug, type WorkspaceSlug } from '../types/workspace';
 import { WorkspaceNotFoundError } from '../types/errors';
+import type { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
 import { ConversationNotFoundError } from './errors';
 import type { Conversation, Message, MessageRole, SendMessageInput, SendMessageResult } from './types';
 
@@ -18,6 +19,8 @@ export interface ConversationServiceDependencies {
   aimaCoreService: AimaCoreService;
   actionLogger: ActionLogger;
   permissionEngine: PermissionEngine;
+  /** Pure phrase-matching against the built-in workflows (Phase 2.4) — never creates or executes a run, only shapes the advisory `workflowSuggestion` on the response. */
+  workflowIntentMatcher: WorkflowIntentMatcher;
   /** Max recent messages sent to the AI provider (a context limit — count-based, not token-based). */
   historyLimit?: number;
   /** Max memory records retrieved per turn (a context limit). */
@@ -43,6 +46,7 @@ export class ConversationService {
   private readonly aimaCoreService: AimaCoreService;
   private readonly actionLogger: ActionLogger;
   private readonly permissionEngine: PermissionEngine;
+  private readonly workflowIntentMatcher: WorkflowIntentMatcher;
   private readonly historyLimit: number;
   private readonly memoryLimit: number;
   private readonly documentLimit: number;
@@ -52,6 +56,7 @@ export class ConversationService {
     this.aimaCoreService = deps.aimaCoreService;
     this.actionLogger = deps.actionLogger;
     this.permissionEngine = deps.permissionEngine;
+    this.workflowIntentMatcher = deps.workflowIntentMatcher;
     this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
     this.memoryLimit = deps.memoryLimit ?? DEFAULT_MEMORY_LIMIT;
     this.documentLimit = deps.documentLimit ?? DEFAULT_DOCUMENT_LIMIT;
@@ -163,6 +168,7 @@ export class ConversationService {
         retrievedDocumentChunks: result.context.documentChunks,
         intent: result.intent,
         approvalDecision: result.approvalDecision,
+        workflowSuggestion: this.workflowIntentMatcher.match(input.content),
       };
     } catch (error) {
       await this.actionLogger.log({

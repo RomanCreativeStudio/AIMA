@@ -41,6 +41,14 @@ export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description: "Draft a report into the user's review queue. Nothing is sent.",
   },
   {
+    actionType: 'draft_github_issue',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description:
+      "Draft a GitHub issue into the user's review queue. Nothing is created on GitHub — the read-only " +
+      'GitHub integration (Phase 2.3) has no write capability, by design.',
+  },
+  {
     actionType: 'send_email',
     defaultTier: 'execute_with_approval',
     tierLocked: true,

@@ -1,4 +1,4 @@
-export const DRAFT_TYPES = ['email', 'proposal', 'client_response', 'report'] as const;
+export const DRAFT_TYPES = ['email', 'proposal', 'client_response', 'report', 'github_issue'] as const;
 export type DraftType = (typeof DRAFT_TYPES)[number];
 
 /** The capability that gates creating each kind of draft (backend/src/permissions/registry.ts) — all Tier 2 "prepare". */
@@ -7,6 +7,7 @@ export const DRAFT_CAPABILITY_MAP: Record<DraftType, string> = {
   proposal: 'draft_proposal',
   client_response: 'draft_client_response',
   report: 'draft_report',
+  github_issue: 'draft_github_issue',
 };
 
 /**

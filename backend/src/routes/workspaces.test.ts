@@ -18,6 +18,15 @@ import { AesGcmCredentialEncryptor } from '../integrations/encryption';
 import { IntegrationService } from '../integrations/integrationService';
 import { IntegrationRegistry } from '../integrations/registry';
 import type { IntegrationProvider } from '../integrations/types';
+import { CreateGithubIssueDraftWorkflowHandler } from '../workflows/handlers/createGithubIssueDraftWorkflow';
+import { DailyWorkspaceBriefingWorkflowHandler } from '../workflows/handlers/dailyWorkspaceBriefingWorkflow';
+import { DraftEmailReplyWorkflowHandler } from '../workflows/handlers/draftEmailReplyWorkflow';
+import { SummarizeUnreadEmailWorkflowHandler } from '../workflows/handlers/summarizeUnreadEmailWorkflow';
+import type { WorkflowHandler } from '../workflows/handlers/types';
+import { WorkflowRegistry } from '../workflows/registry';
+import type { WorkflowKey } from '../workflows/types';
+import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
+import { WorkflowService } from '../workflows/workflowService';
 import { ContextManager } from '../core/contextManager';
 import { ConversationService } from '../conversation/conversationService';
 import { IntentEngine } from '../intent/intentEngine';
@@ -46,8 +55,9 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const draftService = new DraftService(pool);
   const integrationRegistry = new IntegrationRegistry();
   const credentialEncryptor = new AesGcmCredentialEncryptor(TEST_CREDENTIAL_ENCRYPTION_KEY);
+  const gmailConnector = new StubGmailConnector();
   const connectors: Record<IntegrationProvider, IntegrationConnector> = {
-    gmail: new StubGmailConnector(),
+    gmail: gmailConnector,
     github: new StubGitHubConnector(),
     calendar: new StubCalendarConnector(),
   };
@@ -61,11 +71,40 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const approvalEngine = new ApprovalEngine(pool, permissionEngine);
   const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
+  const workflowRegistry = new WorkflowRegistry();
+  const workflowHandlers: Record<WorkflowKey, WorkflowHandler> = {
+    draft_email_reply: new DraftEmailReplyWorkflowHandler(
+      workflowRegistry.get('draft_email_reply')!,
+      aiProvider,
+      draftService,
+    ),
+    create_github_issue_draft: new CreateGithubIssueDraftWorkflowHandler(
+      workflowRegistry.get('create_github_issue_draft')!,
+      aiProvider,
+      draftService,
+    ),
+    summarize_unread_email: new SummarizeUnreadEmailWorkflowHandler(
+      workflowRegistry.get('summarize_unread_email')!,
+      aiProvider,
+      integrationService,
+      gmailConnector,
+    ),
+    daily_workspace_briefing: new DailyWorkspaceBriefingWorkflowHandler(
+      workflowRegistry.get('daily_workspace_briefing')!,
+      aiProvider,
+      taskService,
+      approvalEngine,
+      healthService,
+    ),
+  };
+  const workflowService = new WorkflowService(pool, workflowRegistry, workflowHandlers, approvalEngine);
+  const workflowIntentMatcher = new WorkflowIntentMatcher(workflowRegistry);
   const conversationService = new ConversationService({
     db: pool,
     aimaCoreService,
     actionLogger,
     permissionEngine,
+    workflowIntentMatcher,
   });
 
   const app = createApp({
@@ -75,6 +114,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     actionLogger,
     integrationService,
     integrationRegistry,
+    workflowService,
+    workflowRegistry,
     memoryService,
     documentService,
     taskService,

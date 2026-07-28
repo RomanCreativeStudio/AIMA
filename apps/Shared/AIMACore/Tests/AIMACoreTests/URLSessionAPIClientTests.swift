@@ -182,6 +182,65 @@ final class URLSessionAPIClientTests: XCTestCase {
         }
     }
 
+    func testListWorkflowDefinitionsUnwrapsTheWorkflowsEnvelope() async throws {
+        let body = """
+        {"workflows":[{"key":"daily_workspace_briefing","displayName":"Daily Workspace Briefing","description":"Gather a snapshot.","steps":[{"key":"gather_snapshot","displayName":"Gather workspace snapshot","capability":null}],"triggerPhrases":["daily briefing"]}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workflows"] = .init(statusCode: 200, body: body)
+
+        let definitions = try await client.listWorkflowDefinitions()
+        XCTAssertEqual(definitions.count, 1)
+        XCTAssertEqual(definitions[0].key, .dailyWorkspaceBriefing)
+    }
+
+    func testCreateWorkflowRunSendsWorkflowKeyAndInputAndUnwrapsTheRunEnvelope() async throws {
+        let body = """
+        {"run":{"id":"run-1","workspaceId":"w1","workflowKey":"draft_email_reply","status":"pending","currentStepIndex":0,"input":{"topic":"pricing"},"result":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","completedAt":null,"steps":[]}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/workflow-runs"] = .init(statusCode: 201, body: body)
+
+        let run = try await client.createWorkflowRun(workspaceId: "w1", workflowKey: .draftEmailReply, input: ["topic": "pricing"])
+        XCTAssertEqual(run.workflowKey, .draftEmailReply)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let sentBody = try XCTUnwrap(recorded.httpBody)
+        let sentJSON = try JSONSerialization.jsonObject(with: sentBody) as? [String: Any]
+        XCTAssertEqual(sentJSON?["workflowKey"] as? String, "draft_email_reply")
+        let sentInput = sentJSON?["input"] as? [String: String]
+        XCTAssertEqual(sentInput?["topic"], "pricing")
+    }
+
+    func testExecuteWorkflowRunStepPostsToTheExecuteRouteAndUnwrapsTheRunEnvelope() async throws {
+        let body = """
+        {"run":{"id":"run-1","workspaceId":"w1","workflowKey":"daily_workspace_briefing","status":"running","currentStepIndex":1,"input":{},"result":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","completedAt":null,"steps":[]}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/workflow-runs/run-1/execute"] = .init(statusCode: 200, body: body)
+
+        let run = try await client.executeWorkflowRunStep(workspaceId: "w1", runId: "run-1")
+        XCTAssertEqual(run.currentStepIndex, 1)
+    }
+
+    func testPauseResumeCancelWorkflowRunHitTheirRespectiveRoutes() async throws {
+        func stub(_ path: String, status: WorkflowRunStatus) {
+            let body = """
+            {"run":{"id":"run-1","workspaceId":"w1","workflowKey":"daily_workspace_briefing","status":"\(status.rawValue)","currentStepIndex":0,"input":{},"result":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","completedAt":null,"steps":[]}}
+            """.data(using: .utf8)!
+            MockURLProtocol.stubs["POST \(path)"] = .init(statusCode: 200, body: body)
+        }
+        stub("/api/workspaces/w1/workflow-runs/run-1/pause", status: .paused)
+        stub("/api/workspaces/w1/workflow-runs/run-1/resume", status: .running)
+        stub("/api/workspaces/w1/workflow-runs/run-1/cancel", status: .cancelled)
+
+        let paused = try await client.pauseWorkflowRun(workspaceId: "w1", runId: "run-1")
+        XCTAssertEqual(paused.status, .paused)
+
+        let resumed = try await client.resumeWorkflowRun(workspaceId: "w1", runId: "run-1")
+        XCTAssertEqual(resumed.status, .running)
+
+        let cancelled = try await client.cancelWorkflowRun(workspaceId: "w1", runId: "run-1")
+        XCTAssertEqual(cancelled.status, .cancelled)
+    }
+
     func testSendMessageDecodesUnwrappedSendMessageResult() async throws {
         let body = """
         {

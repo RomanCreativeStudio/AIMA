@@ -15,6 +15,8 @@ import { PreferenceService } from '../preferences/preferenceService';
 import { CapabilityRegistry, DEFAULT_CAPABILITIES } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
 import { WorkspaceService } from '../workspaces/workspaceService';
+import { WorkflowRegistry } from '../workflows/registry';
+import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
 import { ConversationService, type ConversationServiceDependencies } from './conversationService';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { ConversationNotFoundError } from './errors';
@@ -52,12 +54,14 @@ function buildService(
   const workspaceService = new WorkspaceService(client);
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine, workspaceService);
+  const workflowIntentMatcher = new WorkflowIntentMatcher(new WorkflowRegistry());
 
   const service = new ConversationService({
     db: client,
     aimaCoreService,
     actionLogger,
     permissionEngine,
+    workflowIntentMatcher,
     ...overrides,
   });
 
@@ -403,6 +407,39 @@ test('sendMessage classifies distinct intents for distinct messages', async () =
   });
 });
 
+test('sendMessage attaches a workflow suggestion when the message matches a built-in workflow', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Give me my daily briefing',
+    });
+
+    assert.ok(result.workflowSuggestion);
+    assert.equal(result.workflowSuggestion?.workflowKey, 'daily_workspace_briefing');
+  });
+});
+
+test('sendMessage leaves workflowSuggestion null for ordinary chat', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'What time is it?',
+    });
+
+    assert.equal(result.workflowSuggestion, null);
+  });
+});
+
 test('sendMessage result matches the full response schema', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');
@@ -418,6 +455,7 @@ test('sendMessage result matches the full response schema', async () => {
       'retrievedDocumentChunks',
       'retrievedMemories',
       'userMessage',
+      'workflowSuggestion',
     ]);
 
     assert.equal(typeof result.userMessage.content, 'string');

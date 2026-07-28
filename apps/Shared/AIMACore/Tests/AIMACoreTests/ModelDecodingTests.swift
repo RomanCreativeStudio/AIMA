@@ -242,6 +242,90 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(health.checks.aiProvider.detail, "mock")
     }
 
+    func testWorkflowKeyRawValuesMatchBackendEnum() {
+        // backend/database/migrations/0012_workflows.sql's workflow_key enum.
+        XCTAssertEqual(WorkflowKey.draftEmailReply.rawValue, "draft_email_reply")
+        XCTAssertEqual(WorkflowKey.createGithubIssueDraft.rawValue, "create_github_issue_draft")
+        XCTAssertEqual(WorkflowKey.summarizeUnreadEmail.rawValue, "summarize_unread_email")
+        XCTAssertEqual(WorkflowKey.dailyWorkspaceBriefing.rawValue, "daily_workspace_briefing")
+    }
+
+    func testWorkflowRunStatusRawValuesMatchBackendEnum() {
+        // backend/database/migrations/0012_workflows.sql's workflow_run_status enum.
+        XCTAssertEqual(WorkflowRunStatus.pending.rawValue, "pending")
+        XCTAssertEqual(WorkflowRunStatus.running.rawValue, "running")
+        XCTAssertEqual(WorkflowRunStatus.awaitingApproval.rawValue, "awaiting_approval")
+        XCTAssertEqual(WorkflowRunStatus.paused.rawValue, "paused")
+        XCTAssertEqual(WorkflowRunStatus.completed.rawValue, "completed")
+        XCTAssertEqual(WorkflowRunStatus.failed.rawValue, "failed")
+        XCTAssertEqual(WorkflowRunStatus.cancelled.rawValue, "cancelled")
+    }
+
+    func testDecodesWorkflowDefinition() throws {
+        let json = """
+        {
+          "key": "draft_email_reply", "displayName": "Draft Email Reply",
+          "description": "Compose a reply and save it to the local draft queue for review.",
+          "steps": [
+            {"key":"compose_reply","displayName":"Compose reply","capability":null},
+            {"key":"save_draft","displayName":"Save as email draft","capability":"draft_email"}
+          ],
+          "triggerPhrases": ["draft a reply"]
+        }
+        """.data(using: .utf8)!
+
+        let definition = try decoder.decode(WorkflowDefinition.self, from: json)
+        XCTAssertEqual(definition.key, .draftEmailReply)
+        XCTAssertEqual(definition.steps.count, 2)
+        XCTAssertNil(definition.steps[0].capability)
+        XCTAssertEqual(definition.steps[1].capability, "draft_email")
+    }
+
+    func testDecodesWorkflowRunDetailWithFlatStepsSibling() throws {
+        // The backend's JSON is flat — `steps` is a sibling field, not nested under a `run` key
+        // (backend/src/workflows/types.ts#WorkflowRunDetail) — so Codable synthesis needs the shape to match exactly.
+        let json = """
+        {
+          "id":"run-1","workspaceId":"w1","workflowKey":"daily_workspace_briefing","status":"running",
+          "currentStepIndex":1,"input":{},"result":null,
+          "createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","completedAt":null,
+          "steps":[
+            {"id":"s1","workflowRunId":"run-1","stepIndex":0,"stepKey":"gather_snapshot","status":"completed","capability":null,"pendingApprovalId":null,"output":{"openTaskCount":2},"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"},
+            {"id":"s2","workflowRunId":"run-1","stepIndex":1,"stepKey":"compose_briefing","status":"pending","capability":null,"pendingApprovalId":null,"output":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}
+          ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try decoder.decode(WorkflowRunDetail.self, from: json)
+        XCTAssertEqual(detail.status, .running)
+        XCTAssertEqual(detail.steps.count, 2)
+        XCTAssertEqual(detail.steps[0].status, .completed)
+        XCTAssertEqual(detail.steps[0].output?["openTaskCount"], .number(2))
+        XCTAssertEqual(detail.asRun.id, detail.id)
+    }
+
+    func testDecodesSendMessageResultWithWorkflowSuggestion() throws {
+        let json = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"give me my daily briefing","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"Sure.","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "workflowSuggestion": {
+            "workflowKey":"daily_workspace_briefing","displayName":"Daily Workspace Briefing",
+            "description":"Gather a snapshot.","confidence":0.75,
+            "steps":[{"key":"gather_snapshot","displayName":"Gather workspace snapshot","capability":null}],
+            "extractedInput":{}
+          }
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SendMessageResult.self, from: json)
+        XCTAssertEqual(result.workflowSuggestion?.workflowKey, .dailyWorkspaceBriefing)
+        XCTAssertEqual(result.workflowSuggestion?.confidence, 0.75)
+    }
+
     func testEncodesUpdateUserProfileRequestDistinguishingAbsentFromNullDefaultWorkspace() throws {
         let encoder = JSONEncoder()
 

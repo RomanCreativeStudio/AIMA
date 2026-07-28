@@ -77,6 +77,8 @@ public struct SendMessageResult: Codable, Sendable {
     public let retrievedDocumentChunks: [JSONValue]
     public let intent: IntentAnalysis
     public let approvalDecision: ApprovalDecision
+    /// An advisory workflow preview (Phase 2.4), present when the message matched one of the built-in workflows. Never itself creates or executes a run.
+    public let workflowSuggestion: WorkflowSuggestion?
 
     public init(
         userMessage: Message,
@@ -84,7 +86,8 @@ public struct SendMessageResult: Codable, Sendable {
         retrievedMemories: [JSONValue],
         retrievedDocumentChunks: [JSONValue],
         intent: IntentAnalysis,
-        approvalDecision: ApprovalDecision
+        approvalDecision: ApprovalDecision,
+        workflowSuggestion: WorkflowSuggestion?
     ) {
         self.userMessage = userMessage
         self.assistantMessage = assistantMessage
@@ -92,5 +95,6 @@ public struct SendMessageResult: Codable, Sendable {
         self.retrievedDocumentChunks = retrievedDocumentChunks
         self.intent = intent
         self.approvalDecision = approvalDecision
+        self.workflowSuggestion = workflowSuggestion
     }
 }

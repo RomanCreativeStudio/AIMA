@@ -39,4 +39,13 @@ public protocol APIClient: Sendable {
     func connectIntegration(workspaceId: String, provider: IntegrationProvider, credentials: [String: String]) async throws -> WorkspaceIntegration
     func disconnectIntegration(workspaceId: String, provider: IntegrationProvider) async throws -> WorkspaceIntegration
     func rotateIntegrationCredentials(workspaceId: String, provider: IntegrationProvider, credentials: [String: String]) async throws -> WorkspaceIntegration
+
+    func listWorkflowDefinitions() async throws -> [WorkflowDefinition]
+    func listWorkflowRuns(workspaceId: String) async throws -> [WorkflowRun]
+    func createWorkflowRun(workspaceId: String, workflowKey: WorkflowKey, input: [String: String]) async throws -> WorkflowRunDetail
+    func getWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
+    func executeWorkflowRunStep(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
+    func pauseWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
+    func resumeWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
+    func cancelWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
 }

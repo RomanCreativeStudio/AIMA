@@ -221,6 +221,73 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).integration
     }
 
+    // MARK: - Workflows
+
+    public func listWorkflowDefinitions() async throws -> [WorkflowDefinition] {
+        try await send("GET", "/api/workflows", envelope: WorkflowDefinitionsEnvelope.self).workflows
+    }
+
+    public func listWorkflowRuns(workspaceId: String) async throws -> [WorkflowRun] {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/workflow-runs",
+            envelope: WorkflowRunsEnvelope.self
+        ).runs
+    }
+
+    public func createWorkflowRun(
+        workspaceId: String,
+        workflowKey: WorkflowKey,
+        input: [String: String]
+    ) async throws -> WorkflowRunDetail {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/workflow-runs",
+            body: CreateWorkflowRunRequest(workflowKey: workflowKey, input: input),
+            envelope: WorkflowRunEnvelope.self
+        ).run
+    }
+
+    public func getWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/workflow-runs/\(runId)",
+            envelope: WorkflowRunEnvelope.self
+        ).run
+    }
+
+    public func executeWorkflowRunStep(workspaceId: String, runId: String) async throws -> WorkflowRunDetail {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/workflow-runs/\(runId)/execute",
+            envelope: WorkflowRunEnvelope.self
+        ).run
+    }
+
+    public func pauseWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/workflow-runs/\(runId)/pause",
+            envelope: WorkflowRunEnvelope.self
+        ).run
+    }
+
+    public func resumeWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/workflow-runs/\(runId)/resume",
+            envelope: WorkflowRunEnvelope.self
+        ).run
+    }
+
+    public func cancelWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/workflow-runs/\(runId)/cancel",
+            envelope: WorkflowRunEnvelope.self
+        ).run
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -321,3 +388,6 @@ private struct PreferencesEnvelope: Decodable { let preferences: [Preference] }
 private struct DeletedEnvelope: Decodable { let deleted: Bool }
 private struct IntegrationsEnvelope: Decodable { let integrations: [WorkspaceIntegration] }
 private struct IntegrationEnvelope: Decodable { let integration: WorkspaceIntegration }
+private struct WorkflowDefinitionsEnvelope: Decodable { let workflows: [WorkflowDefinition] }
+private struct WorkflowRunsEnvelope: Decodable { let runs: [WorkflowRun] }
+private struct WorkflowRunEnvelope: Decodable { let run: WorkflowRunDetail }

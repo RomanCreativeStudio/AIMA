@@ -18,6 +18,8 @@ import type { UserService } from './users/userService';
 import type { WorkspaceService } from './workspaces/workspaceService';
 import type { CapabilityRegistry } from './permissions/registry';
 import type { PermissionEngine } from './permissions/engine';
+import type { WorkflowRegistry } from './workflows/registry';
+import type { WorkflowService } from './workflows/workflowService';
 import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
@@ -28,6 +30,7 @@ import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
 import { integrationsRouter } from './routes/integrations';
 import { preferencesRouter } from './routes/preferences';
+import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
 import { workspacesRouter } from './routes/workspaces';
@@ -44,6 +47,8 @@ export interface AppDependencies {
   draftService: DraftService;
   integrationService: IntegrationService;
   integrationRegistry: IntegrationRegistry;
+  workflowService: WorkflowService;
+  workflowRegistry: WorkflowRegistry;
   preferenceService: PreferenceService;
   userService: UserService;
   workspaceService: WorkspaceService;
@@ -116,6 +121,13 @@ export function createApp(deps: AppDependencies): Application {
       integrationService: deps.integrationService,
       integrationRegistry: deps.integrationRegistry,
       permissionEngine: deps.permissionEngine,
+    }),
+  );
+  app.use(
+    '/api',
+    workflowsRouter({
+      workflowService: deps.workflowService,
+      workflowRegistry: deps.workflowRegistry,
     }),
   );
   app.use('/api', usersRouter({ userService: deps.userService }));
