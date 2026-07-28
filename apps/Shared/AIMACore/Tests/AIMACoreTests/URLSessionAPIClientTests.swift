@@ -449,4 +449,90 @@ final class URLSessionAPIClientTests: XCTestCase {
         let result = try await client.sendMessage(workspaceId: "w1", conversationId: "c1", content: "hi")
         XCTAssertEqual(result.assistantMessage.content, "hello")
     }
+
+    func testSendMessageDecodesMemorySuggestionsWhenPresent() async throws {
+        let body = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"My name is Roman.","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"Noted.","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "memorySuggestions": [{"content":"My name is Roman.","category":"fact","importance":0.95,"confidence":0.95,"reason":"matched \\"my name is\\""}]
+        }
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/conversations/c1/messages"] = .init(statusCode: 201, body: body)
+
+        let result = try await client.sendMessage(workspaceId: "w1", conversationId: "c1", content: "My name is Roman.")
+        XCTAssertEqual(result.memorySuggestions.count, 1)
+        XCTAssertEqual(result.memorySuggestions[0].category, .fact)
+    }
+
+    func testListMemoriesAppliesScopeMemoryTypeAndIncludeArchivedQueryParameters() async throws {
+        MockURLProtocol.stubs["GET /api/workspaces/w1/memories"] = .init(statusCode: 200, body: #"{"memories":[]}"#.data(using: .utf8)!)
+
+        _ = try await client.listMemories(workspaceId: "w1", scope: .user, memoryType: .shortTerm, includeArchived: true)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let query = try XCTUnwrap(recorded.url?.query)
+        let params = Set(query.split(separator: "&").map(String.init))
+        XCTAssertEqual(params, ["scope=user", "memoryType=short_term", "includeArchived=true"])
+    }
+
+    func testSearchMemoriesUnwrapsTheResultsEnvelope() async throws {
+        let body = """
+        {"results":[{"id":"mem-1","workspaceId":"w1","scope":"workspace","content":"Acme timeline slipped.","source":null,"conversationId":null,"projectKey":null,"metadata":{},"createdAt":"2026-01-01T00:00:00.000Z","score":0.82,"importanceScore":0.7,"confidenceScore":0.9,"memoryType":"long_term","lastAccessedAt":null,"expiresAt":null,"archivedAt":null}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/memories/search"] = .init(statusCode: 200, body: body)
+
+        let results = try await client.searchMemories(workspaceId: "w1", query: "Acme", scope: nil, limit: 5)
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].score, 0.82)
+    }
+
+    func testCreateMemorySendsEncodedJSONBodyAndUnwrapsTheMemoryEnvelope() async throws {
+        let responseBody = """
+        {"memory":{"id":"mem-1","workspaceId":"w1","scope":"workspace","content":"Client prefers email.","source":null,"conversationId":null,"projectKey":null,"metadata":{},"createdAt":"2026-01-01T00:00:00.000Z","importanceScore":0.5,"confidenceScore":1.0,"memoryType":"long_term","lastAccessedAt":null,"expiresAt":null,"archivedAt":null},"permission":{"kind":"prepare"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/memories"] = .init(statusCode: 201, body: responseBody)
+
+        let memory = try await client.createMemory(workspaceId: "w1", request: CreateMemoryRequest(scope: .workspace, content: "Client prefers email."))
+        XCTAssertEqual(memory.content, "Client prefers email.")
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let sentBody = try XCTUnwrap(recorded.httpBody)
+        let sentJSON = try JSONSerialization.jsonObject(with: sentBody) as? [String: Any]
+        XCTAssertEqual(sentJSON?["scope"] as? String, "workspace")
+        XCTAssertEqual(sentJSON?["content"] as? String, "Client prefers email.")
+    }
+
+    func testUpdateMemoryPatchesToTheMemoryRouteAndUnwrapsTheMemoryEnvelope() async throws {
+        let body = """
+        {"memory":{"id":"mem-1","workspaceId":"w1","scope":"workspace","content":"Updated.","source":null,"conversationId":null,"projectKey":null,"metadata":{},"createdAt":"2026-01-01T00:00:00.000Z","importanceScore":0.8,"confidenceScore":1.0,"memoryType":"long_term","lastAccessedAt":null,"expiresAt":null,"archivedAt":null}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["PATCH /api/workspaces/w1/memories/mem-1"] = .init(statusCode: 200, body: body)
+
+        let memory = try await client.updateMemory(workspaceId: "w1", memoryId: "mem-1", request: UpdateMemoryRequest(content: "Updated.", importanceScore: 0.8))
+        XCTAssertEqual(memory.content, "Updated.")
+        XCTAssertEqual(memory.importanceScore, 0.8)
+    }
+
+    func testArchiveMemoryPostsToTheArchiveRouteAndUnwrapsTheMemoryEnvelope() async throws {
+        let body = """
+        {"memory":{"id":"mem-1","workspaceId":"w1","scope":"workspace","content":"Archived.","source":null,"conversationId":null,"projectKey":null,"metadata":{},"createdAt":"2026-01-01T00:00:00.000Z","importanceScore":0.5,"confidenceScore":1.0,"memoryType":"long_term","lastAccessedAt":null,"expiresAt":null,"archivedAt":"2026-01-02T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/memories/mem-1/archive"] = .init(statusCode: 200, body: body)
+
+        let memory = try await client.archiveMemory(workspaceId: "w1", memoryId: "mem-1")
+        XCTAssertNotNil(memory.archivedAt)
+    }
+
+    func testDeleteMemorySendsDeleteToTheMemoryRoute() async throws {
+        MockURLProtocol.stubs["DELETE /api/workspaces/w1/memories/mem-1"] = .init(statusCode: 200, body: #"{"deleted":true}"#.data(using: .utf8)!)
+
+        try await client.deleteMemory(workspaceId: "w1", memoryId: "mem-1")
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        XCTAssertEqual(recorded.httpMethod, "DELETE")
+    }
 }

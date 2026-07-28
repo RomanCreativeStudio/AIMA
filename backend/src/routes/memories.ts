@@ -1,7 +1,8 @@
 import { Router, type Response } from 'express';
 import type { ActionLogger } from '../actionLog/logger';
+import { MemoryNotFoundError } from '../memory/errors';
 import type { MemoryService } from '../memory/memoryService';
-import { MEMORY_SCOPES, type MemoryScope } from '../memory/types';
+import { MEMORY_SCOPES, MEMORY_TYPES, type MemoryScope, type MemoryType } from '../memory/types';
 import type { PermissionEngine } from '../permissions/engine';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { isUuid } from '../util/uuid';
@@ -154,6 +155,108 @@ export function memoriesRouter(deps: MemoriesRouterDependencies): Router {
     }
   });
 
+  router.get('/workspaces/:workspaceId/memories', async (req, res, next) => {
+    try {
+      const { workspaceId } = req.params;
+      if (!isUuid(workspaceId)) {
+        res.status(400).json({ error: 'workspaceId must be a valid UUID' });
+        return;
+      }
+
+      const scope = isMemoryScope(req.query.scope) ? req.query.scope : undefined;
+      const memoryType = isMemoryType(req.query.memoryType) ? req.query.memoryType : undefined;
+      const includeArchived = req.query.includeArchived === 'true';
+      const limit = req.query.limit ? Number(req.query.limit) : undefined;
+
+      const memories = await deps.memoryService.listMemories({
+        workspaceId,
+        scope,
+        memoryType,
+        includeArchived,
+        limit,
+      });
+
+      res.json({ memories });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
+  router.patch('/workspaces/:workspaceId/memories/:memoryId', async (req, res, next) => {
+    try {
+      const { workspaceId, memoryId } = req.params;
+      if (!isUuid(workspaceId) || !isUuid(memoryId)) {
+        res.status(400).json({ error: 'workspaceId and memoryId must be valid UUIDs' });
+        return;
+      }
+
+      const { content, importanceScore, confidenceScore, metadata } = req.body ?? {};
+
+      if (content !== undefined && (typeof content !== 'string' || content.trim().length === 0)) {
+        res.status(400).json({ error: 'content must be a non-empty string if provided' });
+        return;
+      }
+      if (importanceScore !== undefined && !isUnitInterval(importanceScore)) {
+        res.status(400).json({ error: 'importanceScore must be a number between 0 and 1' });
+        return;
+      }
+      if (confidenceScore !== undefined && !isUnitInterval(confidenceScore)) {
+        res.status(400).json({ error: 'confidenceScore must be a number between 0 and 1' });
+        return;
+      }
+      if (
+        content === undefined &&
+        importanceScore === undefined &&
+        confidenceScore === undefined &&
+        metadata === undefined
+      ) {
+        res.status(400).json({ error: 'at least one field must be provided' });
+        return;
+      }
+
+      const memory = await deps.memoryService.updateMemory(workspaceId, memoryId, {
+        content,
+        importanceScore,
+        confidenceScore,
+        metadata: typeof metadata === 'object' && metadata !== null ? metadata : undefined,
+      });
+
+      res.json({ memory });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
+  router.post('/workspaces/:workspaceId/memories/:memoryId/archive', async (req, res, next) => {
+    try {
+      const { workspaceId, memoryId } = req.params;
+      if (!isUuid(workspaceId) || !isUuid(memoryId)) {
+        res.status(400).json({ error: 'workspaceId and memoryId must be valid UUIDs' });
+        return;
+      }
+
+      const memory = await deps.memoryService.archiveMemory(workspaceId, memoryId);
+      res.json({ memory });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
+  router.delete('/workspaces/:workspaceId/memories/:memoryId', async (req, res, next) => {
+    try {
+      const { workspaceId, memoryId } = req.params;
+      if (!isUuid(workspaceId) || !isUuid(memoryId)) {
+        res.status(400).json({ error: 'workspaceId and memoryId must be valid UUIDs' });
+        return;
+      }
+
+      await deps.memoryService.deleteMemory(workspaceId, memoryId);
+      res.json({ deleted: true });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
   return router;
 }
 
@@ -161,8 +264,16 @@ function isMemoryScope(value: unknown): value is MemoryScope {
   return typeof value === 'string' && (MEMORY_SCOPES as readonly string[]).includes(value);
 }
 
+function isMemoryType(value: unknown): value is MemoryType {
+  return typeof value === 'string' && (MEMORY_TYPES as readonly string[]).includes(value);
+}
+
+function isUnitInterval(value: unknown): value is number {
+  return typeof value === 'number' && value >= 0 && value <= 1;
+}
+
 function handleKnownErrors(error: unknown, res: Response, next: (error: unknown) => void): void {
-  if (error instanceof WorkspaceNotFoundError) {
+  if (error instanceof WorkspaceNotFoundError || error instanceof MemoryNotFoundError) {
     res.status(404).json({ error: error.message });
     return;
   }

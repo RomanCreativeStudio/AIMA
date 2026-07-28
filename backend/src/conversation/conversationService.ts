@@ -1,3 +1,5 @@
+import type { MemoryExtractor } from '@aima/ai-engine';
+import { RuleBasedMemoryExtractor } from '@aima/ai-engine';
 import type { ActionLogger } from '../actionLog/logger';
 import type { AimaCoreService } from '../core/aimaCoreService';
 import type { Queryable } from '../db/queryable';
@@ -24,6 +26,8 @@ export interface ConversationServiceDependencies {
   workflowIntentMatcher: WorkflowIntentMatcher;
   /** Pure phrase-matching against real external actions (Phase 2.6) — never creates or executes anything, only shapes the advisory `executionSuggestion` on the response. */
   executionIntentMatcher: ExecutionIntentMatcher;
+  /** Detects candidate facts/preferences worth remembering (Phase 3.4) — advisory only, shapes `memorySuggestions` on the response; never creates a memory itself. Optional, defaulting to `RuleBasedMemoryExtractor` — the same "no live network call" default as every other rule-based matcher in this pipeline. */
+  memoryExtractor?: MemoryExtractor;
   /** Max recent messages sent to the AI provider (a context limit — count-based, not token-based). */
   historyLimit?: number;
   /** Max memory records retrieved per turn (a context limit). */
@@ -51,6 +55,7 @@ export class ConversationService {
   private readonly permissionEngine: PermissionEngine;
   private readonly workflowIntentMatcher: WorkflowIntentMatcher;
   private readonly executionIntentMatcher: ExecutionIntentMatcher;
+  private readonly memoryExtractor: MemoryExtractor;
   private readonly historyLimit: number;
   private readonly memoryLimit: number;
   private readonly documentLimit: number;
@@ -62,6 +67,7 @@ export class ConversationService {
     this.permissionEngine = deps.permissionEngine;
     this.workflowIntentMatcher = deps.workflowIntentMatcher;
     this.executionIntentMatcher = deps.executionIntentMatcher;
+    this.memoryExtractor = deps.memoryExtractor ?? new RuleBasedMemoryExtractor();
     this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
     this.memoryLimit = deps.memoryLimit ?? DEFAULT_MEMORY_LIMIT;
     this.documentLimit = deps.documentLimit ?? DEFAULT_DOCUMENT_LIMIT;
@@ -175,6 +181,7 @@ export class ConversationService {
         approvalDecision: result.approvalDecision,
         workflowSuggestion: this.workflowIntentMatcher.match(input.content),
         executionSuggestion: this.executionIntentMatcher.match(input.content),
+        memorySuggestions: this.memoryExtractor.extract(input.content),
       };
     } catch (error) {
       await this.actionLogger.log({

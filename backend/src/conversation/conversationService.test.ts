@@ -481,6 +481,43 @@ test('sendMessage leaves executionSuggestion null for ordinary chat', async () =
   });
 });
 
+test('sendMessage attaches memorySuggestions when the message contains a detectable fact/preference', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'My name is Roman and I prefer email over phone calls.',
+    });
+
+    assert.ok(result.memorySuggestions.length >= 2);
+    assert.ok(result.memorySuggestions.some((s) => s.category === 'fact'));
+    assert.ok(result.memorySuggestions.some((s) => s.category === 'preference'));
+  });
+});
+
+test('sendMessage leaves memorySuggestions empty for ordinary chat, and never persists a memory itself', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'What time is it?',
+    });
+
+    assert.deepEqual(result.memorySuggestions, []);
+
+    const memories = await client.query('SELECT 1 FROM memory_records WHERE workspace_id = $1', [workspaceId]);
+    assert.equal(memories.rows.length, 0, 'sendMessage must never create a memory on its own');
+  });
+});
+
 test('sendMessage result matches the full response schema', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');
@@ -494,6 +531,7 @@ test('sendMessage result matches the full response schema', async () => {
       'assistantMessage',
       'executionSuggestion',
       'intent',
+      'memorySuggestions',
       'retrievedDocumentChunks',
       'retrievedMemories',
       'userMessage',

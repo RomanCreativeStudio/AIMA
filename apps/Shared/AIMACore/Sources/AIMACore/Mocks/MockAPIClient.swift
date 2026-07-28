@@ -28,6 +28,7 @@ public actor MockAPIClient: APIClient {
     private var executionsByWorkspace: [String: [ExecutionRecord]] = [:]
     private var voiceSessionsByWorkspace: [String: [VoiceSession]] = [:]
     private var voiceTurnsBySession: [String: [VoiceTurn]] = [:]
+    private var memoriesByWorkspace: [String: [MemoryRecord]] = [:]
     /// Set by `forceNextVoiceRequestToFailWithProviderError`, consumed by the
     /// next `submitVoiceRequest` call — simulates the backend's
     /// `VoiceProviderError` (HTTP 502) without needing a real vendor outage
@@ -158,6 +159,23 @@ public actor MockAPIClient: APIClient {
             rcs.id: [
                 TaskItem(id: "mock-task-1", workspaceId: rcs.id, title: "Send Acme proposal", description: nil, status: .todo, priority: .high, dueDate: nil, createdAt: now, updatedAt: now),
                 TaskItem(id: "mock-task-2", workspaceId: rcs.id, title: "Review contract terms", description: nil, status: .inProgress, priority: .medium, dueDate: nil, createdAt: now, updatedAt: now),
+            ],
+        ]
+
+        self.memoriesByWorkspace = [
+            rcs.id: [
+                MemoryRecord(
+                    id: "mock-memory-1", workspaceId: rcs.id, scope: .workspace,
+                    content: "Acme's project timeline was pushed back two weeks last quarter.",
+                    source: nil, conversationId: nil, projectKey: nil, metadata: [:], createdAt: now,
+                    importanceScore: 0.8, confidenceScore: 0.9, memoryType: .longTerm
+                ),
+                MemoryRecord(
+                    id: "mock-memory-2", workspaceId: rcs.id, scope: .user,
+                    content: "Prefers concise, formal-toned client emails.",
+                    source: nil, conversationId: nil, projectKey: nil, metadata: [:], createdAt: now,
+                    importanceScore: 0.6, confidenceScore: 0.8, memoryType: .longTerm
+                ),
             ],
         ]
 
@@ -443,6 +461,99 @@ public actor MockAPIClient: APIClient {
     public func deleteTask(workspaceId: String, taskId: String) async throws {
         try await maybeFail()
         tasksByWorkspace[workspaceId]?.removeAll { $0.id == taskId }
+    }
+
+    public func listMemories(
+        workspaceId: String,
+        scope: MemoryScope?,
+        memoryType: MemoryType?,
+        includeArchived: Bool
+    ) async throws -> [MemoryRecord] {
+        try await maybeFail()
+        var results = memoriesByWorkspace[workspaceId] ?? []
+        if !includeArchived { results = results.filter { !$0.isArchived } }
+        if let scope { results = results.filter { $0.scope == scope } }
+        if let memoryType { results = results.filter { $0.memoryType == memoryType } }
+        return results
+    }
+
+    public func searchMemories(workspaceId: String, query: String, scope: MemoryScope?, limit: Int?) async throws -> [RankedMemoryResult] {
+        try await maybeFail()
+        let lowered = query.lowercased()
+        var matches = (memoriesByWorkspace[workspaceId] ?? [])
+            .filter { !$0.isArchived }
+            .filter { scope == nil || $0.scope == scope }
+            .filter { $0.content.lowercased().contains(lowered) }
+            .map { memory in
+                RankedMemoryResult(
+                    id: memory.id, workspaceId: memory.workspaceId, scope: memory.scope, content: memory.content,
+                    source: memory.source, conversationId: memory.conversationId, projectKey: memory.projectKey,
+                    metadata: memory.metadata, createdAt: memory.createdAt, score: 1.0,
+                    importanceScore: memory.importanceScore, confidenceScore: memory.confidenceScore,
+                    memoryType: memory.memoryType, lastAccessedAt: memory.lastAccessedAt,
+                    expiresAt: memory.expiresAt, archivedAt: memory.archivedAt
+                )
+            }
+        if let limit { matches = Array(matches.prefix(limit)) }
+        return matches
+    }
+
+    public func createMemory(workspaceId: String, request: CreateMemoryRequest) async throws -> MemoryRecord {
+        try await maybeFail()
+        let memory = MemoryRecord(
+            id: UUID().uuidString, workspaceId: workspaceId, scope: request.scope, content: request.content,
+            source: request.source, conversationId: request.conversationId, projectKey: request.projectKey,
+            metadata: [:], createdAt: ISO8601DateFormatter().string(from: Date()),
+            importanceScore: request.importanceScore ?? 0.5, confidenceScore: request.confidenceScore ?? 1.0,
+            memoryType: request.memoryType ?? .longTerm
+        )
+        memoriesByWorkspace[workspaceId, default: []].append(memory)
+        return memory
+    }
+
+    public func updateMemory(workspaceId: String, memoryId: String, request: UpdateMemoryRequest) async throws -> MemoryRecord {
+        try await maybeFail()
+        guard var memories = memoriesByWorkspace[workspaceId], let index = memories.firstIndex(where: { $0.id == memoryId }) else {
+            throw APIError.server(statusCode: 404, message: "Memory not found: \(memoryId)")
+        }
+        let existing = memories[index]
+        let updated = MemoryRecord(
+            id: existing.id, workspaceId: existing.workspaceId, scope: existing.scope,
+            content: request.content ?? existing.content,
+            source: existing.source, conversationId: existing.conversationId, projectKey: existing.projectKey,
+            metadata: existing.metadata, createdAt: existing.createdAt,
+            importanceScore: request.importanceScore ?? existing.importanceScore,
+            confidenceScore: request.confidenceScore ?? existing.confidenceScore,
+            memoryType: existing.memoryType, lastAccessedAt: existing.lastAccessedAt,
+            expiresAt: existing.expiresAt, archivedAt: existing.archivedAt
+        )
+        memories[index] = updated
+        memoriesByWorkspace[workspaceId] = memories
+        return updated
+    }
+
+    public func archiveMemory(workspaceId: String, memoryId: String) async throws -> MemoryRecord {
+        try await maybeFail()
+        guard var memories = memoriesByWorkspace[workspaceId], let index = memories.firstIndex(where: { $0.id == memoryId }) else {
+            throw APIError.server(statusCode: 404, message: "Memory not found: \(memoryId)")
+        }
+        let existing = memories[index]
+        let archived = MemoryRecord(
+            id: existing.id, workspaceId: existing.workspaceId, scope: existing.scope, content: existing.content,
+            source: existing.source, conversationId: existing.conversationId, projectKey: existing.projectKey,
+            metadata: existing.metadata, createdAt: existing.createdAt,
+            importanceScore: existing.importanceScore, confidenceScore: existing.confidenceScore,
+            memoryType: existing.memoryType, lastAccessedAt: existing.lastAccessedAt,
+            expiresAt: existing.expiresAt, archivedAt: ISO8601DateFormatter().string(from: Date())
+        )
+        memories[index] = archived
+        memoriesByWorkspace[workspaceId] = memories
+        return archived
+    }
+
+    public func deleteMemory(workspaceId: String, memoryId: String) async throws {
+        try await maybeFail()
+        memoriesByWorkspace[workspaceId]?.removeAll { $0.id == memoryId }
     }
 
     public func listApprovals(workspaceId: String, status: ApprovalStatus?) async throws -> [PendingApproval] {

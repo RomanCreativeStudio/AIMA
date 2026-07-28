@@ -76,4 +76,11 @@ public protocol APIClient: Sendable {
         configuration: VoiceConfiguration?
     ) async throws -> VoiceResponse
     func listVoiceTurns(workspaceId: String, voiceSessionId: String) async throws -> [VoiceTurn]
+
+    func listMemories(workspaceId: String, scope: MemoryScope?, memoryType: MemoryType?, includeArchived: Bool) async throws -> [MemoryRecord]
+    func searchMemories(workspaceId: String, query: String, scope: MemoryScope?, limit: Int?) async throws -> [RankedMemoryResult]
+    func createMemory(workspaceId: String, request: CreateMemoryRequest) async throws -> MemoryRecord
+    func updateMemory(workspaceId: String, memoryId: String, request: UpdateMemoryRequest) async throws -> MemoryRecord
+    func archiveMemory(workspaceId: String, memoryId: String) async throws -> MemoryRecord
+    func deleteMemory(workspaceId: String, memoryId: String) async throws
 }

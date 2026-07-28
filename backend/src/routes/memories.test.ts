@@ -321,3 +321,192 @@ test('GET .../memories/search requires a non-empty "q" parameter', async () => {
     }
   });
 });
+
+async function createMemory(baseUrl: string, workspaceId: string, content: string): Promise<{ id: string }> {
+  const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: 'workspace', content }),
+  });
+  const body = (await response.json()) as { memory: { id: string } };
+  return body.memory;
+}
+
+test('GET .../memories lists newest-first and excludes archived by default', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const first = await createMemory(baseUrl, workspaceId, 'First memory.');
+      const second = await createMemory(baseUrl, workspaceId, 'Second memory.');
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${first.id}/archive`, { method: 'POST' });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { memories: Array<{ id: string }> };
+      assert.deepEqual(
+        body.memories.map((m) => m.id),
+        [second.id],
+      );
+
+      const withArchived = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories?includeArchived=true`);
+      const withArchivedBody = (await withArchived.json()) as { memories: unknown[] };
+      assert.equal(withArchivedBody.memories.length, 2);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../memories does not leak another workspace\'s memories', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      await createMemory(baseUrl, a.workspaceId, 'Workspace A memory.');
+      await createMemory(baseUrl, b.workspaceId, 'Workspace B memory.');
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`);
+      const body = (await response.json()) as { memories: Array<{ workspaceId: string }> };
+      assert.equal(body.memories.length, 1);
+      assert.equal(body.memories[0].workspaceId, a.workspaceId);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});
+
+test('PATCH .../memories/:id updates content and scores', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const memory = await createMemory(baseUrl, workspaceId, 'Original content.');
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'Updated content.', importanceScore: 0.9 }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { memory: { content: string; importanceScore: number } };
+      assert.equal(body.memory.content, 'Updated content.');
+      assert.equal(body.memory.importanceScore, 0.9);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH .../memories/:id rejects an out-of-range score and an empty body', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const memory = await createMemory(baseUrl, workspaceId, 'Some content.');
+
+      const badScore = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confidenceScore: 2 }),
+      });
+      assert.equal(badScore.status, 400);
+
+      const empty = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      assert.equal(empty.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH .../memories/:id returns 404 for an unknown memory id', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/workspaces/${workspaceId}/memories/00000000-0000-0000-0000-000000000000`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: 'x' }),
+        },
+      );
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../memories/:id/archive archives a memory and excludes it from listing', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const memory = await createMemory(baseUrl, workspaceId, 'Archive candidate.');
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}/archive`, {
+        method: 'POST',
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { memory: { archivedAt: string | null } };
+      assert.ok(body.memory.archivedAt !== null);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('DELETE .../memories/:id permanently removes a memory, then 404s on a second delete', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const memory = await createMemory(baseUrl, workspaceId, 'Delete candidate.');
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
+        method: 'DELETE',
+      });
+      assert.equal(response.status, 200);
+
+      const second = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
+        method: 'DELETE',
+      });
+      assert.equal(second.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH/archive/DELETE reject a memory id belonging to another workspace with 404', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      const memory = await createMemory(baseUrl, a.workspaceId, 'A only.');
+
+      const patch = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories/${memory.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'hijack attempt' }),
+      });
+      assert.equal(patch.status, 404);
+
+      const archive = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories/${memory.id}/archive`, {
+        method: 'POST',
+      });
+      assert.equal(archive.status, 404);
+
+      const del = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories/${memory.id}`, {
+        method: 'DELETE',
+      });
+      assert.equal(del.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});

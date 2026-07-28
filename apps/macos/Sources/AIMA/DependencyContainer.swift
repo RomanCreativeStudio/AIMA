@@ -82,6 +82,10 @@ final class DependencyContainer {
     func makeSettingsViewModel() -> SettingsViewModel {
         SettingsViewModel(apiClient: apiClient, userId: userId, currentConfiguration: configuration)
     }
+
+    func makeMemoryViewModel(workspaceId: String) -> MemoryViewModel {
+        MemoryViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
 }
 
 #if DEBUG

@@ -154,6 +154,11 @@ Additional top-level folders (e.g., `scripts/`, `.github/` for CI workflows) may
 - A provider failure (timeout, vendor error, bad credentials) never reaches the client verbatim — `VoiceService` wraps it in a generic `VoiceProviderError`, returned as HTTP 502 with a safe message. No vendor's raw error body is ever forwarded.
 - No microphone audio is ever persisted server-side, by design — only transcript text and response text are stored (`voice_turns`, `database/migrations/0016_voice.sql`). This is unchanged by which provider (`mock` or `openai`) is configured.
 
+### Memory Intelligence Configuration (Phase 3.4)
+- No new environment variables or vendor accounts are required — memory scoring/ranking/extraction is entirely local computation (`backend/src/memory/ranking.ts`, `ai-engine/src/memory/RuleBasedMemoryExtractor.ts`), the same "no AI call" posture as `RuleBasedIntentClassifier`/`WorkflowIntentMatcher`.
+- `RuleBasedMemoryExtractor` only ever *detects* candidate facts/preferences and attaches them to a chat response as advisory `memorySuggestions` — it has no database access and cannot save anything. A memory is only ever persisted by an explicit `POST /api/workspaces/:id/memories` call, whether that's the user directly or a client acting on one of those suggestions. There is no configuration flag to change this; it is structural (docs/decisions/0019-advanced-memory-system.md).
+- Existing memory rows from before this phase need no migration/backfill step: `database/migrations/0017_memory_intelligence.sql`'s new columns are all nullable or defaulted (importance 0.5, confidence 1.0, `memory_type` `long_term`).
+
 ### Production Configuration (Phase 3.1)
 - Running the backend anywhere other than a developer's own machine — a staging host, a production deployment — is covered in full by `docs/PRODUCTION_SETUP.md`, not this document. In short: set `NODE_ENV=production`, use `backend/.env.production.example` as your template, and `PUBLIC_BACKEND_URL` must be `https://` (enforced by `loadConfig()`, `backend/src/config/env.ts`).
 - Two additional optional variables control database connection behavior in any environment: `DATABASE_SSL` (set `true` for managed Postgres providers that require TLS) and `DATABASE_POOL_MAX` (bounds simultaneous connections; defaults to 10).

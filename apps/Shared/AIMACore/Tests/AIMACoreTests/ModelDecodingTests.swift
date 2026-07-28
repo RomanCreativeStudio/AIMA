@@ -367,6 +367,54 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(memory.scope, .workspace)
         XCTAssertEqual(memory.content, "Acme timeline slipped.")
         XCTAssertEqual(memory.score, 0.82)
+        // Pre-Phase-3.4 payload — no scoring/lifecycle fields — still decodes, defaulting to nil.
+        XCTAssertNil(memory.importanceScore)
+        XCTAssertNil(memory.memoryType)
+    }
+
+    func testDecodesMemoryRecordWithPhase34ScoringAndLifecycleFields() throws {
+        let json = """
+        {
+          "id":"m1","workspaceId":"w1","scope":"user","content":"Prefers concise emails.",
+          "source":null,"conversationId":null,"projectKey":null,"metadata":{},
+          "createdAt":"2026-01-01T00:00:00.000Z","importanceScore":0.6,"confidenceScore":0.8,
+          "memoryType":"short_term","lastAccessedAt":"2026-01-02T00:00:00.000Z",
+          "expiresAt":"2026-02-01T00:00:00.000Z","archivedAt":null
+        }
+        """.data(using: .utf8)!
+
+        let memory = try decoder.decode(MemoryRecord.self, from: json)
+        XCTAssertEqual(memory.importanceScore, 0.6)
+        XCTAssertEqual(memory.confidenceScore, 0.8)
+        XCTAssertEqual(memory.memoryType, .shortTerm)
+        XCTAssertEqual(memory.lastAccessedAt, "2026-01-02T00:00:00.000Z")
+        XCTAssertEqual(memory.expiresAt, "2026-02-01T00:00:00.000Z")
+        XCTAssertFalse(memory.isArchived)
+    }
+
+    func testDecodesMemorySuggestion() throws {
+        let json = """
+        {"content":"My name is Roman.","category":"fact","importance":0.95,"confidence":0.95,"reason":"matched \\"my name is\\""}
+        """.data(using: .utf8)!
+
+        let suggestion = try decoder.decode(MemorySuggestion.self, from: json)
+        XCTAssertEqual(suggestion.category, .fact)
+        XCTAssertEqual(suggestion.importance, 0.95)
+    }
+
+    func testSendMessageResultDefaultsMemorySuggestionsToEmptyWhenMissing() throws {
+        let json = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"hi","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"hello","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null}
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SendMessageResult.self, from: json)
+        XCTAssertEqual(result.memorySuggestions, [])
     }
 
     func testDecodesActionLogRecordWithNullActionType() throws {

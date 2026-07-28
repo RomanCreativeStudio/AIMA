@@ -47,6 +47,12 @@ function memory(overrides: Partial<RankedMemoryResult> = {}): RankedMemoryResult
     projectKey: null,
     metadata: {},
     createdAt: new Date().toISOString(),
+    importanceScore: 0.5,
+    confidenceScore: 1.0,
+    memoryType: 'long_term',
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
     score: 0.9,
     ...overrides,
   };

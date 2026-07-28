@@ -46,3 +46,7 @@ export type {
   SpeechToTextProviderConfig,
   TextToSpeechProviderConfig,
 } from './voice/registry';
+
+export type { MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from './memory/types';
+export { RuleBasedMemoryExtractor } from './memory/RuleBasedMemoryExtractor';
+export { rankMemoryCandidates } from './memory/ranking';

@@ -404,6 +404,56 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/workspaces/\(workspaceId)/voice/sessions/\(voiceSessionId)/turns", envelope: VoiceTurnsEnvelope.self).turns
     }
 
+    public func listMemories(
+        workspaceId: String,
+        scope: MemoryScope?,
+        memoryType: MemoryType?,
+        includeArchived: Bool
+    ) async throws -> [MemoryRecord] {
+        var query: [String: String] = [:]
+        if let scope { query["scope"] = scope.rawValue }
+        if let memoryType { query["memoryType"] = memoryType.rawValue }
+        if includeArchived { query["includeArchived"] = "true" }
+        return try await send("GET", "/api/workspaces/\(workspaceId)/memories", query: query, envelope: MemoriesEnvelope.self).memories
+    }
+
+    public func searchMemories(workspaceId: String, query: String, scope: MemoryScope?, limit: Int?) async throws -> [RankedMemoryResult] {
+        var params: [String: String] = ["q": query]
+        if let scope { params["scope"] = scope.rawValue }
+        if let limit { params["limit"] = String(limit) }
+        return try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/memories/search",
+            query: params,
+            envelope: MemorySearchResultsEnvelope.self
+        ).results
+    }
+
+    public func createMemory(workspaceId: String, request: CreateMemoryRequest) async throws -> MemoryRecord {
+        try await send("POST", "/api/workspaces/\(workspaceId)/memories", body: request, envelope: MemoryEnvelope.self).memory
+    }
+
+    public func updateMemory(workspaceId: String, memoryId: String, request: UpdateMemoryRequest) async throws -> MemoryRecord {
+        try await send(
+            "PATCH",
+            "/api/workspaces/\(workspaceId)/memories/\(memoryId)",
+            body: request,
+            envelope: MemoryEnvelope.self
+        ).memory
+    }
+
+    public func archiveMemory(workspaceId: String, memoryId: String) async throws -> MemoryRecord {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/memories/\(memoryId)/archive",
+            envelope: MemoryEnvelope.self
+        ).memory
+    }
+
+    public func deleteMemory(workspaceId: String, memoryId: String) async throws {
+        _ = try await send("DELETE", "/api/workspaces/\(workspaceId)/memories/\(memoryId)") as DeletedEnvelope
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -518,3 +568,6 @@ private struct ExecutionsEnvelope: Decodable { let executions: [ExecutionRecord]
 private struct VoiceSessionEnvelope: Decodable { let session: VoiceSession }
 private struct VoiceSessionsEnvelope: Decodable { let sessions: [VoiceSession] }
 private struct VoiceTurnsEnvelope: Decodable { let turns: [VoiceTurn] }
+private struct MemoryEnvelope: Decodable { let memory: MemoryRecord }
+private struct MemoriesEnvelope: Decodable { let memories: [MemoryRecord] }
+private struct MemorySearchResultsEnvelope: Decodable { let results: [RankedMemoryResult] }

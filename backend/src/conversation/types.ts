@@ -1,3 +1,4 @@
+import type { MemoryCandidate } from '@aima/ai-engine';
 import type { ApprovalDecision } from '../approval/types';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
@@ -45,4 +46,6 @@ export interface SendMessageResult {
   workflowSuggestion: WorkflowSuggestion | null;
   /** An advisory execution preview (Phase 2.6, item 5), present when the message matches a real external action. Never itself creates or runs an execution — the user must go through a dedicated execution request. */
   executionSuggestion: ExecutionSuggestion | null;
+  /** Advisory candidate memories detected in the user's message (Phase 3.4, docs/decisions/0019-advanced-memory-system.md) — never persisted automatically; the user must explicitly call the memory creation endpoint to save one. Empty when nothing was detected. */
+  memorySuggestions: MemoryCandidate[];
 }

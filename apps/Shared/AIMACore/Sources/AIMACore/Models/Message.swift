@@ -81,6 +81,9 @@ public struct SendMessageResult: Codable, Sendable {
     public let workflowSuggestion: WorkflowSuggestion?
     /// An advisory execution preview (Phase 2.6), present when the message matched a real external action. Never itself creates or runs an execution.
     public let executionSuggestion: ExecutionSuggestion?
+    /// Advisory candidate memories detected in the user's message (Phase 3.4) — never persisted automatically;
+    /// the user must explicitly save one via the memory creation endpoint. Empty when nothing was detected.
+    public let memorySuggestions: [MemorySuggestion]
 
     public init(
         userMessage: Message,
@@ -90,7 +93,8 @@ public struct SendMessageResult: Codable, Sendable {
         intent: IntentAnalysis,
         approvalDecision: ApprovalDecision,
         workflowSuggestion: WorkflowSuggestion?,
-        executionSuggestion: ExecutionSuggestion?
+        executionSuggestion: ExecutionSuggestion?,
+        memorySuggestions: [MemorySuggestion] = []
     ) {
         self.userMessage = userMessage
         self.assistantMessage = assistantMessage
@@ -100,5 +104,26 @@ public struct SendMessageResult: Codable, Sendable {
         self.approvalDecision = approvalDecision
         self.workflowSuggestion = workflowSuggestion
         self.executionSuggestion = executionSuggestion
+        self.memorySuggestions = memorySuggestions
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case userMessage, assistantMessage, retrievedMemories, retrievedDocumentChunks, intent, approvalDecision
+        case workflowSuggestion, executionSuggestion, memorySuggestions
+    }
+
+    /// Custom decode so a payload from before Phase 3.4 (missing `memorySuggestions` entirely) still decodes,
+    /// defaulting to an empty array — the same backward-compatible-decode posture as `MemoryRecord`'s new fields.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        userMessage = try container.decode(Message.self, forKey: .userMessage)
+        assistantMessage = try container.decode(Message.self, forKey: .assistantMessage)
+        retrievedMemories = try container.decode([JSONValue].self, forKey: .retrievedMemories)
+        retrievedDocumentChunks = try container.decode([JSONValue].self, forKey: .retrievedDocumentChunks)
+        intent = try container.decode(IntentAnalysis.self, forKey: .intent)
+        approvalDecision = try container.decode(ApprovalDecision.self, forKey: .approvalDecision)
+        workflowSuggestion = try container.decodeIfPresent(WorkflowSuggestion.self, forKey: .workflowSuggestion)
+        executionSuggestion = try container.decodeIfPresent(ExecutionSuggestion.self, forKey: .executionSuggestion)
+        memorySuggestions = try container.decodeIfPresent([MemorySuggestion].self, forKey: .memorySuggestions) ?? []
     }
 }
