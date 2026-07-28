@@ -4,13 +4,14 @@ import { randomUUID } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import type { Server } from 'node:http';
 import { Pool } from 'pg';
-import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
+import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
 import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
 import { ContextManager } from '../core/contextManager';
 import { ConversationService } from '../conversation/conversationService';
+import { VoiceService } from '../voice/voiceService';
 import { DraftService } from '../drafts/draftService';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -132,6 +133,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     workflowIntentMatcher,
     executionIntentMatcher,
   });
+  const voiceService = new VoiceService(pool, conversationService, new MockSpeechToTextProvider(), new MockTextToSpeechProvider());
 
   const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
   const taskIntelligenceService = new TaskIntelligenceService(taskService);
@@ -169,6 +171,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     conversationIntelligenceService,
     workspaceInsightsService,
     executionService,
+    voiceService,
     aiProvider,
     corsOrigins: [],
   });

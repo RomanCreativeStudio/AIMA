@@ -19,3 +19,21 @@ export type { EmbeddingProviderConfig, SupportedEmbeddingProvider } from './embe
 export { INTENTS } from './intent/types';
 export type { Intent, IntentClassifier, IntentDetectionResult } from './intent/types';
 export { RuleBasedIntentClassifier } from './intent/RuleBasedIntentClassifier';
+
+export type {
+  AudioInput,
+  TranscriptionResult,
+  SpeechToTextProvider,
+  TextToSpeechOptions,
+  SynthesisResult,
+  TextToSpeechProvider,
+} from './voice/types';
+export { MockSpeechToTextProvider } from './voice/MockSpeechToTextProvider';
+export { MockTextToSpeechProvider } from './voice/MockTextToSpeechProvider';
+export {
+  createSpeechToTextProvider,
+  createSpeechToTextProviderFromEnv,
+  createTextToSpeechProvider,
+  createTextToSpeechProviderFromEnv,
+} from './voice/registry';
+export type { SupportedSpeechToTextProvider, SupportedTextToSpeechProvider } from './voice/registry';

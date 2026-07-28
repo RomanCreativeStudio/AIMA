@@ -26,6 +26,7 @@ import type { CapabilityRegistry } from './permissions/registry';
 import type { PermissionEngine } from './permissions/engine';
 import type { WorkflowRegistry } from './workflows/registry';
 import type { WorkflowService } from './workflows/workflowService';
+import type { VoiceService } from './voice/voiceService';
 import type { NodeEnv } from './config/env';
 import type { Logger } from './logging/types';
 import { ConsoleLogger } from './logging/consoleLogger';
@@ -49,6 +50,7 @@ import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
 import { workspacesRouter } from './routes/workspaces';
+import { voiceRouter } from './routes/voice';
 import { createErrorHandler } from './middleware/errorHandler';
 
 export interface AppDependencies {
@@ -77,6 +79,7 @@ export interface AppDependencies {
   conversationIntelligenceService: ConversationIntelligenceService;
   workspaceInsightsService: WorkspaceInsightsService;
   executionService: ExecutionService;
+  voiceService: VoiceService;
   corsOrigins: string[];
   /** Phase 3.1: optional so every existing call site (tests included) keeps compiling — `createApp` builds a `ConsoleLogger`/`ConsoleErrorReporter` when these are omitted. */
   nodeEnv?: NodeEnv;
@@ -173,6 +176,7 @@ export function createApp(deps: AppDependencies): Application {
     }),
   );
   app.use('/api', executionsRouter({ executionService: deps.executionService }));
+  app.use('/api', voiceRouter({ voiceService: deps.voiceService }));
 
   app.use(createErrorHandler(errorReporter));
 

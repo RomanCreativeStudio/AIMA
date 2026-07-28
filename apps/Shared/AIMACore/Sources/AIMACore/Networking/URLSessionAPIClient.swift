@@ -362,6 +362,48 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).execution
     }
 
+    public func startVoiceSession(workspaceId: String) async throws -> VoiceSession {
+        try await send("POST", "/api/workspaces/\(workspaceId)/voice/sessions", envelope: VoiceSessionEnvelope.self).session
+    }
+
+    public func endVoiceSession(workspaceId: String, voiceSessionId: String) async throws -> VoiceSession {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/voice/sessions/\(voiceSessionId)/end",
+            envelope: VoiceSessionEnvelope.self
+        ).session
+    }
+
+    public func listVoiceSessions(workspaceId: String) async throws -> [VoiceSession] {
+        try await send("GET", "/api/workspaces/\(workspaceId)/voice/sessions", envelope: VoiceSessionsEnvelope.self).sessions
+    }
+
+    public func getVoiceSession(workspaceId: String, voiceSessionId: String) async throws -> VoiceSession {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/voice/sessions/\(voiceSessionId)",
+            envelope: VoiceSessionEnvelope.self
+        ).session
+    }
+
+    public func submitVoiceRequest(
+        workspaceId: String,
+        voiceSessionId: String,
+        audioData: Data,
+        audioMimeType: String,
+        configuration: VoiceConfiguration?
+    ) async throws -> VoiceResponse {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/voice/sessions/\(voiceSessionId)/turns",
+            body: SubmitVoiceRequest(audioBase64: audioData.base64EncodedString(), audioMimeType: audioMimeType, configuration: configuration)
+        )
+    }
+
+    public func listVoiceTurns(workspaceId: String, voiceSessionId: String) async throws -> [VoiceTurn] {
+        try await send("GET", "/api/workspaces/\(workspaceId)/voice/sessions/\(voiceSessionId)/turns", envelope: VoiceTurnsEnvelope.self).turns
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -473,3 +515,6 @@ private struct WorkspaceInsightsEnvelope: Decodable { let insights: WorkspaceIns
 private struct ExecutionPreviewEnvelope: Decodable { let preview: ExecutionPreview }
 private struct ExecutionEnvelope: Decodable { let execution: ExecutionRecord }
 private struct ExecutionsEnvelope: Decodable { let executions: [ExecutionRecord] }
+private struct VoiceSessionEnvelope: Decodable { let session: VoiceSession }
+private struct VoiceSessionsEnvelope: Decodable { let sessions: [VoiceSession] }
+private struct VoiceTurnsEnvelope: Decodable { let turns: [VoiceTurn] }

@@ -505,6 +505,44 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(result.executionSuggestion?.confidence, 0.7)
     }
 
+    func testDecodesVoiceSession() throws {
+        let json = """
+        {
+          "id": "vs-1", "workspaceId": "w1", "conversationId": "c1", "status": "active",
+          "startedAt": "2026-01-01T00:00:00.000Z", "endedAt": null,
+          "createdAt": "2026-01-01T00:00:00.000Z", "updatedAt": "2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let session = try decoder.decode(VoiceSession.self, from: json)
+        XCTAssertTrue(session.isActive)
+        XCTAssertEqual(session.conversationId, "c1")
+        XCTAssertNil(session.endedAt)
+    }
+
+    func testDecodesVoiceResponseAndDecodesBase64Audio() throws {
+        let json = """
+        {
+          "turn": {
+            "id": "turn-1", "voiceSessionId": "vs-1", "workspaceId": "w1",
+            "transcript": {"text": "hello", "confidence": 0.95},
+            "responseText": "hi there", "createdAt": "2026-01-01T00:00:00.000Z"
+          },
+          "audioBase64": "aGkgdGhlcmU=",
+          "audioMimeType": "text/plain",
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "workflowSuggestion": null,
+          "executionSuggestion": null
+        }
+        """.data(using: .utf8)!
+
+        let response = try decoder.decode(VoiceResponse.self, from: json)
+        XCTAssertEqual(response.turn.transcript.text, "hello")
+        XCTAssertEqual(response.turn.transcript.confidence, 0.95)
+        XCTAssertEqual(response.audioData, "hi there".data(using: .utf8))
+    }
+
     func testEncodesUpdateUserProfileRequestDistinguishingAbsentFromNullDefaultWorkspace() throws {
         let encoder = JSONEncoder()
 

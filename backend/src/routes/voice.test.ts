@@ -52,7 +52,6 @@ import { TaskService } from '../tasks/taskService';
 import { HealthService } from '../health/healthService';
 import { UserService } from '../users/userService';
 import { WorkspaceService } from '../workspaces/workspaceService';
-import { syncCapabilitiesToDatabase } from '../permissions/syncCapabilities';
 
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
@@ -66,7 +65,6 @@ interface SeededWorkspace {
 async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
-  await syncCapabilitiesToDatabase(pool, registry);
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(pool);
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
@@ -194,7 +192,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
 }
 
 async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `workflows-route-test-${randomUUID()}@example.com`;
+  const email = `voice-route-test-${randomUUID()}@example.com`;
   const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
     email,
   ]);
@@ -212,59 +210,124 @@ async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-interface WorkflowRunBody {
-  id: string;
-  status: string;
-  currentStepIndex: number;
-  steps: Array<{ stepIndex: number; stepKey: string; status: string; pendingApprovalId: string | null }>;
-}
-
-test('GET /api/workflows lists the four built-in workflow definitions', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workflows`);
-    assert.equal(response.status, 200);
-
-    const body = (await response.json()) as { workflows: Array<{ key: string }> };
-    assert.equal(body.workflows.length, 4);
-    assert.ok(body.workflows.some((workflow) => workflow.key === 'summarize_unread_email'));
-  });
-});
-
-test('POST .../workflow-runs creates a run; GET lists and fetches it', async () => {
+test('POST /api/workspaces/:id/voice/sessions starts an active session', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowKey: 'daily_workspace_briefing', input: {} }),
-      });
-      assert.equal(createResponse.status, 201);
-      const created = (await createResponse.json()) as { run: WorkflowRunBody };
-      assert.equal(created.run.status, 'pending');
-      assert.equal(created.run.steps.length, 2);
-
-      const listResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`);
-      const listed = (await listResponse.json()) as { runs: WorkflowRunBody[] };
-      assert.equal(listed.runs.length, 1);
-
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}`);
-      const fetched = (await getResponse.json()) as { run: WorkflowRunBody };
-      assert.equal(fetched.run.id, created.run.id);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session: { status: string; workspaceId: string } };
+      assert.equal(body.session.status, 'active');
+      assert.equal(body.session.workspaceId, workspaceId);
     } finally {
       await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('POST .../workflow-runs rejects an unknown workflowKey', async () => {
+test('POST .../voice/sessions rejects an unknown workspaceId with 404, not 500', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/voice/sessions`, {
+      method: 'POST',
+    });
+    assert.equal(response.status, 404);
+  });
+});
+
+test('POST .../voice/sessions/:id/end ends an active session', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const { session } = (await start.json()) as { session: { id: string } };
+
+      const end = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, {
+        method: 'POST',
+      });
+      assert.equal(end.status, 200);
+      const body = (await end.json()) as { session: { status: string } };
+      assert.equal(body.session.status, 'ended');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../voice/sessions/:id/end twice returns 409 the second time', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const { session } = (await start.json()) as { session: { id: string } };
+
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, { method: 'POST' });
+      const second = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, {
+        method: 'POST',
+      });
+      assert.equal(second.status, 409);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../voice/sessions lists sessions for the workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { sessions: unknown[] };
+      assert.equal(body.sessions.length, 2);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../voice/sessions/:id/turns transcribes, replies, and synthesizes audio', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const { session } = (await start.json()) as { session: { id: string } };
+
+      const audioBase64 = Buffer.from('What meetings do I have today?', 'utf-8').toString('base64');
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowKey: 'send_all_my_money', input: {} }),
+        body: JSON.stringify({ audioBase64, audioMimeType: 'audio/wav' }),
+      });
+
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as {
+        turn: { transcript: { text: string } };
+        audioBase64: string;
+        audioMimeType: string;
+      };
+      assert.equal(body.turn.transcript.text, 'What meetings do I have today?');
+      assert.equal(body.audioMimeType, 'text/plain');
+      assert.ok(body.audioBase64.length > 0);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../voice/sessions/:id/turns rejects a missing audioBase64 with 400', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const { session } = (await start.json()) as { session: { id: string } };
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioMimeType: 'audio/wav' }),
       });
       assert.equal(response.status, 400);
     } finally {
@@ -273,130 +336,47 @@ test('POST .../workflow-runs rejects an unknown workflowKey', async () => {
   });
 });
 
-test('POST .../execute advances one step; running to completion takes multiple calls', async () => {
+test('GET .../voice/sessions/:id/turns lists submitted turns oldest-first', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowKey: 'daily_workspace_briefing', input: {} }),
-      });
-      const created = (await createResponse.json()) as { run: WorkflowRunBody };
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const { session } = (await start.json()) as { session: { id: string } };
 
-      const step1Response = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/execute`,
-        { method: 'POST' },
-      );
-      const afterStep1 = (await step1Response.json()) as { run: WorkflowRunBody };
-      assert.equal(afterStep1.run.status, 'running');
-      assert.equal(afterStep1.run.currentStepIndex, 1);
+      const submit = (text: string) =>
+        fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audioBase64: Buffer.from(text, 'utf-8').toString('base64'), audioMimeType: 'audio/wav' }),
+        });
+      await submit('first');
+      await submit('second');
 
-      const step2Response = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/execute`,
-        { method: 'POST' },
-      );
-      const afterStep2 = (await step2Response.json()) as { run: WorkflowRunBody };
-      assert.equal(afterStep2.run.status, 'completed');
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`);
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { turns: Array<{ transcript: { text: string } }> };
+      assert.equal(body.turns.length, 2);
+      assert.equal(body.turns[0].transcript.text, 'first');
+      assert.equal(body.turns[1].transcript.text, 'second');
     } finally {
       await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('a Tier 3 gated step pauses at awaiting_approval, then resume completes it after approval', async () => {
+test('voice session routes 404 across workspace isolation', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
+    const { userId: userA, workspaceId: workspaceA } = await seedWorkspace(pool);
+    const { userId: userB, workspaceId: workspaceB } = await seedWorkspace(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b' } }),
-      });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceA}/voice/sessions`, { method: 'POST' });
+      const { session } = (await start.json()) as { session: { id: string } };
 
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowKey: 'summarize_unread_email', input: {} }),
-      });
-      const created = (await createResponse.json()) as { run: WorkflowRunBody };
-
-      const executeResponse = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/execute`,
-        { method: 'POST' },
-      );
-      const awaiting = (await executeResponse.json()) as { run: WorkflowRunBody };
-      assert.equal(awaiting.run.status, 'awaiting_approval');
-      const pendingApprovalId = awaiting.run.steps[0].pendingApprovalId;
-      assert.ok(pendingApprovalId);
-
-      const resumeBeforeApproval = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/resume`,
-        { method: 'POST' },
-      );
-      assert.equal(resumeBeforeApproval.status, 409);
-
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${pendingApprovalId}/approve`, { method: 'POST' });
-
-      const resumeResponse = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/resume`,
-        { method: 'POST' },
-      );
-      const afterResume = (await resumeResponse.json()) as { run: WorkflowRunBody };
-      assert.equal(afterResume.run.status, 'running');
-      assert.equal(afterResume.run.steps[0].status, 'completed');
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('pause then cancel a run', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workflowKey: 'daily_workspace_briefing', input: {} }),
-      });
-      const created = (await createResponse.json()) as { run: WorkflowRunBody };
-
-      const pauseResponse = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/pause`,
-        { method: 'POST' },
-      );
-      const paused = (await pauseResponse.json()) as { run: WorkflowRunBody };
-      assert.equal(paused.run.status, 'paused');
-
-      const cancelResponse = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/cancel`,
-        { method: 'POST' },
-      );
-      const cancelled = (await cancelResponse.json()) as { run: WorkflowRunBody };
-      assert.equal(cancelled.run.status, 'cancelled');
-
-      const secondCancel = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/cancel`,
-        { method: 'POST' },
-      );
-      assert.equal(secondCancel.status, 409);
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('GET .../workflow-runs/:id 404s for an unknown run', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const response = await fetch(
-        `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/00000000-0000-0000-0000-000000000000`,
-      );
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceB}/voice/sessions/${session.id}`);
       assert.equal(response.status, 404);
     } finally {
-      await cleanupWorkspace(pool, userId);
+      await cleanupWorkspace(pool, userA);
+      await cleanupWorkspace(pool, userB);
     }
   });
 });

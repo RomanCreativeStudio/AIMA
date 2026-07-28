@@ -9,6 +9,7 @@ AIMA's AI orchestration layer. Owns all communication with LLM providers so that
 - **`src/registry.ts`** — the only place that selects a concrete provider, driven by the `AI_PROVIDER` environment variable. Nothing else in the codebase should import a provider class directly.
 - **`src/embeddings/`** — the same abstraction pattern for embeddings: `EmbeddingProvider` interface, `MockEmbeddingProvider` (deterministic, no network — the local development default) and `OpenAIEmbeddingProvider`, selected via `EMBEDDING_PROVIDER` through `src/embeddings/registry.ts`. Used by `backend/`'s memory service (docs/TECHNICAL_ARCHITECTURE.md §4) to embed and retrieve memory records.
 - **`src/intent/`** — the same abstraction pattern again, for structured intent detection: `IntentClassifier` interface, `RuleBasedIntentClassifier` (pattern matching, no AI call — the only implementation today). Used by `backend/src/intent/intentEngine.ts` to classify a conversation turn into one of a fixed set of intents (docs/decisions/0004-intent-and-approval-engine.md). No registry/env-var selection layer yet, since there's only one implementation to select between.
+- **`src/voice/`** — the Voice Assistant Foundation's provider abstraction (Phase 3.2, docs/decisions/0017-voice-assistant-foundation.md): `SpeechToTextProvider`/`TextToSpeechProvider` interfaces, each with a deterministic `Mock*` implementation (no vendor account, no network — decodes/encodes plain UTF-8 text as the "audio" payload) selected via `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` through `src/voice/registry.ts`. "mock" is the only supported value today — a real vendor is a drop-in later.
 
 Context assembly (blending retrieved memory into an AI request's system prompt) is implemented in `backend/src/conversation/contextAssembly.ts`, not in this package — it's a pure function over data this package's `EmbeddingProvider`/`MemoryService` retrieval already produced, so it didn't need to live alongside the provider abstractions themselves.
 
@@ -20,7 +21,7 @@ Context assembly (blending retrieved memory into an AI request's system prompt) 
 
 ## Configuration
 
-See `.env.example`. `AI_PROVIDER` and `EMBEDDING_PROVIDER` both default to `mock` so the rest of the system is runnable without any API key. `RuleBasedIntentClassifier` needs no configuration.
+See `.env.example`. `AI_PROVIDER`, `EMBEDDING_PROVIDER`, `SPEECH_TO_TEXT_PROVIDER`, and `TEXT_TO_SPEECH_PROVIDER` all default to `mock` so the rest of the system is runnable without any API key. `RuleBasedIntentClassifier` needs no configuration.
 
 ## Tests
 

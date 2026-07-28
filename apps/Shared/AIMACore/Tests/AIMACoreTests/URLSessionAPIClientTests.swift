@@ -350,6 +350,90 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(execution.errorDetails, "Integration not connected")
     }
 
+    func testStartVoiceSessionPostsToTheSessionsRouteAndUnwrapsTheSessionEnvelope() async throws {
+        let body = """
+        {"session":{"id":"vs-1","workspaceId":"w1","conversationId":"c1","status":"active","startedAt":"2026-01-01T00:00:00.000Z","endedAt":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/voice/sessions"] = .init(statusCode: 201, body: body)
+
+        let session = try await client.startVoiceSession(workspaceId: "w1")
+        XCTAssertEqual(session.status, .active)
+        XCTAssertEqual(session.conversationId, "c1")
+    }
+
+    func testEndVoiceSessionPostsToTheEndRouteAndUnwrapsTheSessionEnvelope() async throws {
+        let body = """
+        {"session":{"id":"vs-1","workspaceId":"w1","conversationId":"c1","status":"ended","startedAt":"2026-01-01T00:00:00.000Z","endedAt":"2026-01-01T00:01:00.000Z","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:01:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/voice/sessions/vs-1/end"] = .init(statusCode: 200, body: body)
+
+        let session = try await client.endVoiceSession(workspaceId: "w1", voiceSessionId: "vs-1")
+        XCTAssertEqual(session.status, .ended)
+        XCTAssertNotNil(session.endedAt)
+    }
+
+    func testListVoiceSessionsUnwrapsTheSessionsEnvelope() async throws {
+        let body = """
+        {"sessions":[{"id":"vs-1","workspaceId":"w1","conversationId":"c1","status":"active","startedAt":"2026-01-01T00:00:00.000Z","endedAt":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/voice/sessions"] = .init(statusCode: 200, body: body)
+
+        let sessions = try await client.listVoiceSessions(workspaceId: "w1")
+        XCTAssertEqual(sessions.count, 1)
+        XCTAssertEqual(sessions[0].id, "vs-1")
+    }
+
+    func testGetVoiceSessionUnwrapsTheSessionEnvelope() async throws {
+        let body = """
+        {"session":{"id":"vs-1","workspaceId":"w1","conversationId":"c1","status":"active","startedAt":"2026-01-01T00:00:00.000Z","endedAt":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/voice/sessions/vs-1"] = .init(statusCode: 200, body: body)
+
+        let session = try await client.getVoiceSession(workspaceId: "w1", voiceSessionId: "vs-1")
+        XCTAssertEqual(session.id, "vs-1")
+    }
+
+    func testSubmitVoiceRequestSendsBase64AudioAndDecodesTheUnwrappedVoiceResponse() async throws {
+        let body = """
+        {
+          "turn": {"id":"turn-1","voiceSessionId":"vs-1","workspaceId":"w1","transcript":{"text":"hello","confidence":1},"responseText":"hi there","createdAt":"2026-01-01T00:00:00.000Z"},
+          "audioBase64": "aGkgdGhlcmU=",
+          "audioMimeType": "text/plain",
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "workflowSuggestion": null,
+          "executionSuggestion": null
+        }
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/voice/sessions/vs-1/turns"] = .init(statusCode: 201, body: body)
+
+        let audioData = try XCTUnwrap("hello".data(using: .utf8))
+        let response = try await client.submitVoiceRequest(
+            workspaceId: "w1", voiceSessionId: "vs-1", audioData: audioData, audioMimeType: "audio/wav", configuration: nil
+        )
+
+        XCTAssertEqual(response.turn.transcript.text, "hello")
+        XCTAssertEqual(response.turn.responseText, "hi there")
+        XCTAssertEqual(response.audioData, "hi there".data(using: .utf8))
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let sentBody = try XCTUnwrap(recorded.httpBody)
+        let sentJSON = try JSONSerialization.jsonObject(with: sentBody) as? [String: Any]
+        XCTAssertEqual(sentJSON?["audioBase64"] as? String, audioData.base64EncodedString())
+        XCTAssertEqual(sentJSON?["audioMimeType"] as? String, "audio/wav")
+    }
+
+    func testListVoiceTurnsUnwrapsTheTurnsEnvelope() async throws {
+        let body = """
+        {"turns":[{"id":"turn-1","voiceSessionId":"vs-1","workspaceId":"w1","transcript":{"text":"hello","confidence":1},"responseText":"hi there","createdAt":"2026-01-01T00:00:00.000Z"}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/voice/sessions/vs-1/turns"] = .init(statusCode: 200, body: body)
+
+        let turns = try await client.listVoiceTurns(workspaceId: "w1", voiceSessionId: "vs-1")
+        XCTAssertEqual(turns.count, 1)
+        XCTAssertEqual(turns[0].responseText, "hi there")
+    }
+
     func testSendMessageDecodesUnwrappedSendMessageResult() async throws {
         let body = """
         {

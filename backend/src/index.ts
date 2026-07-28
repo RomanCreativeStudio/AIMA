@@ -1,5 +1,11 @@
 import 'dotenv/config';
-import { createAIProviderFromEnv, createEmbeddingProviderFromEnv, RuleBasedIntentClassifier } from '@aima/ai-engine';
+import {
+  createAIProviderFromEnv,
+  createEmbeddingProviderFromEnv,
+  createSpeechToTextProviderFromEnv,
+  createTextToSpeechProviderFromEnv,
+  RuleBasedIntentClassifier,
+} from '@aima/ai-engine';
 import { createApp } from './app';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
@@ -57,6 +63,7 @@ import { WorkflowRegistry } from './workflows/registry';
 import type { WorkflowKey } from './workflows/types';
 import { WorkflowIntentMatcher } from './workflows/workflowIntentMatcher';
 import { WorkflowService } from './workflows/workflowService';
+import { VoiceService } from './voice/voiceService';
 
 async function main(): Promise<void> {
   const config = loadConfig();
@@ -73,6 +80,8 @@ async function main(): Promise<void> {
   const actionLogger = new ActionLogger(pool);
   const aiProvider = createAIProviderFromEnv();
   const embeddingProvider = createEmbeddingProviderFromEnv();
+  const speechToTextProvider = createSpeechToTextProviderFromEnv();
+  const textToSpeechProvider = createTextToSpeechProviderFromEnv();
   const intentClassifier = new RuleBasedIntentClassifier();
   const intentEngine = new IntentEngine(intentClassifier, permissionEngine);
   const approvalEngine = new ApprovalEngine(pool, permissionEngine);
@@ -187,6 +196,8 @@ async function main(): Promise<void> {
     executionIntentMatcher,
   });
 
+  const voiceService = new VoiceService(pool, conversationService, speechToTextProvider, textToSpeechProvider);
+
   const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
   const taskIntelligenceService = new TaskIntelligenceService(taskService);
   const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
@@ -224,6 +235,7 @@ async function main(): Promise<void> {
     conversationIntelligenceService,
     workspaceInsightsService,
     executionService,
+    voiceService,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,
     logger,

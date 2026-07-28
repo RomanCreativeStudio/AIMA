@@ -26,6 +26,8 @@ public actor MockAPIClient: APIClient {
     private var integrationsByWorkspace: [String: [WorkspaceIntegration]]
     private var workflowRunsByWorkspace: [String: [WorkflowRunDetail]] = [:]
     private var executionsByWorkspace: [String: [ExecutionRecord]] = [:]
+    private var voiceSessionsByWorkspace: [String: [VoiceSession]] = [:]
+    private var voiceTurnsBySession: [String: [VoiceTurn]] = [:]
     /// Phase 2.5's "recent activity" source — `MockAPIClient` has no write-side `ActionLogger` equivalent, so this
     /// is seeded fixed data rather than something `createTask`/etc. append to.
     private var actionLogByWorkspace: [String: [ActionLogRecord]]
@@ -938,6 +940,113 @@ public actor MockAPIClient: APIClient {
     public func getExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord {
         try await maybeFail()
         return try findExecution(workspaceId: workspaceId, executionId: executionId)
+    }
+
+    /// Requires an explicit call — mirrors `VoiceService.startSession`: creates a real, listable conversation
+    /// the session drives (Phase 3.2).
+    public func startVoiceSession(workspaceId: String) async throws -> VoiceSession {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        let conversation = try await createConversation(workspaceId: workspaceId, title: "Voice Session")
+        let now = ISO8601DateFormatter().string(from: Date())
+        let session = VoiceSession(
+            id: UUID().uuidString, workspaceId: workspaceId, conversationId: conversation.id,
+            status: .active, startedAt: now, endedAt: nil, createdAt: now, updatedAt: now
+        )
+        voiceSessionsByWorkspace[workspaceId, default: []].append(session)
+        return session
+    }
+
+    public func endVoiceSession(workspaceId: String, voiceSessionId: String) async throws -> VoiceSession {
+        try await maybeFail()
+        let session = try findVoiceSession(workspaceId: workspaceId, voiceSessionId: voiceSessionId)
+        guard session.status == .active else {
+            throw APIError.server(statusCode: 409, message: "Cannot end a voice session that is currently \"\(session.status.rawValue)\"")
+        }
+        let now = ISO8601DateFormatter().string(from: Date())
+        let ended = VoiceSession(
+            id: session.id, workspaceId: session.workspaceId, conversationId: session.conversationId,
+            status: .ended, startedAt: session.startedAt, endedAt: now, createdAt: session.createdAt, updatedAt: now
+        )
+        updateVoiceSession(ended)
+        return ended
+    }
+
+    public func listVoiceSessions(workspaceId: String) async throws -> [VoiceSession] {
+        try await maybeFail()
+        // Newest-first, approximating the real `sequence DESC` ordering with reverse insertion order.
+        return (voiceSessionsByWorkspace[workspaceId] ?? []).reversed()
+    }
+
+    public func getVoiceSession(workspaceId: String, voiceSessionId: String) async throws -> VoiceSession {
+        try await maybeFail()
+        return try findVoiceSession(workspaceId: workspaceId, voiceSessionId: voiceSessionId)
+    }
+
+    /// Mirrors `VoiceService.submitVoiceRequest`: transcribes (decodes the audio buffer as UTF-8 text, matching
+    /// `MockSpeechToTextProvider`), runs the real `sendMessage` pipeline, then "synthesizes" the reply by encoding
+    /// its text back to a buffer (matching `MockTextToSpeechProvider`). No audio is persisted.
+    public func submitVoiceRequest(
+        workspaceId: String,
+        voiceSessionId: String,
+        audioData: Data,
+        audioMimeType: String,
+        configuration: VoiceConfiguration?
+    ) async throws -> VoiceResponse {
+        try await maybeFail()
+        let session = try findVoiceSession(workspaceId: workspaceId, voiceSessionId: voiceSessionId)
+        guard session.status == .active else {
+            throw APIError.server(
+                statusCode: 409,
+                message: "Cannot submit a voice request to a voice session that is currently \"\(session.status.rawValue)\""
+            )
+        }
+
+        let transcriptText = String(data: audioData, encoding: .utf8) ?? ""
+        let sendResult = try await sendMessage(workspaceId: workspaceId, conversationId: session.conversationId, content: transcriptText)
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let turn = VoiceTurn(
+            id: UUID().uuidString,
+            voiceSessionId: voiceSessionId,
+            workspaceId: workspaceId,
+            transcript: Transcript(text: transcriptText, confidence: transcriptText.isEmpty ? 0 : 1),
+            responseText: sendResult.assistantMessage.content,
+            createdAt: now
+        )
+        voiceTurnsBySession[voiceSessionId, default: []].append(turn)
+
+        return VoiceResponse(
+            turn: turn,
+            audioBase64: Data(sendResult.assistantMessage.content.utf8).base64EncodedString(),
+            audioMimeType: "text/plain",
+            intent: sendResult.intent,
+            approvalDecision: sendResult.approvalDecision,
+            workflowSuggestion: sendResult.workflowSuggestion,
+            executionSuggestion: sendResult.executionSuggestion
+        )
+    }
+
+    public func listVoiceTurns(workspaceId: String, voiceSessionId: String) async throws -> [VoiceTurn] {
+        try await maybeFail()
+        _ = try findVoiceSession(workspaceId: workspaceId, voiceSessionId: voiceSessionId)
+        return voiceTurnsBySession[voiceSessionId] ?? []
+    }
+
+    private func findVoiceSession(workspaceId: String, voiceSessionId: String) throws -> VoiceSession {
+        guard let session = (voiceSessionsByWorkspace[workspaceId] ?? []).first(where: { $0.id == voiceSessionId }) else {
+            throw APIError.server(statusCode: 404, message: "Voice session not found: \(voiceSessionId)")
+        }
+        return session
+    }
+
+    private func updateVoiceSession(_ session: VoiceSession) {
+        guard var sessions = voiceSessionsByWorkspace[session.workspaceId],
+              let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
+        sessions[index] = session
+        voiceSessionsByWorkspace[session.workspaceId] = sessions
     }
 
     /// Mirrors `ExecutionService.runExecutor`: re-checks the integration is still connected immediately before

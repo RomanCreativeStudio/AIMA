@@ -61,4 +61,19 @@ public protocol APIClient: Sendable {
     func executeExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord
     func listExecutions(workspaceId: String) async throws -> [ExecutionRecord]
     func getExecution(workspaceId: String, executionId: String) async throws -> ExecutionRecord
+
+    /// Requires an explicit call — there is no automatic or background session creation (Phase 3.2).
+    func startVoiceSession(workspaceId: String) async throws -> VoiceSession
+    func endVoiceSession(workspaceId: String, voiceSessionId: String) async throws -> VoiceSession
+    func listVoiceSessions(workspaceId: String) async throws -> [VoiceSession]
+    func getVoiceSession(workspaceId: String, voiceSessionId: String) async throws -> VoiceSession
+    /// Audio in, audio out — `audioData` is never persisted server-side, only its transcript and the reply's text.
+    func submitVoiceRequest(
+        workspaceId: String,
+        voiceSessionId: String,
+        audioData: Data,
+        audioMimeType: String,
+        configuration: VoiceConfiguration?
+    ) async throws -> VoiceResponse
+    func listVoiceTurns(workspaceId: String, voiceSessionId: String) async throws -> [VoiceTurn]
 }

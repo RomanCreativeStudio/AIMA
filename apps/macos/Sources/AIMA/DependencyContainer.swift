@@ -75,6 +75,10 @@ final class DependencyContainer {
         ExecutionsViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }
 
+    func makeVoiceSessionViewModel(workspaceId: String) -> VoiceSessionViewModel {
+        VoiceSessionViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
+
     func makeSettingsViewModel() -> SettingsViewModel {
         SettingsViewModel(apiClient: apiClient, userId: userId, currentConfiguration: configuration)
     }
