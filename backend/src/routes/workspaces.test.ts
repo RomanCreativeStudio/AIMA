@@ -7,6 +7,10 @@ import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
+import { BriefingService } from '../insights/briefingService';
+import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
+import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
+import { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
 import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
 import { DraftService } from '../drafts/draftService';
@@ -107,6 +111,17 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     workflowIntentMatcher,
   });
 
+  const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
+  const taskIntelligenceService = new TaskIntelligenceService(taskService);
+  const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
+  const workspaceInsightsService = new WorkspaceInsightsService(
+    workspaceService,
+    actionLogger,
+    workflowService,
+    approvalEngine,
+    taskService,
+  );
+
   const app = createApp({
     pool,
     registry,
@@ -126,6 +141,10 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     approvalEngine,
     healthService,
     conversationService,
+    briefingService,
+    taskIntelligenceService,
+    conversationIntelligenceService,
+    workspaceInsightsService,
     aiProvider,
     corsOrigins: [],
   });

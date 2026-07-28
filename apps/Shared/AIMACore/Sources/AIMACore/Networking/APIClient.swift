@@ -48,4 +48,9 @@ public protocol APIClient: Sendable {
     func pauseWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
     func resumeWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
     func cancelWorkflowRun(workspaceId: String, runId: String) async throws -> WorkflowRunDetail
+
+    func getDailyBriefing(workspaceId: String) async throws -> DailyBriefing
+    func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence
+    func getConversationIntelligence(workspaceId: String, conversationId: String) async throws -> ConversationIntelligence
+    func getWorkspaceInsights(workspaceId: String) async throws -> WorkspaceInsights
 }

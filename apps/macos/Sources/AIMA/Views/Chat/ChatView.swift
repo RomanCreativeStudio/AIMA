@@ -48,6 +48,29 @@ struct ChatView: View {
                     WorkflowSuggestionCardView(suggestion: suggestion)
                 }
 
+                if let intelligence = viewModel.conversationIntelligence {
+                    ConversationIntelligenceCardView(intelligence: intelligence)
+                }
+
+                if viewModel.selectedConversationId != nil {
+                    HStack {
+                        Spacer()
+                        Button {
+                            Task { await viewModel.loadConversationIntelligence() }
+                        } label: {
+                            if viewModel.isLoadingIntelligence {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("Summarize Conversation", systemImage: "sparkle.magnifyingglass")
+                            }
+                        }
+                        .disabled(viewModel.isLoadingIntelligence)
+                        .buttonStyle(.bordered)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                    }
+                }
+
                 MessageInputView(viewModel: viewModel)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

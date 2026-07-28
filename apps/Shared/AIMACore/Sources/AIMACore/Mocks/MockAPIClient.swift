@@ -25,6 +25,9 @@ public actor MockAPIClient: APIClient {
     private var preferencesByWorkspace: [String: [Preference]]
     private var integrationsByWorkspace: [String: [WorkspaceIntegration]]
     private var workflowRunsByWorkspace: [String: [WorkflowRunDetail]] = [:]
+    /// Phase 2.5's "recent activity" source — `MockAPIClient` has no write-side `ActionLogger` equivalent, so this
+    /// is seeded fixed data rather than something `createTask`/etc. append to.
+    private var actionLogByWorkspace: [String: [ActionLogRecord]]
 
     /// Set by `forceNextMessageToRequireApproval`, consumed by the next
     /// `sendMessage` call — lets tests exercise the Chat screen's approval
@@ -173,6 +176,13 @@ public actor MockAPIClient: APIClient {
                     capabilities: [IntegrationCapability(actionType: "read_calendar", tier: "execute_with_approval")],
                     requiredCredentialFields: ["accessToken", "refreshToken"]
                 ),
+            ],
+        ]
+
+        self.actionLogByWorkspace = [
+            rcs.id: [
+                ActionLogRecord(id: "mock-action-1", workspaceId: rcs.id, actionType: "create_task", tier: "automatic_safe", summary: "Created a task", payload: nil, outcome: .success, createdAt: now),
+                ActionLogRecord(id: "mock-action-2", workspaceId: rcs.id, actionType: "send_email", tier: "execute_with_approval", summary: "Requested approval to send an email", payload: nil, outcome: .success, createdAt: now),
             ],
         ]
     }
@@ -664,6 +674,241 @@ public actor MockAPIClient: APIClient {
         saveWorkflowRun(cancelled, workspaceId: workspaceId)
         return cancelled
     }
+
+    public func getDailyBriefing(workspaceId: String) async throws -> DailyBriefing {
+        try await maybeFail()
+        guard let workspace = workspaces.first(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+
+        let now = Date()
+        let openTasks = (tasksByWorkspace[workspaceId] ?? []).filter(Self.isOpenTask)
+        let pendingApprovals = (approvalsByWorkspace[workspaceId] ?? []).filter { $0.status == .pending }
+        let activeWorkflows = (workflowRunsByWorkspace[workspaceId] ?? []).map(\.asRun).filter { Self.activeWorkflowRunStatuses.contains($0.status) }
+        let priorityTasks = Array(Self.rankTasksByPriority(openTasks, now: now, dueSoonWindow: Self.defaultDueSoonWindow).prefix(5))
+        let recentActivity = actionLogByWorkspace[workspaceId] ?? []
+
+        return DailyBriefing(
+            workspaceId: workspaceId, workspaceName: workspace.name,
+            pendingApprovalCount: pendingApprovals.count, pendingApprovals: pendingApprovals,
+            activeWorkflowCount: activeWorkflows.count, activeWorkflows: activeWorkflows,
+            priorityTasks: priorityTasks, recentActivity: recentActivity,
+            generatedAt: ISO8601DateFormatter().string(from: now)
+        )
+    }
+
+    public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {
+        try await maybeFail()
+        let now = Date()
+        let openTasks = (tasksByWorkspace[workspaceId] ?? []).filter(Self.isOpenTask)
+
+        return TaskIntelligence(
+            workspaceId: workspaceId,
+            suggestedPriorities: Self.rankTasksByPriority(openTasks, now: now, dueSoonWindow: Self.defaultDueSoonWindow),
+            dueSoon: Self.findDueSoon(openTasks, now: now, window: Self.defaultDueSoonWindow),
+            overdue: Self.findOverdue(openTasks, now: now),
+            relatedGroups: Self.groupRelatedTasks(openTasks),
+            generatedAt: ISO8601DateFormatter().string(from: now)
+        )
+    }
+
+    public func getConversationIntelligence(workspaceId: String, conversationId: String) async throws -> ConversationIntelligence {
+        try await maybeFail()
+        guard conversations.contains(where: { $0.id == conversationId && $0.workspaceId == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Conversation not found: \(conversationId)")
+        }
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let recentContext = Array((messagesByConversation[conversationId] ?? []).suffix(10))
+
+        guard !recentContext.isEmpty else {
+            return ConversationIntelligence(
+                workspaceId: workspaceId, conversationId: conversationId, summary: "", suggestedFollowUps: [],
+                recentContext: [], relatedMemories: [], generatedAt: now
+            )
+        }
+
+        let summary = "[mock summary] \(recentContext.count) recent message(s); most recent: \"\(recentContext.last?.content ?? "")\""
+        let suggestedFollowUps = ["Follow up on the open item", "Confirm next steps", "Check in with the team"]
+        let relatedMemories = workspaceId == "mock-ws-rcs" ? Self.seedRelatedMemories : []
+
+        return ConversationIntelligence(
+            workspaceId: workspaceId, conversationId: conversationId, summary: summary,
+            suggestedFollowUps: suggestedFollowUps, recentContext: recentContext,
+            relatedMemories: relatedMemories, generatedAt: now
+        )
+    }
+
+    public func getWorkspaceInsights(workspaceId: String) async throws -> WorkspaceInsights {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+
+        let tasks = tasksByWorkspace[workspaceId] ?? []
+        let approvals = approvalsByWorkspace[workspaceId] ?? []
+        let workflowRuns = (workflowRunsByWorkspace[workspaceId] ?? []).map(\.asRun)
+        let activityEntries = actionLogByWorkspace[workspaceId] ?? []
+
+        let activityMetrics = ActivityMetrics(
+            totalActions: activityEntries.count,
+            successfulActions: activityEntries.filter { $0.outcome == .success }.count,
+            failedActions: activityEntries.filter { $0.outcome == .failure }.count
+        )
+
+        return WorkspaceInsights(
+            workspaceId: workspaceId,
+            activityMetrics: activityMetrics,
+            workflowMetrics: Self.summarizeWorkflowRuns(workflowRuns),
+            approvalMetrics: Self.summarizeApprovals(approvals.map(\.status)),
+            taskMetrics: Self.summarizeTasks(tasks),
+            generatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    // MARK: - Productivity Intelligence pure helpers (mirror backend/src/insights/taskAnalysis.ts and workspaceInsightsService.ts)
+
+    private static let defaultDueSoonWindow: TimeInterval = 3 * 24 * 60 * 60 // 3 days
+    private static let activeWorkflowRunStatuses: Set<WorkflowRunStatus> = [.pending, .running, .awaitingApproval, .paused]
+
+    private static func isOpenTask(_ task: TaskItem) -> Bool {
+        task.status == .todo || task.status == .inProgress
+    }
+
+    private static func scoreTaskPriority(_ task: TaskItem, now: Date, dueSoonWindow: TimeInterval) -> Double {
+        var score: Double
+        switch task.priority {
+        case .high: score = 30
+        case .medium: score = 20
+        case .low: score = 10
+        }
+
+        if let dueDate = task.dueDate.flatMap({ ISO8601DateFormatter().date(from: $0) }) {
+            let secondsUntilDue = dueDate.timeIntervalSince(now)
+            if secondsUntilDue < 0 {
+                score += 1000 + min(-secondsUntilDue / 3600, 1000)
+            } else if secondsUntilDue <= dueSoonWindow {
+                score += 500 - secondsUntilDue / 3600
+            }
+        }
+
+        return score
+    }
+
+    private static func rankTasksByPriority(_ tasks: [TaskItem], now: Date, dueSoonWindow: TimeInterval) -> [TaskItem] {
+        let formatter = ISO8601DateFormatter()
+        return tasks.sorted { lhs, rhs in
+            let lhsScore = scoreTaskPriority(lhs, now: now, dueSoonWindow: dueSoonWindow)
+            let rhsScore = scoreTaskPriority(rhs, now: now, dueSoonWindow: dueSoonWindow)
+            if lhsScore != rhsScore { return lhsScore > rhsScore }
+
+            let lhsDue = lhs.dueDate.flatMap { formatter.date(from: $0) }?.timeIntervalSince1970 ?? .greatestFiniteMagnitude
+            let rhsDue = rhs.dueDate.flatMap { formatter.date(from: $0) }?.timeIntervalSince1970 ?? .greatestFiniteMagnitude
+            if lhsDue != rhsDue { return lhsDue < rhsDue }
+
+            let lhsCreated = formatter.date(from: lhs.createdAt)?.timeIntervalSince1970 ?? 0
+            let rhsCreated = formatter.date(from: rhs.createdAt)?.timeIntervalSince1970 ?? 0
+            return lhsCreated < rhsCreated
+        }
+    }
+
+    private static func findOverdue(_ tasks: [TaskItem], now: Date) -> [TaskItem] {
+        let formatter = ISO8601DateFormatter()
+        return tasks.filter { task in
+            guard let dueDate = task.dueDate.flatMap({ formatter.date(from: $0) }) else { return false }
+            return dueDate < now
+        }
+    }
+
+    private static func findDueSoon(_ tasks: [TaskItem], now: Date, window: TimeInterval) -> [TaskItem] {
+        let formatter = ISO8601DateFormatter()
+        return tasks.filter { task in
+            guard let dueDate = task.dueDate.flatMap({ formatter.date(from: $0) }) else { return false }
+            let secondsUntilDue = dueDate.timeIntervalSince(now)
+            return secondsUntilDue >= 0 && secondsUntilDue <= window
+        }
+    }
+
+    private static let taskKeywordStopwords: Set<String> = [
+        "the", "and", "for", "with", "from", "this", "that", "about", "into", "over", "after", "before",
+        "follow", "up", "review", "update", "send", "draft", "task", "todo",
+    ]
+
+    private static func extractKeywords(_ title: String) -> [String] {
+        let words = title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        var seen = Set<String>()
+        var keywords: [String] = []
+        for word in words where word.count > 3 && !taskKeywordStopwords.contains(word) {
+            if seen.insert(word).inserted {
+                keywords.append(word)
+            }
+        }
+        return keywords
+    }
+
+    private static func groupRelatedTasks(_ tasks: [TaskItem]) -> [RelatedTaskGroup] {
+        var taskIdsByKeyword: [String: [String]] = [:]
+        for task in tasks {
+            for keyword in extractKeywords(task.title) {
+                taskIdsByKeyword[keyword, default: []].append(task.id)
+            }
+        }
+
+        let groups = taskIdsByKeyword.compactMap { keyword, taskIds -> RelatedTaskGroup? in
+            taskIds.count >= 2 ? RelatedTaskGroup(keyword: keyword, taskIds: taskIds) : nil
+        }
+        return groups.sorted { lhs, rhs in
+            lhs.taskIds.count != rhs.taskIds.count ? lhs.taskIds.count > rhs.taskIds.count : lhs.keyword < rhs.keyword
+        }
+    }
+
+    private static func summarizeTasks(_ tasks: [TaskItem]) -> TaskCompletionMetrics {
+        var todo = 0, inProgress = 0, done = 0, cancelled = 0
+        for task in tasks {
+            switch task.status {
+            case .todo: todo += 1
+            case .inProgress: inProgress += 1
+            case .done: done += 1
+            case .cancelled: cancelled += 1
+            }
+        }
+        let total = tasks.count
+        return TaskCompletionMetrics(
+            total: total, todo: todo, inProgress: inProgress, done: done, cancelled: cancelled,
+            completionRate: total > 0 ? Double(done) / Double(total) : 0
+        )
+    }
+
+    private static func summarizeApprovals(_ statuses: [ApprovalStatus]) -> ApprovalMetrics {
+        var pending = 0, approved = 0, rejected = 0, expired = 0
+        for status in statuses {
+            switch status {
+            case .pending: pending += 1
+            case .approved: approved += 1
+            case .rejected: rejected += 1
+            case .expired: expired += 1
+            }
+        }
+        return ApprovalMetrics(total: statuses.count, pending: pending, approved: approved, rejected: rejected, expired: expired)
+    }
+
+    private static func summarizeWorkflowRuns(_ runs: [WorkflowRun]) -> WorkflowMetrics {
+        var byStatus = Dictionary(uniqueKeysWithValues: WorkflowRunStatus.allCases.map { ($0.rawValue, 0) })
+        for run in runs {
+            byStatus[run.status.rawValue, default: 0] += 1
+        }
+        let activeRuns = runs.filter { activeWorkflowRunStatuses.contains($0.status) }.count
+        return WorkflowMetrics(totalRuns: runs.count, activeRuns: activeRuns, completedRuns: byStatus["completed"] ?? 0, byStatus: byStatus)
+    }
+
+    private static let seedRelatedMemories: [RankedMemoryResult] = [
+        RankedMemoryResult(
+            id: "mock-memory-1", workspaceId: "mock-ws-rcs", scope: .workspace,
+            content: "Acme's project timeline was pushed back two weeks last quarter.",
+            source: nil, conversationId: nil, projectKey: nil, metadata: [:],
+            createdAt: "2026-01-01T00:00:00.000Z", score: 0.82
+        ),
+    ]
 
     private func findWorkflowRun(workspaceId: String, runId: String) throws -> WorkflowRunDetail {
         guard let run = (workflowRunsByWorkspace[workspaceId] ?? []).first(where: { $0.id == runId }) else {

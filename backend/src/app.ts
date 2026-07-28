@@ -8,6 +8,10 @@ import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
 import type { DraftService } from './drafts/draftService';
 import type { HealthService } from './health/healthService';
+import type { BriefingService } from './insights/briefingService';
+import type { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
+import type { TaskIntelligenceService } from './insights/taskIntelligenceService';
+import type { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import type { IntegrationService } from './integrations/integrationService';
 import type { IntegrationRegistry } from './integrations/registry';
 import type { DocumentService } from './knowledge/documentService';
@@ -28,6 +32,7 @@ import { memoriesRouter } from './routes/memories';
 import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
+import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
 import { preferencesRouter } from './routes/preferences';
 import { workflowsRouter } from './routes/workflows';
@@ -56,6 +61,10 @@ export interface AppDependencies {
   healthService: HealthService;
   conversationService: ConversationService;
   aiProvider: AIProvider;
+  briefingService: BriefingService;
+  taskIntelligenceService: TaskIntelligenceService;
+  conversationIntelligenceService: ConversationIntelligenceService;
+  workspaceInsightsService: WorkspaceInsightsService;
   corsOrigins: string[];
 }
 
@@ -134,6 +143,15 @@ export function createApp(deps: AppDependencies): Application {
   app.use('/api', workspacesRouter({ workspaceService: deps.workspaceService }));
   app.use('/api', approvalsRouter({ approvalEngine: deps.approvalEngine }));
   app.use('/api', conversationsRouter({ conversationService: deps.conversationService }));
+  app.use(
+    '/api',
+    insightsRouter({
+      briefingService: deps.briefingService,
+      taskIntelligenceService: deps.taskIntelligenceService,
+      conversationIntelligenceService: deps.conversationIntelligenceService,
+      workspaceInsightsService: deps.workspaceInsightsService,
+    }),
+  );
 
   app.use(errorHandler);
 

@@ -28,6 +28,9 @@ public final class ChatViewModel {
     public private(set) var lastPendingApproval: PendingApproval?
     /// An advisory workflow preview (Phase 2.4) for the most recent reply — never itself a running `WorkflowRun`, just a suggestion the user can act on from the Workflows screen.
     public private(set) var lastWorkflowSuggestion: WorkflowSuggestion?
+    /// The selected conversation's Conversation Intelligence (Phase 2.5, item 3) — summary, suggested follow-ups, and related memories. Fetched only on explicit request (`loadConversationIntelligence`), never automatically, matching the phase's "no automatic actions" rule.
+    public private(set) var conversationIntelligence: ConversationIntelligence?
+    public private(set) var isLoadingIntelligence = false
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -76,6 +79,7 @@ public final class ChatViewModel {
         lastApprovalDecision = nil
         lastPendingApproval = nil
         lastWorkflowSuggestion = nil
+        conversationIntelligence = nil
         do {
             messages = try await apiClient.listMessages(workspaceId: workspaceId, conversationId: conversationId, limit: nil)
         } catch let error as APIError {
@@ -131,6 +135,25 @@ public final class ChatViewModel {
     public func rejectLastApproval() async {
         await resolveLastApproval { client, workspaceId, approvalId in
             try await client.rejectApproval(workspaceId: workspaceId, approvalId: approvalId)
+        }
+    }
+
+    /// Fetches Conversation Intelligence (Phase 2.5, item 3) for the selected conversation — a summary, suggested
+    /// follow-ups, and related memories. Purely a read: never creates a message, memory, or anything else.
+    /// Explicit-only by design ("no automatic actions"), so this is never called from `selectConversation`/
+    /// `sendDraftMessage` — a view must call it itself, e.g. from a button.
+    public func loadConversationIntelligence() async {
+        guard let conversationId = selectedConversationId else { return }
+        isLoadingIntelligence = true
+        errorMessage = nil
+        defer { isLoadingIntelligence = false }
+
+        do {
+            conversationIntelligence = try await apiClient.getConversationIntelligence(workspaceId: workspaceId, conversationId: conversationId)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

@@ -7,12 +7,10 @@ import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
 import { ActionLogger } from '../actionLog/logger';
-import { BriefingService } from '../insights/briefingService';
-import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
-import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
-import { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
 import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
+import { ContextManager } from '../core/contextManager';
+import { ConversationService } from '../conversation/conversationService';
 import { DraftService } from '../drafts/draftService';
 import { StubCalendarConnector } from '../integrations/connectors/calendarConnector';
 import { StubGitHubConnector } from '../integrations/connectors/githubConnector';
@@ -22,17 +20,10 @@ import { AesGcmCredentialEncryptor } from '../integrations/encryption';
 import { IntegrationService } from '../integrations/integrationService';
 import { IntegrationRegistry } from '../integrations/registry';
 import type { IntegrationProvider } from '../integrations/types';
-import { CreateGithubIssueDraftWorkflowHandler } from '../workflows/handlers/createGithubIssueDraftWorkflow';
-import { DailyWorkspaceBriefingWorkflowHandler } from '../workflows/handlers/dailyWorkspaceBriefingWorkflow';
-import { DraftEmailReplyWorkflowHandler } from '../workflows/handlers/draftEmailReplyWorkflow';
-import { SummarizeUnreadEmailWorkflowHandler } from '../workflows/handlers/summarizeUnreadEmailWorkflow';
-import type { WorkflowHandler } from '../workflows/handlers/types';
-import { WorkflowRegistry } from '../workflows/registry';
-import type { WorkflowKey } from '../workflows/types';
-import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
-import { WorkflowService } from '../workflows/workflowService';
-import { ContextManager } from '../core/contextManager';
-import { ConversationService } from '../conversation/conversationService';
+import { BriefingService } from '../insights/briefingService';
+import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
+import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
+import { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
@@ -43,6 +34,16 @@ import { TaskService } from '../tasks/taskService';
 import { HealthService } from '../health/healthService';
 import { UserService } from '../users/userService';
 import { WorkspaceService } from '../workspaces/workspaceService';
+import { CreateGithubIssueDraftWorkflowHandler } from '../workflows/handlers/createGithubIssueDraftWorkflow';
+import { DailyWorkspaceBriefingWorkflowHandler } from '../workflows/handlers/dailyWorkspaceBriefingWorkflow';
+import { DraftEmailReplyWorkflowHandler } from '../workflows/handlers/draftEmailReplyWorkflow';
+import { SummarizeUnreadEmailWorkflowHandler } from '../workflows/handlers/summarizeUnreadEmailWorkflow';
+import type { WorkflowHandler } from '../workflows/handlers/types';
+import { WorkflowRegistry } from '../workflows/registry';
+import type { WorkflowKey } from '../workflows/types';
+import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
+import { WorkflowService } from '../workflows/workflowService';
+import { syncCapabilitiesToDatabase } from '../permissions/syncCapabilities';
 
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
@@ -56,6 +57,7 @@ interface SeededWorkspace {
 async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
+  await syncCapabilitiesToDatabase(pool, registry);
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(pool);
   const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
@@ -168,7 +170,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
 }
 
 async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `route-test-${randomUUID()}@example.com`;
+  const email = `insights-route-test-${randomUUID()}@example.com`;
   const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
     email,
   ]);
@@ -176,124 +178,170 @@ async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
 
   const workspaceResult = await pool.query<{ id: string }>(
     'INSERT INTO workspaces (user_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
-    [userId, 'development', 'development'],
+    [userId, 'rcs', 'rcs'],
   );
 
   return { userId, workspaceId: workspaceResult.rows[0].id };
 }
 
+async function seedConversation(pool: Pool, workspaceId: string): Promise<string> {
+  const result = await pool.query<{ id: string }>(
+    'INSERT INTO conversations (workspace_id, title) VALUES ($1, $2) RETURNING id',
+    [workspaceId, 'Test conversation'],
+  );
+  return result.rows[0].id;
+}
+
 async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
-  // ON DELETE CASCADE on workspaces/memory_records/action_log takes care of the rest.
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, and logs the action', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Client Acme wants a full redesign.' }),
-      });
-
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as { memory: { scope: string }; permission: { kind: string } };
-      assert.equal(body.memory.scope, 'workspace');
-      assert.equal(body.permission.kind, 'prepare');
-
-      const log = await pool.query('SELECT summary, outcome FROM action_log WHERE workspace_id = $1', [
-        workspaceId,
-      ]);
-      assert.equal(log.rows.length, 1);
-      assert.equal(log.rows[0].outcome, 'success');
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('POST /api/workspaces/:id/memories rejects a well-formed but unknown workspaceId with 404, not 500', async () => {
+test('GET .../briefing 404s for an unknown workspace', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/briefing`);
     assert.equal(response.status, 404);
   });
 });
 
-test('POST .../memories rejects scope="conversation" without a conversationId', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'conversation', content: 'missing id' }),
-      });
-
-      assert.equal(response.status, 400);
-
-      const log = await pool.query('SELECT 1 FROM action_log WHERE workspace_id = $1', [workspaceId]);
-      assert.equal(log.rows.length, 0, 'a rejected request should never reach the action log');
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('POST .../memories rejects a malformed workspaceId', async () => {
+test('GET .../briefing 400s for a malformed workspaceId', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
+    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/briefing`);
     assert.equal(response.status, 400);
   });
 });
 
-test('GET .../memories/search returns ranked results scoped to the requesting workspace only', async () => {
+test('GET .../briefing returns a well-formed daily briefing for a fresh workspace', async () => {
   await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
+    const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Acme wants a website redesign.' }),
-      });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ scope: 'workspace', content: 'Kestrel character backstory notes.' }),
-      });
-
-      const response = await fetch(
-        `${baseUrl}/api/workspaces/${a.workspaceId}/memories/search?q=${encodeURIComponent('Acme redesign')}`,
-      );
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/briefing`);
       assert.equal(response.status, 200);
 
-      const body = (await response.json()) as { results: Array<{ workspaceId: string }> };
-      assert.ok(body.results.length >= 1);
-      assert.ok(body.results.every((result) => result.workspaceId === a.workspaceId));
+      const body = (await response.json()) as {
+        briefing: {
+          workspaceId: string;
+          workspaceName: string;
+          pendingApprovalCount: number;
+          activeWorkflowCount: number;
+          priorityTasks: unknown[];
+          recentActivity: unknown[];
+        };
+      };
+      assert.equal(body.briefing.workspaceId, workspaceId);
+      assert.equal(body.briefing.workspaceName, 'rcs');
+      assert.equal(body.briefing.pendingApprovalCount, 0);
+      assert.equal(body.briefing.activeWorkflowCount, 0);
+      assert.deepEqual(body.briefing.priorityTasks, []);
+      assert.deepEqual(body.briefing.recentActivity, []);
     } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
+      await cleanupWorkspace(pool, userId);
     }
   });
 });
 
-test('GET .../memories/search requires a non-empty "q" parameter', async () => {
+test('GET .../task-intelligence buckets due-soon and overdue tasks created through the real tasks route', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/search`);
-      assert.equal(response.status, 400);
+      const overdueDueDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'Late thing', dueDate: overdueDueDate }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/task-intelligence`);
+      assert.equal(response.status, 200);
+
+      const body = (await response.json()) as {
+        taskIntelligence: { overdue: Array<{ title: string }>; suggestedPriorities: unknown[] };
+      };
+      assert.equal(body.taskIntelligence.overdue.length, 1);
+      assert.equal(body.taskIntelligence.overdue[0].title, 'Late thing');
+      assert.equal(body.taskIntelligence.suggestedPriorities.length, 1);
     } finally {
       await cleanupWorkspace(pool, userId);
     }
+  });
+});
+
+test('GET .../conversations/:id/intelligence 404s for an unknown conversation', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/workspaces/${workspaceId}/conversations/00000000-0000-0000-0000-000000000000/intelligence`,
+      );
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../conversations/:id/intelligence summarizes real conversation history', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const conversationId = await seedConversation(pool, workspaceId);
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: 'What should I tell Acme about the timeline?' }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversationId}/intelligence`);
+      assert.equal(response.status, 200);
+
+      const body = (await response.json()) as {
+        conversationIntelligence: { summary: string; recentContext: unknown[]; suggestedFollowUps: string[] };
+      };
+      assert.ok(body.conversationIntelligence.summary.length > 0);
+      assert.equal(body.conversationIntelligence.recentContext.length, 2);
+      assert.ok(body.conversationIntelligence.suggestedFollowUps.length > 0);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../insights aggregates metrics scoped to the workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'A task' }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/insights`);
+      assert.equal(response.status, 200);
+
+      const body = (await response.json()) as {
+        insights: {
+          workspaceId: string;
+          taskMetrics: { total: number; completionRate: number };
+          workflowMetrics: { totalRuns: number };
+          approvalMetrics: { total: number };
+          activityMetrics: { totalActions: number };
+        };
+      };
+      assert.equal(body.insights.workspaceId, workspaceId);
+      assert.equal(body.insights.taskMetrics.total, 1);
+      assert.equal(body.insights.taskMetrics.completionRate, 0);
+      assert.equal(body.insights.workflowMetrics.totalRuns, 0);
+      assert.equal(body.insights.approvalMetrics.total, 0);
+      assert.equal(body.insights.activityMetrics.totalActions, 1, 'creating a task logs one action');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../insights 404s for an unknown workspace', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/insights`);
+    assert.equal(response.status, 404);
   });
 });

@@ -164,6 +164,47 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.lastWorkflowSuggestion, "an ordinary follow-up message must not keep a stale suggestion around")
     }
 
+    func testLoadConversationIntelligencePopulatesSummaryFollowUpsAndRelatedMemories() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        XCTAssertNil(viewModel.conversationIntelligence, "sanity check: nothing loaded yet")
+
+        await viewModel.loadConversationIntelligence()
+
+        let intelligence = try! XCTUnwrap(viewModel.conversationIntelligence)
+        XCTAssertFalse(intelligence.summary.isEmpty)
+        XCTAssertEqual(intelligence.suggestedFollowUps.count, 3)
+        XCTAssertEqual(intelligence.recentContext.count, 2, "the two seeded messages")
+        XCTAssertEqual(intelligence.relatedMemories.count, 1)
+        XCTAssertFalse(viewModel.isLoadingIntelligence)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testLoadConversationIntelligenceDoesNothingWithoutASelectedConversation() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        // Deliberately skip loadConversations(), so nothing is selected yet.
+
+        await viewModel.loadConversationIntelligence()
+
+        XCTAssertNil(viewModel.conversationIntelligence)
+    }
+
+    func testSelectingAConversationClearsStaleConversationIntelligence() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await viewModel.startNewConversation(title: "Second thread")
+        await viewModel.selectConversation(viewModel.conversations.last!.id)
+        await viewModel.loadConversationIntelligence()
+        XCTAssertNotNil(viewModel.conversationIntelligence, "sanity check: exists before switching")
+
+        await viewModel.selectConversation(viewModel.conversations.first!.id)
+
+        XCTAssertNil(viewModel.conversationIntelligence)
+    }
+
     func testSelectingAConversationClearsStaleWorkflowSuggestion() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

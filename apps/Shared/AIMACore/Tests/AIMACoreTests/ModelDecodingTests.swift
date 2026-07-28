@@ -326,6 +326,96 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(result.workflowSuggestion?.confidence, 0.75)
     }
 
+    func testDecodesRankedMemoryResult() throws {
+        let json = """
+        {
+          "id":"m1","workspaceId":"w1","scope":"workspace","content":"Acme timeline slipped.",
+          "source":null,"conversationId":null,"projectKey":null,"metadata":{},
+          "createdAt":"2026-01-01T00:00:00.000Z","score":0.82
+        }
+        """.data(using: .utf8)!
+
+        let memory = try decoder.decode(RankedMemoryResult.self, from: json)
+        XCTAssertEqual(memory.scope, .workspace)
+        XCTAssertEqual(memory.content, "Acme timeline slipped.")
+        XCTAssertEqual(memory.score, 0.82)
+    }
+
+    func testDecodesActionLogRecordWithNullActionType() throws {
+        let json = """
+        {
+          "id":"a1","workspaceId":"w1","actionType":null,"tier":"automatic_safe",
+          "summary":"Internal step","payload":null,"outcome":"success","createdAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let entry = try decoder.decode(ActionLogRecord.self, from: json)
+        XCTAssertNil(entry.actionType)
+        XCTAssertEqual(entry.outcome, .success)
+    }
+
+    func testDecodesDailyBriefing() throws {
+        let json = """
+        {
+          "workspaceId":"w1","workspaceName":"Roman Creative Studio",
+          "pendingApprovalCount":1,"pendingApprovals":[],
+          "activeWorkflowCount":0,"activeWorkflows":[],
+          "priorityTasks":[],"recentActivity":[],
+          "generatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let briefing = try decoder.decode(DailyBriefing.self, from: json)
+        XCTAssertEqual(briefing.workspaceName, "Roman Creative Studio")
+        XCTAssertEqual(briefing.pendingApprovalCount, 1)
+    }
+
+    func testDecodesTaskIntelligenceWithRelatedGroups() throws {
+        let json = """
+        {
+          "workspaceId":"w1","suggestedPriorities":[],"dueSoon":[],"overdue":[],
+          "relatedGroups":[{"keyword":"acme","taskIds":["t1","t2"]}],
+          "generatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let intelligence = try decoder.decode(TaskIntelligence.self, from: json)
+        XCTAssertEqual(intelligence.relatedGroups.count, 1)
+        XCTAssertEqual(intelligence.relatedGroups[0].taskIds, ["t1", "t2"])
+    }
+
+    func testDecodesConversationIntelligence() throws {
+        let json = """
+        {
+          "workspaceId":"w1","conversationId":"c1","summary":"A short summary.",
+          "suggestedFollowUps":["Ask about pricing"],"recentContext":[],"relatedMemories":[],
+          "generatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let intelligence = try decoder.decode(ConversationIntelligence.self, from: json)
+        XCTAssertEqual(intelligence.summary, "A short summary.")
+        XCTAssertEqual(intelligence.suggestedFollowUps, ["Ask about pricing"])
+    }
+
+    func testDecodesWorkspaceInsights() throws {
+        let json = """
+        {
+          "workspaceId":"w1",
+          "activityMetrics":{"totalActions":3,"successfulActions":2,"failedActions":1},
+          "workflowMetrics":{"totalRuns":2,"activeRuns":1,"completedRuns":1,"byStatus":{"pending":1,"completed":1}},
+          "approvalMetrics":{"total":2,"pending":1,"approved":1,"rejected":0,"expired":0},
+          "taskMetrics":{"total":4,"todo":1,"inProgress":1,"done":2,"cancelled":0,"completionRate":0.5},
+          "generatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let insights = try decoder.decode(WorkspaceInsights.self, from: json)
+        XCTAssertEqual(insights.activityMetrics.totalActions, 3)
+        XCTAssertEqual(insights.workflowMetrics.byStatus["pending"], 1)
+        XCTAssertEqual(insights.taskMetrics.completionRate, 0.5)
+    }
+
     func testEncodesUpdateUserProfileRequestDistinguishingAbsentFromNullDefaultWorkspace() throws {
         let encoder = JSONEncoder()
 

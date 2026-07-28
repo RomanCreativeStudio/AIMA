@@ -15,6 +15,12 @@ public final class DashboardViewModel {
     public private(set) var systemHealth: SystemHealth?
     public private(set) var pendingApprovals: [PendingApproval] = []
     public private(set) var tasks: [TaskItem] = []
+    /// The Daily Briefing card (Phase 2.5, item 5) — a read-only snapshot, never itself an action.
+    public private(set) var dailyBriefing: DailyBriefing?
+    /// Backs the Productivity Widgets (Phase 2.5, item 5): suggested priorities, due-soon/overdue counts.
+    public private(set) var taskIntelligence: TaskIntelligence?
+    /// Backs the Insight Cards (Phase 2.5, item 5): activity/workflow/approval/task-completion metrics.
+    public private(set) var workspaceInsights: WorkspaceInsights?
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
 
@@ -43,12 +49,20 @@ public final class DashboardViewModel {
             async let healthResult = apiClient.getHealth()
             async let approvalsResult = apiClient.listApprovals(workspaceId: workspaceId, status: .pending)
             async let tasksResult = apiClient.listTasks(workspaceId: workspaceId, status: nil)
+            async let briefingResult = apiClient.getDailyBriefing(workspaceId: workspaceId)
+            async let taskIntelligenceResult = apiClient.getTaskIntelligence(workspaceId: workspaceId)
+            async let insightsResult = apiClient.getWorkspaceInsights(workspaceId: workspaceId)
 
-            let (workspace, health, approvals, tasks) = try await (workspaceResult, healthResult, approvalsResult, tasksResult)
+            let (workspace, health, approvals, tasks, briefing, taskIntelligence, insights) = try await (
+                workspaceResult, healthResult, approvalsResult, tasksResult, briefingResult, taskIntelligenceResult, insightsResult
+            )
             self.workspace = workspace
             self.systemHealth = health
             self.pendingApprovals = approvals
             self.tasks = tasks
+            self.dailyBriefing = briefing
+            self.taskIntelligence = taskIntelligence
+            self.workspaceInsights = insights
         } catch let error as APIError {
             errorMessage = error.userMessage
         } catch {

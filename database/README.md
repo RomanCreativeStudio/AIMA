@@ -23,6 +23,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0010_conversation_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `conversations`, so the macOS app's conversation list (docs/decisions/0009-macos-experience-foundation.md) has a stable "most recently active first" ordering independent of `updated_at` collisions — the same fix as `0003_message_sequence.sql` and `0006_approval_lifecycle.sql`, now applied to a third table. |
 | `0011_integrations.sql` | Adds an `integration_provider` enum (`gmail`/`github`/`calendar`) and `integration_status` enum (`disconnected`/`connected`/`error`), plus `workspace_integrations` (per-workspace connection status, unique on `(workspace_id, provider)`) and `integration_credentials` (1:1, encrypted `payload`/`iv`/`auth_tag`, `rotated_at`) — the External Integrations Foundation's storage layer (docs/decisions/0011-external-integrations-foundation.md). |
 | `0012_workflows.sql` | Adds `github_issue` to `draft_type` (a new draft kind for "Create GitHub issue draft"), a `workflow_key` enum (the four built-in workflows), `workflow_run_status`/`workflow_step_status` enums, and `workflow_runs`/`workflow_step_runs` (execution state, with a monotonic `sequence` column on `workflow_runs` for stable history ordering) — the Workflow Orchestration Foundation's storage layer (docs/decisions/0012-workflow-orchestration-foundation.md). |
+| `0013_action_log_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `action_log`, so `ActionLogger.list` (Phase 2.5's "recent activity") has a stable newest-first order independent of `created_at` collisions — the same fix as `0003_message_sequence.sql`/`0006_approval_lifecycle.sql`/`0010_conversation_sequence.sql`/`0012_workflows.sql`, now applied to a fifth table. |
 
 ## Entities
 
@@ -45,7 +46,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `integration_credentials` | The encrypted credential material for a connected integration — `encrypted_payload`/`iv`/`auth_tag` (AES-256-GCM, `backend/src/integrations/encryption.ts`), 1:1 with `workspace_integrations` via `integration_id`, deleted outright on disconnect. Never queried directly by a route — only `IntegrationService.getDecryptedCredentials` reads it. |
 | `workflow_runs` | One row per started workflow execution — `workflow_key`, `status`, `current_step_index`, `input`/`result` (JSONB), ordered by a monotonic `sequence` column for stable "newest first" history (`0012_workflows.sql`). Created/read by `backend/src/workflows/workflowService.ts`. |
 | `workflow_step_runs` | One row per step attempt within a `workflow_runs` row — `step_index`, `step_key`, `status`, a denormalized `capability_id` FK, and `pending_approval_id` (nullable, `ON DELETE SET NULL` — see `0012_workflows.sql`'s own comment on why not the default `RESTRICT`), plus the step's `output` once it runs. |
-| `action_log` | Audit trail for every Tier 3/4 execution. |
+| `action_log` | Audit trail for every Tier 3/4 execution. Ordered by a monotonic `sequence` column (`0013_action_log_sequence.sql`) for `ActionLogger.list`'s stable newest-first "recent activity" feed (Phase 2.5). |
 
 ## Running migrations locally
 
@@ -63,6 +64,7 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0009_preferences.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0010_conversation_sequence.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0011_integrations.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0012_workflows.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0013_action_log_sequence.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -85,6 +87,7 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0009_preferences.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0010_conversation_sequence.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0011_integrations.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0012_workflows.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0013_action_log_sequence.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.

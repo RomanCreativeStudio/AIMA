@@ -288,6 +288,32 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).run
     }
 
+    // MARK: - Productivity Intelligence
+
+    public func getDailyBriefing(workspaceId: String) async throws -> DailyBriefing {
+        try await send("GET", "/api/workspaces/\(workspaceId)/briefing", envelope: BriefingEnvelope.self).briefing
+    }
+
+    public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/task-intelligence",
+            envelope: TaskIntelligenceEnvelope.self
+        ).taskIntelligence
+    }
+
+    public func getConversationIntelligence(workspaceId: String, conversationId: String) async throws -> ConversationIntelligence {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/conversations/\(conversationId)/intelligence",
+            envelope: ConversationIntelligenceEnvelope.self
+        ).conversationIntelligence
+    }
+
+    public func getWorkspaceInsights(workspaceId: String) async throws -> WorkspaceInsights {
+        try await send("GET", "/api/workspaces/\(workspaceId)/insights", envelope: WorkspaceInsightsEnvelope.self).insights
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -391,3 +417,7 @@ private struct IntegrationEnvelope: Decodable { let integration: WorkspaceIntegr
 private struct WorkflowDefinitionsEnvelope: Decodable { let workflows: [WorkflowDefinition] }
 private struct WorkflowRunsEnvelope: Decodable { let runs: [WorkflowRun] }
 private struct WorkflowRunEnvelope: Decodable { let run: WorkflowRunDetail }
+private struct BriefingEnvelope: Decodable { let briefing: DailyBriefing }
+private struct TaskIntelligenceEnvelope: Decodable { let taskIntelligence: TaskIntelligence }
+private struct ConversationIntelligenceEnvelope: Decodable { let conversationIntelligence: ConversationIntelligence }
+private struct WorkspaceInsightsEnvelope: Decodable { let insights: WorkspaceInsights }

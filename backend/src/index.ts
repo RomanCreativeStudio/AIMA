@@ -10,6 +10,10 @@ import { ContextManager } from './core/contextManager';
 import { ConversationService } from './conversation/conversationService';
 import { DraftService } from './drafts/draftService';
 import { HealthService } from './health/healthService';
+import { BriefingService } from './insights/briefingService';
+import { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
+import { TaskIntelligenceService } from './insights/taskIntelligenceService';
+import { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import { IntentEngine } from './intent/intentEngine';
 import { StubCalendarConnector } from './integrations/connectors/calendarConnector';
 import { StubGitHubConnector } from './integrations/connectors/githubConnector';
@@ -118,6 +122,17 @@ async function main(): Promise<void> {
     workflowIntentMatcher,
   });
 
+  const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
+  const taskIntelligenceService = new TaskIntelligenceService(taskService);
+  const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
+  const workspaceInsightsService = new WorkspaceInsightsService(
+    workspaceService,
+    actionLogger,
+    workflowService,
+    approvalEngine,
+    taskService,
+  );
+
   const app = createApp({
     pool,
     registry,
@@ -138,6 +153,10 @@ async function main(): Promise<void> {
     healthService,
     conversationService,
     aiProvider,
+    briefingService,
+    taskIntelligenceService,
+    conversationIntelligenceService,
+    workspaceInsightsService,
     corsOrigins: config.corsOrigins,
   });
 

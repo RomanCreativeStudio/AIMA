@@ -241,6 +241,46 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(cancelled.status, .cancelled)
     }
 
+    func testGetDailyBriefingUnwrapsTheBriefingEnvelope() async throws {
+        let body = """
+        {"briefing":{"workspaceId":"w1","workspaceName":"RCS","pendingApprovalCount":0,"pendingApprovals":[],"activeWorkflowCount":0,"activeWorkflows":[],"priorityTasks":[],"recentActivity":[],"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/briefing"] = .init(statusCode: 200, body: body)
+
+        let briefing = try await client.getDailyBriefing(workspaceId: "w1")
+        XCTAssertEqual(briefing.workspaceName, "RCS")
+    }
+
+    func testGetTaskIntelligenceUnwrapsTheTaskIntelligenceEnvelope() async throws {
+        let body = """
+        {"taskIntelligence":{"workspaceId":"w1","suggestedPriorities":[],"dueSoon":[],"overdue":[],"relatedGroups":[],"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/task-intelligence"] = .init(statusCode: 200, body: body)
+
+        let intelligence = try await client.getTaskIntelligence(workspaceId: "w1")
+        XCTAssertEqual(intelligence.workspaceId, "w1")
+    }
+
+    func testGetConversationIntelligenceUnwrapsTheConversationIntelligenceEnvelope() async throws {
+        let body = """
+        {"conversationIntelligence":{"workspaceId":"w1","conversationId":"c1","summary":"Summary.","suggestedFollowUps":[],"recentContext":[],"relatedMemories":[],"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/conversations/c1/intelligence"] = .init(statusCode: 200, body: body)
+
+        let intelligence = try await client.getConversationIntelligence(workspaceId: "w1", conversationId: "c1")
+        XCTAssertEqual(intelligence.summary, "Summary.")
+    }
+
+    func testGetWorkspaceInsightsUnwrapsTheInsightsEnvelope() async throws {
+        let body = """
+        {"insights":{"workspaceId":"w1","activityMetrics":{"totalActions":0,"successfulActions":0,"failedActions":0},"workflowMetrics":{"totalRuns":0,"activeRuns":0,"completedRuns":0,"byStatus":{}},"approvalMetrics":{"total":0,"pending":0,"approved":0,"rejected":0,"expired":0},"taskMetrics":{"total":0,"todo":0,"inProgress":0,"done":0,"cancelled":0,"completionRate":0},"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/insights"] = .init(statusCode: 200, body: body)
+
+        let insights = try await client.getWorkspaceInsights(workspaceId: "w1")
+        XCTAssertEqual(insights.workspaceId, "w1")
+    }
+
     func testSendMessageDecodesUnwrappedSendMessageResult() async throws {
         let body = """
         {

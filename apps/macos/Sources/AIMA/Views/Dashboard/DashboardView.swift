@@ -30,6 +30,9 @@ struct DashboardView: View {
                 }
 
                 systemStatusSection
+                dailyBriefingSection
+                productivityWidgetsSection
+                insightCardsSection
                 pendingApprovalsSection
                 tasksOverviewSection
             }
@@ -148,6 +151,87 @@ struct DashboardView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    /// The Daily Briefing card (Phase 2.5, item 5) — a read-only snapshot,
+    /// re-fetched every time this screen loads, never itself an action.
+    @ViewBuilder
+    private var dailyBriefingSection: some View {
+        if let briefing = viewModel.dailyBriefing {
+            SectionCard(title: "Daily Briefing") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 24) {
+                        taskCountColumn("Pending Approvals", count: briefing.pendingApprovalCount)
+                        taskCountColumn("Active Workflows", count: briefing.activeWorkflowCount)
+                    }
+
+                    if !briefing.priorityTasks.isEmpty {
+                        Text("Priority Tasks").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.priorityTasks) { task in
+                            Text("• \(task.title)").font(.callout)
+                        }
+                    }
+
+                    if !briefing.recentActivity.isEmpty {
+                        Text("Recent Activity").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.recentActivity) { entry in
+                            Text("• \(entry.summary)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Productivity Widgets (Phase 2.5, item 5) — Task Intelligence's due-soon/overdue counts, suggested
+    /// priorities, and related-task groups. Deterministic on the backend, no AI involved.
+    @ViewBuilder
+    private var productivityWidgetsSection: some View {
+        if let intelligence = viewModel.taskIntelligence {
+            SectionCard(title: "Productivity") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 24) {
+                        taskCountColumn("Due Soon", count: intelligence.dueSoon.count)
+                        taskCountColumn("Overdue", count: intelligence.overdue.count)
+                    }
+
+                    if !intelligence.relatedGroups.isEmpty {
+                        Text("Related Tasks").font(.subheadline).fontWeight(.medium)
+                        ForEach(intelligence.relatedGroups) { group in
+                            Text("• \(group.keyword.capitalized) (\(group.taskIds.count))")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Insight Cards (Phase 2.5, item 5) — aggregate activity/workflow/approval/task-completion metrics.
+    @ViewBuilder
+    private var insightCardsSection: some View {
+        if let insights = viewModel.workspaceInsights {
+            SectionCard(title: "Workspace Insights") {
+                VStack(alignment: .leading, spacing: 12) {
+                    insightRow("Actions Logged", "\(insights.activityMetrics.totalActions) (\(insights.activityMetrics.failedActions) failed)")
+                    insightRow("Workflow Runs", "\(insights.workflowMetrics.totalRuns) total, \(insights.workflowMetrics.activeRuns) active")
+                    insightRow("Approvals", "\(insights.approvalMetrics.total) total, \(insights.approvalMetrics.pending) pending")
+                    insightRow("Task Completion", "\(Int(insights.taskMetrics.completionRate * 100))% (\(insights.taskMetrics.done)/\(insights.taskMetrics.total))")
+                }
+            }
+        }
+    }
+
+    private func insightRow(_ label: String, _ value: String) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+        }
+        .font(.callout)
     }
 }
 

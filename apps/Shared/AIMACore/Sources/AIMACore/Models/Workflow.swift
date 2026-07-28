@@ -11,8 +11,10 @@ public enum WorkflowKey: String, Codable, CaseIterable, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
-/// Mirrors `backend/src/workflows/types.ts#WorkflowRunStatus`.
-public enum WorkflowRunStatus: String, Codable, Sendable {
+/// Mirrors `backend/src/workflows/types.ts#WorkflowRunStatus`. `CaseIterable` (added for Phase 2.5's Workspace
+/// Insights, so `MockAPIClient` can seed an every-status-present `byStatus` breakdown the same way the backend's
+/// `summarizeWorkflowRuns` does) has no effect on the wire format.
+public enum WorkflowRunStatus: String, Codable, CaseIterable, Sendable {
     case pending
     case running
     case awaitingApproval = "awaiting_approval"

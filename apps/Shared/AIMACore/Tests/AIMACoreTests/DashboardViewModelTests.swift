@@ -17,6 +17,48 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isLoading)
     }
 
+    func testLoadPopulatesTheDailyBriefing() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        let briefing = try! XCTUnwrap(viewModel.dailyBriefing)
+        XCTAssertEqual(briefing.workspaceId, "mock-ws-rcs")
+        XCTAssertEqual(briefing.pendingApprovalCount, 1)
+        XCTAssertEqual(briefing.activeWorkflowCount, 0)
+        XCTAssertEqual(briefing.priorityTasks.count, 2)
+        XCTAssertEqual(briefing.recentActivity.count, 2)
+    }
+
+    func testLoadPopulatesTaskIntelligenceRankedByPriority() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        let intelligence = try! XCTUnwrap(viewModel.taskIntelligence)
+        XCTAssertEqual(intelligence.suggestedPriorities.count, 2)
+        XCTAssertEqual(intelligence.suggestedPriorities.first?.id, "mock-task-1", "the high-priority seeded task should rank first")
+        XCTAssertEqual(intelligence.dueSoon, [], "neither seeded task has a due date")
+        XCTAssertEqual(intelligence.overdue, [])
+    }
+
+    func testLoadPopulatesWorkspaceInsights() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        let insights = try! XCTUnwrap(viewModel.workspaceInsights)
+        XCTAssertEqual(insights.activityMetrics.totalActions, 2)
+        XCTAssertEqual(insights.approvalMetrics.total, 1)
+        XCTAssertEqual(insights.approvalMetrics.pending, 1)
+        XCTAssertEqual(insights.taskMetrics.total, 2)
+        XCTAssertEqual(insights.taskMetrics.completionRate, 0)
+        XCTAssertEqual(insights.workflowMetrics.totalRuns, 0)
+    }
+
     func testTaskCountsRollUpByStatus() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)
