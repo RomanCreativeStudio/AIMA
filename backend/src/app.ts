@@ -8,6 +8,8 @@ import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
 import type { DraftService } from './drafts/draftService';
 import type { HealthService } from './health/healthService';
+import type { IntegrationService } from './integrations/integrationService';
+import type { IntegrationRegistry } from './integrations/registry';
 import type { DocumentService } from './knowledge/documentService';
 import type { MemoryService } from './memory/memoryService';
 import type { PreferenceService } from './preferences/preferenceService';
@@ -24,6 +26,7 @@ import { memoriesRouter } from './routes/memories';
 import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
+import { integrationsRouter } from './routes/integrations';
 import { preferencesRouter } from './routes/preferences';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
@@ -39,6 +42,8 @@ export interface AppDependencies {
   documentService: DocumentService;
   taskService: TaskService;
   draftService: DraftService;
+  integrationService: IntegrationService;
+  integrationRegistry: IntegrationRegistry;
   preferenceService: PreferenceService;
   userService: UserService;
   workspaceService: WorkspaceService;
@@ -103,6 +108,14 @@ export function createApp(deps: AppDependencies): Application {
       preferenceService: deps.preferenceService,
       permissionEngine: deps.permissionEngine,
       actionLogger: deps.actionLogger,
+    }),
+  );
+  app.use(
+    '/api',
+    integrationsRouter({
+      integrationService: deps.integrationService,
+      integrationRegistry: deps.integrationRegistry,
+      permissionEngine: deps.permissionEngine,
     }),
   );
   app.use('/api', usersRouter({ userService: deps.userService }));

@@ -175,6 +175,52 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).preference
     }
 
+    // MARK: - Integrations
+
+    public func listIntegrations(workspaceId: String) async throws -> [WorkspaceIntegration] {
+        try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/integrations",
+            envelope: IntegrationsEnvelope.self
+        ).integrations
+    }
+
+    public func connectIntegration(
+        workspaceId: String,
+        provider: IntegrationProvider,
+        credentials: [String: String]
+    ) async throws -> WorkspaceIntegration {
+        struct Body: Encodable { let credentials: [String: String] }
+        return try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/integrations/\(provider.rawValue)/connect",
+            body: Body(credentials: credentials),
+            envelope: IntegrationEnvelope.self
+        ).integration
+    }
+
+    public func disconnectIntegration(workspaceId: String, provider: IntegrationProvider) async throws -> WorkspaceIntegration {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/integrations/\(provider.rawValue)/disconnect",
+            envelope: IntegrationEnvelope.self
+        ).integration
+    }
+
+    public func rotateIntegrationCredentials(
+        workspaceId: String,
+        provider: IntegrationProvider,
+        credentials: [String: String]
+    ) async throws -> WorkspaceIntegration {
+        struct Body: Encodable { let credentials: [String: String] }
+        return try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/integrations/\(provider.rawValue)/rotate",
+            body: Body(credentials: credentials),
+            envelope: IntegrationEnvelope.self
+        ).integration
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -273,3 +319,5 @@ private struct DecisionEnvelope: Decodable { let decision: ApprovalDecision }
 private struct PreferenceEnvelope: Decodable { let preference: Preference }
 private struct PreferencesEnvelope: Decodable { let preferences: [Preference] }
 private struct DeletedEnvelope: Decodable { let deleted: Bool }
+private struct IntegrationsEnvelope: Decodable { let integrations: [WorkspaceIntegration] }
+private struct IntegrationEnvelope: Decodable { let integration: WorkspaceIntegration }

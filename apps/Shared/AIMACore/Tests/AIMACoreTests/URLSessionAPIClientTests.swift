@@ -124,6 +124,43 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(approval.status, .pending)
     }
 
+    func testListIntegrationsUnwrapsTheIntegrationsEnvelope() async throws {
+        let body = """
+        {"integrations":[{"workspaceId":"w1","provider":"github","enabled":false,"status":"disconnected","connectedAt":null,"lastValidatedAt":null,"createdAt":"","updatedAt":"","displayName":"GitHub","description":"Read-only access to repositories and issues.","capabilities":[{"actionType":"read_repositories","tier":"execute_with_approval"}],"requiredCredentialFields":["accessToken"]}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/integrations"] = .init(statusCode: 200, body: body)
+
+        let integrations = try await client.listIntegrations(workspaceId: "w1")
+        XCTAssertEqual(integrations.count, 1)
+        XCTAssertEqual(integrations[0].provider, .github)
+    }
+
+    func testConnectIntegrationSendsCredentialsAndUnwrapsTheIntegrationEnvelope() async throws {
+        let body = """
+        {"integration":{"workspaceId":"w1","provider":"github","enabled":true,"status":"connected","connectedAt":"2026-01-01T00:00:00.000Z","lastValidatedAt":"2026-01-01T00:00:00.000Z","createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","displayName":"GitHub","description":"Read-only access to repositories and issues.","capabilities":[{"actionType":"read_repositories","tier":"execute_with_approval"}],"requiredCredentialFields":["accessToken"]}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/integrations/github/connect"] = .init(statusCode: 200, body: body)
+
+        let integration = try await client.connectIntegration(workspaceId: "w1", provider: .github, credentials: ["accessToken": "gh-token"])
+        XCTAssertEqual(integration.enabled, true)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let sentBody = try XCTUnwrap(recorded.httpBody)
+        let sentJSON = try JSONSerialization.jsonObject(with: sentBody) as? [String: Any]
+        let sentCredentials = sentJSON?["credentials"] as? [String: String]
+        XCTAssertEqual(sentCredentials?["accessToken"], "gh-token")
+    }
+
+    func testDisconnectIntegrationPostsToTheDisconnectRoute() async throws {
+        let body = """
+        {"integration":{"workspaceId":"w1","provider":"calendar","enabled":false,"status":"disconnected","connectedAt":null,"lastValidatedAt":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z","displayName":"Calendar","description":"Read-only access to calendar events.","capabilities":[{"actionType":"read_calendar","tier":"execute_with_approval"}],"requiredCredentialFields":["accessToken","refreshToken"]}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/integrations/calendar/disconnect"] = .init(statusCode: 200, body: body)
+
+        let integration = try await client.disconnectIntegration(workspaceId: "w1", provider: .calendar)
+        XCTAssertEqual(integration.enabled, false)
+    }
+
     func testNonSuccessStatusThrowsServerErrorWithBackendMessage() async {
         MockURLProtocol.stubs["GET /api/workspaces/missing/tasks"] = .init(
             statusCode: 404,

@@ -3,6 +3,8 @@ export interface AppConfig {
   nodeEnv: string;
   databaseUrl: string;
   corsOrigins: string[];
+  /** Base64-encoded 32-byte AES-256 key backing `AesGcmCredentialEncryptor` (Phase 2.3). Generate with `openssl rand -base64 32`. */
+  credentialEncryptionKey: string;
 }
 
 /**
@@ -19,6 +21,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     );
   }
 
+  const credentialEncryptionKey = env.CREDENTIAL_ENCRYPTION_KEY;
+  if (!credentialEncryptionKey) {
+    throw new Error(
+      'CREDENTIAL_ENCRYPTION_KEY is required (Phase 2.3 integration credentials are encrypted at rest). ' +
+        'Generate one with `openssl rand -base64 32` and copy backend/.env.example to backend/.env.',
+    );
+  }
+
   return {
     port: Number(env.PORT ?? 4000),
     nodeEnv: env.NODE_ENV ?? 'development',
@@ -27,5 +37,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(',')
       .map((origin) => origin.trim())
       .filter(Boolean),
+    credentialEncryptionKey,
   };
 }

@@ -11,6 +11,14 @@ import { ConversationService } from './conversation/conversationService';
 import { DraftService } from './drafts/draftService';
 import { HealthService } from './health/healthService';
 import { IntentEngine } from './intent/intentEngine';
+import { StubCalendarConnector } from './integrations/connectors/calendarConnector';
+import { StubGitHubConnector } from './integrations/connectors/githubConnector';
+import { StubGmailConnector } from './integrations/connectors/gmailConnector';
+import type { IntegrationConnector } from './integrations/connectors/types';
+import { AesGcmCredentialEncryptor } from './integrations/encryption';
+import { IntegrationService } from './integrations/integrationService';
+import { IntegrationRegistry } from './integrations/registry';
+import type { IntegrationProvider } from './integrations/types';
 import { DocumentService } from './knowledge/documentService';
 import { MemoryService } from './memory/memoryService';
 import { PreferenceService } from './preferences/preferenceService';
@@ -42,6 +50,14 @@ async function main(): Promise<void> {
   const preferenceService = new PreferenceService(pool);
   const taskService = new TaskService(pool);
   const draftService = new DraftService(pool);
+  const integrationRegistry = new IntegrationRegistry();
+  const credentialEncryptor = new AesGcmCredentialEncryptor(config.credentialEncryptionKey);
+  const connectors: Record<IntegrationProvider, IntegrationConnector> = {
+    gmail: new StubGmailConnector(),
+    github: new StubGitHubConnector(),
+    calendar: new StubCalendarConnector(),
+  };
+  const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
   const userService = new UserService(pool);
   const workspaceService = new WorkspaceService(pool);
   const healthService = new HealthService(pool, aiProvider);
@@ -63,6 +79,8 @@ async function main(): Promise<void> {
     documentService,
     taskService,
     draftService,
+    integrationService,
+    integrationRegistry,
     approvalEngine,
     preferenceService,
     userService,

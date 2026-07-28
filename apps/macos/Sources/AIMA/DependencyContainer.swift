@@ -63,6 +63,10 @@ final class DependencyContainer {
         TasksViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }
 
+    func makeIntegrationsViewModel(workspaceId: String) -> IntegrationsViewModel {
+        IntegrationsViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
+
     func makeSettingsViewModel() -> SettingsViewModel {
         SettingsViewModel(apiClient: apiClient, userId: userId, currentConfiguration: configuration)
     }

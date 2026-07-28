@@ -108,7 +108,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
 }
 
 async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
-  const email = `draft-route-test-${randomUUID()}@example.com`;
+  const email = `integrations-route-test-${randomUUID()}@example.com`;
   const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
     email,
   ]);
@@ -126,171 +126,176 @@ async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-test('POST /api/workspaces/:id/drafts creates a draft and logs the action', async () => {
+interface IntegrationSummaryBody {
+  provider: string;
+  enabled: boolean;
+  status: string;
+  displayName: string;
+  capabilities: Array<{ actionType: string; tier: string }>;
+  requiredCredentialFields: string[];
+}
+
+test('GET /api/workspaces/:id/integrations lists all three providers, disconnected by default, with capability+tier metadata', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'email', title: 'Follow-up', content: 'Hi Acme, following up...' }),
-      });
-
-      assert.equal(response.status, 201);
-      const body = (await response.json()) as {
-        draft: { type: string; title: string; content: string };
-        permission: { kind: string };
-      };
-      assert.equal(body.draft.type, 'email');
-      assert.equal(body.draft.title, 'Follow-up');
-      assert.equal(body.permission.kind, 'prepare');
-
-      const log = await pool.query('SELECT summary, outcome FROM action_log WHERE workspace_id = $1', [
-        workspaceId,
-      ]);
-      assert.equal(log.rows.length, 1);
-      assert.equal(log.rows[0].outcome, 'success');
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('POST .../drafts rejects an invalid type', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'invoice', content: 'x' }),
-      });
-      assert.equal(response.status, 400);
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('POST .../drafts rejects empty content', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'email', content: '' }),
-      });
-      assert.equal(response.status, 400);
-    } finally {
-      await cleanupWorkspace(pool, userId);
-    }
-  });
-});
-
-test('POST .../drafts rejects an unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/drafts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'email', content: 'x' }),
-    });
-    assert.equal(response.status, 404);
-  });
-});
-
-test('GET .../drafts lists drafts scoped to the workspace and can filter by type', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
-    try {
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'email', content: 'Draft in A' }),
-      });
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'proposal', content: 'Proposal in A' }),
-      });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'email', content: 'Draft in B' }),
-      });
-
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations`);
       assert.equal(response.status, 200);
-      const body = (await response.json()) as { drafts: Array<{ workspaceId: string }> };
-      assert.equal(body.drafts.length, 2);
-      assert.ok(body.drafts.every((draft) => draft.workspaceId === a.workspaceId));
 
-      const filtered = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts?type=proposal`);
-      const filteredBody = (await filtered.json()) as { drafts: Array<{ type: string }> };
-      assert.equal(filteredBody.drafts.length, 1);
-      assert.equal(filteredBody.drafts[0].type, 'proposal');
-    } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
-    }
-  });
-});
+      const body = (await response.json()) as { integrations: IntegrationSummaryBody[] };
+      assert.equal(body.integrations.length, 3);
+      assert.ok(body.integrations.every((integration) => integration.enabled === false));
 
-test('PATCH .../drafts/:id updates content; 404s across workspaces', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const a = await seedWorkspace(pool);
-    const b = await seedWorkspace(pool);
-    try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'report', content: 'Draft 1' }),
-      });
-      const { draft } = (await createResponse.json()) as { draft: { id: string } };
-
-      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts/${draft.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'Draft 2' }),
-      });
-      assert.equal(updateResponse.status, 200);
-      const updated = (await updateResponse.json()) as { draft: { content: string } };
-      assert.equal(updated.draft.content, 'Draft 2');
-
-      const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/drafts/${draft.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: 'hijacked' }),
-      });
-      assert.equal(crossResponse.status, 404);
-    } finally {
-      await cleanupWorkspace(pool, a.userId);
-      await cleanupWorkspace(pool, b.userId);
-    }
-  });
-});
-
-test('DELETE .../drafts/:id removes the draft', async () => {
-  await withTestServer(async (baseUrl, pool) => {
-    const { userId, workspaceId } = await seedWorkspace(pool);
-    try {
-      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'client_response', content: 'To be deleted' }),
-      });
-      const { draft } = (await createResponse.json()) as { draft: { id: string } };
-
-      const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`, {
-        method: 'DELETE',
-      });
-      assert.equal(deleteResponse.status, 200);
-
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`);
-      assert.equal(getResponse.status, 404);
+      const gmail = body.integrations.find((integration) => integration.provider === 'gmail')!;
+      assert.equal(gmail.displayName, 'Gmail');
+      assert.deepEqual(
+        gmail.capabilities.map((c) => c.actionType).sort(),
+        ['draft_gmail_email', 'read_email'],
+      );
+      assert.ok(gmail.capabilities.every((c) => c.tier === 'execute_with_approval'));
+      assert.deepEqual(gmail.requiredCredentialFields, ['accessToken', 'refreshToken']);
     } finally {
       await cleanupWorkspace(pool, userId);
     }
+  });
+});
+
+test('POST .../integrations/:provider/connect connects with valid credentials', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'gh-token' } }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { integration: IntegrationSummaryBody };
+      assert.equal(body.integration.enabled, true);
+      assert.equal(body.integration.status, 'connected');
+
+      // Never leaked back to the client.
+      assert.equal(JSON.stringify(body).includes('gh-token'), false);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../integrations/:provider/connect rejects missing credential fields', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'only-one' } }),
+      });
+
+      assert.equal(response.status, 400);
+      const body = (await response.json()) as { error: string };
+      assert.match(body.error, /refreshToken/);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../integrations/:provider/connect rejects an unknown provider', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/slack/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'x' } }),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('connect then disconnect then reconnect works end to end', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/calendar/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b' } }),
+      });
+
+      const disconnectResponse = await fetch(
+        `${baseUrl}/api/workspaces/${workspaceId}/integrations/calendar/disconnect`,
+        { method: 'POST' },
+      );
+      assert.equal(disconnectResponse.status, 200);
+      const disconnectBody = (await disconnectResponse.json()) as { integration: IntegrationSummaryBody };
+      assert.equal(disconnectBody.integration.enabled, false);
+
+      const reconnectResponse = await fetch(
+        `${baseUrl}/api/workspaces/${workspaceId}/integrations/calendar/connect`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ credentials: { accessToken: 'c', refreshToken: 'd' } }),
+        },
+      );
+      assert.equal(reconnectResponse.status, 200);
+      const reconnectBody = (await reconnectResponse.json()) as { integration: IntegrationSummaryBody };
+      assert.equal(reconnectBody.integration.enabled, true);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../integrations/:provider/disconnect returns 404 for a provider never connected', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/disconnect`, {
+        method: 'POST',
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../integrations/:provider/rotate replaces credentials for an already-connected integration', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'first' } }),
+      });
+
+      const rotateResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/rotate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credentials: { accessToken: 'second' } }),
+      });
+
+      assert.equal(rotateResponse.status, 200);
+      const body = (await rotateResponse.json()) as { integration: IntegrationSummaryBody };
+      assert.equal(body.integration.status, 'connected');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/workspaces/:id/integrations 404s for an unknown workspace', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/integrations`);
+    assert.equal(response.status, 404);
   });
 });

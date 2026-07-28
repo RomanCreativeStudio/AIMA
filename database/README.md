@@ -21,6 +21,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0008_user_profile_and_workspace_config.sql` | Adds `preferences`/`communication_style`/`default_workspace_id` to `users`; adds a `workspace_type` enum (`personal`/`business`/`creative`/`development`) plus `type` (nullable, falls back to a slug-based default in code), `instructions`, `assistant_behavior`, `metadata`, and `updated_at` to `workspaces` (docs/decisions/0008-user-identity-and-workspace-intelligence.md #1). |
 | `0009_preferences.sql` | Adds a `preference_category` enum (`writing_style`/`response_preferences`/`workflow_preferences`/`project_rules`) and the `preferences` table — the Preference Memory Layer, structured settings kept separate from `memory_records` (docs/decisions/0008-user-identity-and-workspace-intelligence.md #3). |
 | `0010_conversation_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `conversations`, so the macOS app's conversation list (docs/decisions/0009-macos-experience-foundation.md) has a stable "most recently active first" ordering independent of `updated_at` collisions — the same fix as `0003_message_sequence.sql` and `0006_approval_lifecycle.sql`, now applied to a third table. |
+| `0011_integrations.sql` | Adds an `integration_provider` enum (`gmail`/`github`/`calendar`) and `integration_status` enum (`disconnected`/`connected`/`error`), plus `workspace_integrations` (per-workspace connection status, unique on `(workspace_id, provider)`) and `integration_credentials` (1:1, encrypted `payload`/`iv`/`auth_tag`, `rotated_at`) — the External Integrations Foundation's storage layer (docs/decisions/0011-external-integrations-foundation.md). |
 
 ## Entities
 
@@ -39,6 +40,8 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `pending_approvals` | Tier 3 intents awaiting explicit user confirmation. Lifecycle `status` is `pending`/`approved`/`rejected`; a fourth state, `expired`, is derived from `expires_at` at read time and never stored (`0006_approval_lifecycle.sql`). Created/read by `backend/src/approval/approvalEngine.ts`. |
 | `drafts` | Held content — `email`/`proposal`/`client_response`/`report` — a user reviews before anything is sent, workspace-scoped (`0007_drafts.sql`). Created/read by `backend/src/drafts/draftService.ts`. |
 | `preferences` | Structured, categorized workspace settings (`writing_style`/`response_preferences`/`workflow_preferences`/`project_rules`) that shape assistant behavior, unique per (workspace, category, key) (`0009_preferences.sql`). Created/read by `backend/src/preferences/preferenceService.ts`. |
+| `workspace_integrations` | One row per (`workspace`, provider) — `enabled`, `status`, `connected_at`, `last_validated_at` (`0011_integrations.sql`). Never a row exists without a connect attempt; a provider a workspace hasn't connected simply has no row (the service layer fills in a disconnected placeholder). Created/read by `backend/src/integrations/integrationService.ts`. |
+| `integration_credentials` | The encrypted credential material for a connected integration — `encrypted_payload`/`iv`/`auth_tag` (AES-256-GCM, `backend/src/integrations/encryption.ts`), 1:1 with `workspace_integrations` via `integration_id`, deleted outright on disconnect. Never queried directly by a route — only `IntegrationService.getDecryptedCredentials` reads it. |
 | `action_log` | Audit trail for every Tier 3/4 execution. |
 
 ## Running migrations locally
@@ -55,6 +58,7 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0007_drafts.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0008_user_profile_and_workspace_config.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0009_preferences.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0010_conversation_sequence.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0011_integrations.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -75,6 +79,7 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0007_drafts.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0008_user_profile_and_workspace_config.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0009_preferences.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0010_conversation_sequence.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0011_integrations.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.

@@ -21,7 +21,8 @@ AIMA's API layer: authentication, workspace routing, the permission engine, inte
 - **`src/users/`** — `UserService`: the User Profile System (Phase 1.8, docs/decisions/0008-user-identity-and-workspace-intelligence.md). `getUser`/`updateProfile` over the `users` table's `displayName`/`preferences`/`communicationStyle`/`defaultWorkspaceId`; `createUser` exists for seeding only (no signup flow — single-user MVP).
 - **`src/workspaces/`** — `WorkspaceService`: the Workspace Configuration System (Phase 1.8). The first application service to own the `workspaces` table (previously seeded only via raw SQL). `createWorkspace`/`getWorkspace`/`listWorkspaces`/`updateWorkspace` over `slug` (still the fixed identity), `type` (a generic category independent of `slug`, defaulting per `WORKSPACE_TYPE_BY_SLUG`), `instructions`, `assistantBehavior`, and `metadata`.
 - **`src/preferences/`** — `PreferenceService`: the Preference Memory Layer (Phase 1.8). Structured, categorized (`writing_style`/`response_preferences`/`workflow_preferences`/`project_rules`) key-value settings, workspace-scoped, kept separate from `memory_records`. `setPreference` is an upsert on `(workspace, category, key)`.
-- **`src/routes/`** — HTTP endpoints. `health.ts` reports the `HealthService` result; `capabilities.ts` is foundation-stage; `ai.ts` is an explicitly-labeled smoke-test endpoint predating the real pipeline; `memories.ts` wires memory creation through the `PermissionEngine`/`ActionLogger` and exposes search + workspace-context retrieval; `documents.ts` exposes the document lifecycle API; `tasks.ts` exposes the Task Foundation CRUD API; `drafts.ts` exposes the Action Preparation Layer CRUD API; `approvals.ts` exposes `list`/`get`/`approve`/`reject` over `pending_approvals` — deliberately no public "create" route (docs/decisions/0007-intent-and-approval-workflows.md #4); `users.ts`/`workspaces.ts`/`preferences.ts` expose the User Profile, Workspace Configuration, and Preference Memory Layer APIs (Phase 1.8); `conversations.ts` exposes conversation creation, listing (`GET /workspaces/:workspaceId/conversations`, Phase 2.1, newest-active-first), history, and message sending (the real pipeline, now delegating to `AimaCoreService` including real approval creation).
+- **`src/integrations/`** — the External Integrations Foundation (Phase 2.3, docs/decisions/0011-external-integrations-foundation.md). `registry.ts` (`IntegrationRegistry`) describes the three fixed providers — display metadata, which capability gates read/write access, and which credential fields a connector needs. `encryption.ts` (`CredentialEncryptor`/`AesGcmCredentialEncryptor`) encrypts credentials at rest with AES-256-GCM, keyed by `CREDENTIAL_ENCRYPTION_KEY`. `integrationService.ts` (`IntegrationService`) is the workspace enable/disable and credential layer: `connect`/`disconnect`/`rotate`/`listForWorkspace`, plus the internal-only `getDecryptedCredentials` a future connector caller would use — never exposed via a route. `connectors/` holds the `IntegrationConnector` provider abstraction and three deterministic stub implementations (`StubGmailConnector`/`StubGitHubConnector`/`StubCalendarConnector`) — read-only, and *not* live network clients (see the module's own doc comments for why).
+- **`src/routes/`** — HTTP endpoints. `health.ts` reports the `HealthService` result; `capabilities.ts` is foundation-stage; `ai.ts` is an explicitly-labeled smoke-test endpoint predating the real pipeline; `memories.ts` wires memory creation through the `PermissionEngine`/`ActionLogger` and exposes search + workspace-context retrieval; `documents.ts` exposes the document lifecycle API; `tasks.ts` exposes the Task Foundation CRUD API; `drafts.ts` exposes the Action Preparation Layer CRUD API; `approvals.ts` exposes `list`/`get`/`approve`/`reject` over `pending_approvals` — deliberately no public "create" route (docs/decisions/0007-intent-and-approval-workflows.md #4); `users.ts`/`workspaces.ts`/`preferences.ts` expose the User Profile, Workspace Configuration, and Preference Memory Layer APIs (Phase 1.8); `integrations.ts` exposes list/connect/disconnect/rotate over the three fixed providers (Phase 2.3) — deliberately no route to actually read data through a connector, per that phase's "no automation execution" scope; `conversations.ts` exposes conversation creation, listing (`GET /workspaces/:workspaceId/conversations`, Phase 2.1, newest-active-first), history, and message sending (the real pipeline, now delegating to `AimaCoreService` including real approval creation).
 - **`src/testUtils/`** — shared test helpers (transaction-scoped test DB access, workspace/conversation seeding, capability syncing).
 - **`src/app.ts`** — builds the Express app from injected dependencies (testable without a live database).
 - **`src/index.ts`** — process entry point: loads config, syncs capabilities to the DB, wires dependencies, starts listening.
@@ -33,6 +34,7 @@ The following are deliberately out of scope until later sprints and are called o
 - Authentication and session management.
 - Per-workspace permission tier overrides (`workspace_capability_settings`) — capability tiers currently resolve to their code-registered default only, so `AimaCoreService`'s automatic approval creation (Phase 1.7) has no real Tier 3 capability to exercise yet under shipped defaults.
 - A real external-action capability (e.g. actually sending an email) that consumes a `Draft` and requires approval — the Action Preparation Layer and Approval Engine are both ready for it, but nothing calls them together yet (Integration Sprint).
+- Live connector implementations — `src/integrations/connectors/` ships deterministic stubs, not real Gmail/GitHub/Calendar API clients (Phase 2.3 is a foundation; a real OAuth app registration and consent flow is out of scope for this environment). No route reads data through a connector yet either, so `read_email`/`draft_gmail_email`/`read_repositories`/`read_calendar` are registered, Tier 3 capabilities with no caller — the same "ready but not yet exercised" state `send_email` has been in since Phase 1.4.
 - Real PDF text extraction — `PdfDocumentParser` is a stub that fails clearly; the format is recognized end-to-end so a real implementation is a drop-in later.
 - Token-level response streaming to the client — `POST .../messages` currently returns one JSON response once the full completion is ready.
 
@@ -41,9 +43,11 @@ The following are deliberately out of scope until later sprints and are called o
 See `docs/DEVELOPMENT_SETUP.md` §6. Quick reference:
 
 ```bash
-cp .env.example .env   # then fill in DATABASE_URL, etc.
+cp .env.example .env   # then fill in DATABASE_URL, CREDENTIAL_ENCRYPTION_KEY, etc.
 npm run dev             # from repo root: npm run dev --workspace=backend
 ```
+
+`CREDENTIAL_ENCRYPTION_KEY` (Phase 2.3) is required at startup, the same way `DATABASE_URL` is — generate one with `openssl rand -base64 32`.
 
 `GET /health` reports database, AI provider, memory, and knowledge system status (`HealthService`).
 
@@ -61,6 +65,7 @@ psql -d aima_test -f ../database/migrations/0007_drafts.sql
 psql -d aima_test -f ../database/migrations/0008_user_profile_and_workspace_config.sql
 psql -d aima_test -f ../database/migrations/0009_preferences.sql
 psql -d aima_test -f ../database/migrations/0010_conversation_sequence.sql
+psql -d aima_test -f ../database/migrations/0011_integrations.sql
 npm test
 ```
 

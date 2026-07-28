@@ -2,12 +2,14 @@ import AIMACore
 import SwiftUI
 
 /// The top-level screens: Dashboard and Chat (Phase 2.1, item 2), Tasks and
-/// Approvals (Phase 2.2, items 3–4), Workspace and Settings (Phase 2.1).
+/// Approvals (Phase 2.2, items 3–4), Integrations (Phase 2.3, item 5),
+/// Workspace and Settings (Phase 2.1).
 enum AppSection: String, CaseIterable, Identifiable {
     case dashboard = "Dashboard"
     case chat = "Chat"
     case tasks = "Tasks"
     case approvals = "Approvals"
+    case integrations = "Integrations"
     case workspace = "Workspace"
     case settings = "Settings"
 
@@ -19,6 +21,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .chat: return "bubble.left.and.bubble.right"
         case .tasks: return "checklist"
         case .approvals: return "checkmark.seal"
+        case .integrations: return "puzzlepiece.extension"
         case .workspace: return "square.stack.3d.up"
         case .settings: return "gearshape"
         }
@@ -26,12 +29,12 @@ enum AppSection: String, CaseIterable, Identifiable {
 }
 
 /// The app's navigation architecture (Phase 2.1, item 1): a
-/// `NavigationSplitView` sidebar switching between the six main screens.
+/// `NavigationSplitView` sidebar switching between the seven main screens.
 /// Owns the single `WorkspaceViewModel` shared by every screen that needs
-/// to know which workspace is active — Dashboard, Chat, Tasks, and
-/// Approvals all read it (via plain, unwrapped properties; `@Observable`
-/// tracks property access on read, no `@ObservedObject`-style wrapper
-/// needed), and the Workspace screen is the one place that changes it.
+/// to know which workspace is active — Dashboard, Chat, Tasks, Approvals,
+/// and Integrations all read it (via plain, unwrapped properties;
+/// `@Observable` tracks property access on read, no `@ObservedObject`-style
+/// wrapper needed), and the Workspace screen is the one place that changes it.
 struct RootNavigationView: View {
     let container: DependencyContainer
     @State private var selectedSection: AppSection? = .dashboard
@@ -71,6 +74,8 @@ struct RootNavigationView: View {
             workspaceScopedView { TasksView(container: container, workspaceId: $0) }
         case .approvals:
             workspaceScopedView { ApprovalsView(container: container, workspaceId: $0) }
+        case .integrations:
+            workspaceScopedView { IntegrationsView(container: container, workspaceId: $0) }
         case .workspace:
             WorkspaceSwitcherView(viewModel: workspaceViewModel)
         case .settings:

@@ -34,4 +34,9 @@ public protocol APIClient: Sendable {
 
     func listPreferences(workspaceId: String, category: PreferenceCategory?) async throws -> [Preference]
     func setPreference(workspaceId: String, request: SetPreferenceRequest) async throws -> Preference
+
+    func listIntegrations(workspaceId: String) async throws -> [WorkspaceIntegration]
+    func connectIntegration(workspaceId: String, provider: IntegrationProvider, credentials: [String: String]) async throws -> WorkspaceIntegration
+    func disconnectIntegration(workspaceId: String, provider: IntegrationProvider) async throws -> WorkspaceIntegration
+    func rotateIntegrationCredentials(workspaceId: String, provider: IntegrationProvider, credentials: [String: String]) async throws -> WorkspaceIntegration
 }

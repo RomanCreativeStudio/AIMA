@@ -23,6 +23,7 @@ public actor MockAPIClient: APIClient {
     private var tasksByWorkspace: [String: [TaskItem]]
     private var approvalsByWorkspace: [String: [PendingApproval]]
     private var preferencesByWorkspace: [String: [Preference]]
+    private var integrationsByWorkspace: [String: [WorkspaceIntegration]]
 
     /// Set by `forceNextMessageToRequireApproval`, consumed by the next
     /// `sendMessage` call — lets tests exercise the Chat screen's approval
@@ -88,6 +89,38 @@ public actor MockAPIClient: APIClient {
         self.preferencesByWorkspace = [
             rcs.id: [
                 Preference(id: "mock-pref-1", workspaceId: rcs.id, category: .writingStyle, key: "tone", value: "formal", createdAt: now, updatedAt: now),
+            ],
+        ]
+
+        self.integrationsByWorkspace = [
+            rcs.id: [
+                WorkspaceIntegration(
+                    workspaceId: rcs.id, provider: .gmail, enabled: false, status: .disconnected,
+                    connectedAt: nil, lastValidatedAt: nil, createdAt: "", updatedAt: "",
+                    displayName: "Gmail",
+                    description: "Read-only access to Gmail messages, plus preparing drafts for review before anything is sent.",
+                    capabilities: [
+                        IntegrationCapability(actionType: "read_email", tier: "execute_with_approval"),
+                        IntegrationCapability(actionType: "draft_gmail_email", tier: "execute_with_approval"),
+                    ],
+                    requiredCredentialFields: ["accessToken", "refreshToken"]
+                ),
+                WorkspaceIntegration(
+                    workspaceId: rcs.id, provider: .github, enabled: true, status: .connected,
+                    connectedAt: now, lastValidatedAt: now, createdAt: now, updatedAt: now,
+                    displayName: "GitHub",
+                    description: "Read-only access to repositories and issues.",
+                    capabilities: [IntegrationCapability(actionType: "read_repositories", tier: "execute_with_approval")],
+                    requiredCredentialFields: ["accessToken"]
+                ),
+                WorkspaceIntegration(
+                    workspaceId: rcs.id, provider: .calendar, enabled: false, status: .disconnected,
+                    connectedAt: nil, lastValidatedAt: nil, createdAt: "", updatedAt: "",
+                    displayName: "Calendar",
+                    description: "Read-only access to calendar events.",
+                    capabilities: [IntegrationCapability(actionType: "read_calendar", tier: "execute_with_approval")],
+                    requiredCredentialFields: ["accessToken", "refreshToken"]
+                ),
             ],
         ]
     }
@@ -332,6 +365,97 @@ public actor MockAPIClient: APIClient {
         existing.append(created)
         preferencesByWorkspace[workspaceId] = existing
         return created
+    }
+
+    public func listIntegrations(workspaceId: String) async throws -> [WorkspaceIntegration] {
+        try await maybeFail()
+        return integrationsByWorkspace[workspaceId] ?? []
+    }
+
+    public func connectIntegration(
+        workspaceId: String,
+        provider: IntegrationProvider,
+        credentials: [String: String]
+    ) async throws -> WorkspaceIntegration {
+        try await maybeFail()
+        try validateIntegrationCredentials(provider: provider, credentials: credentials)
+
+        guard var integrations = integrationsByWorkspace[workspaceId],
+              let index = integrations.firstIndex(where: { $0.provider == provider }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let existing = integrations[index]
+        integrations[index] = WorkspaceIntegration(
+            workspaceId: workspaceId, provider: provider, enabled: true, status: .connected,
+            connectedAt: now, lastValidatedAt: now,
+            createdAt: existing.createdAt.isEmpty ? now : existing.createdAt, updatedAt: now,
+            displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
+            requiredCredentialFields: existing.requiredCredentialFields
+        )
+        integrationsByWorkspace[workspaceId] = integrations
+        return integrations[index]
+    }
+
+    public func disconnectIntegration(workspaceId: String, provider: IntegrationProvider) async throws -> WorkspaceIntegration {
+        try await maybeFail()
+        guard var integrations = integrationsByWorkspace[workspaceId],
+              let index = integrations.firstIndex(where: { $0.provider == provider && $0.enabled }) else {
+            throw APIError.server(statusCode: 404, message: "No connected \(provider.rawValue) integration")
+        }
+
+        let existing = integrations[index]
+        integrations[index] = WorkspaceIntegration(
+            workspaceId: workspaceId, provider: provider, enabled: false, status: .disconnected,
+            connectedAt: existing.connectedAt, lastValidatedAt: existing.lastValidatedAt,
+            createdAt: existing.createdAt, updatedAt: ISO8601DateFormatter().string(from: Date()),
+            displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
+            requiredCredentialFields: existing.requiredCredentialFields
+        )
+        integrationsByWorkspace[workspaceId] = integrations
+        return integrations[index]
+    }
+
+    public func rotateIntegrationCredentials(
+        workspaceId: String,
+        provider: IntegrationProvider,
+        credentials: [String: String]
+    ) async throws -> WorkspaceIntegration {
+        try await maybeFail()
+        try validateIntegrationCredentials(provider: provider, credentials: credentials)
+
+        guard var integrations = integrationsByWorkspace[workspaceId],
+              let index = integrations.firstIndex(where: { $0.provider == provider && $0.enabled }) else {
+            throw APIError.server(statusCode: 404, message: "No connected \(provider.rawValue) integration")
+        }
+
+        let now = ISO8601DateFormatter().string(from: Date())
+        let existing = integrations[index]
+        integrations[index] = WorkspaceIntegration(
+            workspaceId: workspaceId, provider: provider, enabled: true, status: .connected,
+            connectedAt: existing.connectedAt, lastValidatedAt: now,
+            createdAt: existing.createdAt, updatedAt: now,
+            displayName: existing.displayName, description: existing.description, capabilities: existing.capabilities,
+            requiredCredentialFields: existing.requiredCredentialFields
+        )
+        integrationsByWorkspace[workspaceId] = integrations
+        return integrations[index]
+    }
+
+    /// Mirrors `IntegrationRegistry`'s `requiredCredentialFields` (backend/src/integrations/registry.ts) so the mock
+    /// rejects the same malformed input the real backend would.
+    private func validateIntegrationCredentials(provider: IntegrationProvider, credentials: [String: String]) throws {
+        let required: [String]
+        switch provider {
+        case .gmail: required = ["accessToken", "refreshToken"]
+        case .github: required = ["accessToken"]
+        case .calendar: required = ["accessToken", "refreshToken"]
+        }
+        let missing = required.filter { credentials[$0]?.isEmpty ?? true }
+        if !missing.isEmpty {
+            throw APIError.server(statusCode: 400, message: "Missing required credential field(s): \(missing.joined(separator: ", "))")
+        }
     }
 
     /// Moves a conversation to the end of insertion order so `listConversations`'s `.reversed()` surfaces it first — approximating `sequence`-based recency without real timestamps.

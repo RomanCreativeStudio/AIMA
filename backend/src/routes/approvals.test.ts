@@ -11,6 +11,14 @@ import { ApprovalEngine } from '../approval/approvalEngine';
 import type { ApprovalDecision } from '../approval/types';
 import { AimaCoreService } from '../core/aimaCoreService';
 import { DraftService } from '../drafts/draftService';
+import { StubCalendarConnector } from '../integrations/connectors/calendarConnector';
+import { StubGitHubConnector } from '../integrations/connectors/githubConnector';
+import { StubGmailConnector } from '../integrations/connectors/gmailConnector';
+import type { IntegrationConnector } from '../integrations/connectors/types';
+import { AesGcmCredentialEncryptor } from '../integrations/encryption';
+import { IntegrationService } from '../integrations/integrationService';
+import { IntegrationRegistry } from '../integrations/registry';
+import type { IntegrationProvider } from '../integrations/types';
 import { ContextManager } from '../core/contextManager';
 import { ConversationService } from '../conversation/conversationService';
 import { IntentEngine } from '../intent/intentEngine';
@@ -27,6 +35,7 @@ import { WorkspaceService } from '../workspaces/workspaceService';
 
 const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
+const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
 interface SeededWorkspace {
   userId: string;
@@ -43,6 +52,14 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const documentService = new DocumentService(pool, new MockEmbeddingProvider());
   const taskService = new TaskService(pool);
   const draftService = new DraftService(pool);
+  const integrationRegistry = new IntegrationRegistry();
+  const credentialEncryptor = new AesGcmCredentialEncryptor(TEST_CREDENTIAL_ENCRYPTION_KEY);
+  const connectors: Record<IntegrationProvider, IntegrationConnector> = {
+    gmail: new StubGmailConnector(),
+    github: new StubGitHubConnector(),
+    calendar: new StubCalendarConnector(),
+  };
+  const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
   const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
   const aiProvider = createAIProvider({ provider: 'mock' });
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
@@ -64,6 +81,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     registry,
     permissionEngine,
     actionLogger,
+    integrationService,
+    integrationRegistry,
     memoryService,
     documentService,
     taskService,

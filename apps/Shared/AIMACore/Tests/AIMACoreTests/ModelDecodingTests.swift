@@ -161,6 +161,61 @@ final class ModelDecodingTests: XCTestCase {
         }
     }
 
+    func testDecodesWorkspaceIntegrationConnectedWithCapabilities() throws {
+        let json = """
+        {
+          "workspaceId":"w1","provider":"gmail","enabled":true,"status":"connected",
+          "connectedAt":"2026-01-01T00:00:00.000Z","lastValidatedAt":"2026-01-01T00:00:00.000Z",
+          "createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z",
+          "displayName":"Gmail","description":"Read-only access to Gmail messages.",
+          "capabilities":[
+            {"actionType":"read_email","tier":"execute_with_approval"},
+            {"actionType":"draft_gmail_email","tier":"execute_with_approval"}
+          ],
+          "requiredCredentialFields":["accessToken","refreshToken"]
+        }
+        """.data(using: .utf8)!
+
+        let integration = try decoder.decode(WorkspaceIntegration.self, from: json)
+        XCTAssertEqual(integration.provider, .gmail)
+        XCTAssertEqual(integration.status, .connected)
+        XCTAssertTrue(integration.enabled)
+        XCTAssertEqual(integration.capabilities.count, 2)
+        XCTAssertEqual(integration.requiredCredentialFields, ["accessToken", "refreshToken"])
+        XCTAssertEqual(integration.id, "w1:gmail")
+    }
+
+    func testDecodesWorkspaceIntegrationDisconnectedPlaceholderWithNullTimestamps() throws {
+        let json = """
+        {
+          "workspaceId":"w1","provider":"github","enabled":false,"status":"disconnected",
+          "connectedAt":null,"lastValidatedAt":null,"createdAt":"","updatedAt":"",
+          "displayName":"GitHub","description":"Read-only access to repositories and issues.",
+          "capabilities":[{"actionType":"read_repositories","tier":"execute_with_approval"}],
+          "requiredCredentialFields":["accessToken"]
+        }
+        """.data(using: .utf8)!
+
+        let integration = try decoder.decode(WorkspaceIntegration.self, from: json)
+        XCTAssertNil(integration.connectedAt)
+        XCTAssertFalse(integration.enabled)
+        XCTAssertNil(integration.capabilities.first(where: { $0.actionType == "draft_repositories" }), "github has no write capability")
+    }
+
+    func testIntegrationProviderRawValuesMatchBackendEnum() {
+        // backend/database/migrations/0011_integrations.sql's integration_provider enum.
+        XCTAssertEqual(IntegrationProvider.gmail.rawValue, "gmail")
+        XCTAssertEqual(IntegrationProvider.github.rawValue, "github")
+        XCTAssertEqual(IntegrationProvider.calendar.rawValue, "calendar")
+    }
+
+    func testIntegrationStatusRawValuesMatchBackendEnum() {
+        // backend/database/migrations/0011_integrations.sql's integration_status enum.
+        XCTAssertEqual(IntegrationStatus.disconnected.rawValue, "disconnected")
+        XCTAssertEqual(IntegrationStatus.connected.rawValue, "connected")
+        XCTAssertEqual(IntegrationStatus.error.rawValue, "error")
+    }
+
     func testPreferenceCategoryRawValuesMatchBackendEnum() {
         // backend/src/preferences/types.ts#PreferenceCategory (Phase 1.8).
         XCTAssertEqual(PreferenceCategory.writingStyle.rawValue, "writing_style")

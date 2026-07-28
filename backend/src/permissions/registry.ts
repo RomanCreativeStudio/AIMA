@@ -105,6 +105,35 @@ export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     tierLocked: false,
     description: 'Remove an imported document and its chunks from a workspace. Reversible by re-importing the source.',
   },
+  {
+    actionType: 'read_email',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Read messages from a connected Gmail integration. External account data — permanently locked at Tier 3 minimum.',
+  },
+  {
+    actionType: 'draft_gmail_email',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      "Draft an email directly within a connected Gmail integration — distinct from the local draft queue's " +
+      "draft_email, which never touches an external account. External account data — permanently locked at Tier 3 minimum.",
+  },
+  {
+    actionType: 'read_repositories',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Read repositories and issues from a connected GitHub integration. External account data — permanently locked at Tier 3 minimum.',
+  },
+  {
+    actionType: 'read_calendar',
+    defaultTier: 'execute_with_approval',
+    tierLocked: true,
+    description:
+      'Read events from a connected Calendar integration. External account data — permanently locked at Tier 3 minimum.',
+  },
 ];
 
 export class CapabilityRegistry {
