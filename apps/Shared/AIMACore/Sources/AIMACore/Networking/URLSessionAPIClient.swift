@@ -462,6 +462,49 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/workspaces/\(workspaceId)/proactive/suggestions", envelope: SuggestionsEnvelope.self).suggestions
     }
 
+    // MARK: - Retrieval (Phase 3.6)
+
+    public func searchSemantic(workspaceId: String, query: String, sourceTypes: [EmbeddingSourceType]?, limit: Int?) async throws -> [SearchResult] {
+        var params: [String: String] = ["q": query]
+        if let sourceTypes, !sourceTypes.isEmpty {
+            params["sourceTypes"] = sourceTypes.map(\.rawValue).joined(separator: ",")
+        }
+        if let limit { params["limit"] = String(limit) }
+        return try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/retrieval/search",
+            query: params,
+            envelope: SearchResultsEnvelope.self
+        ).results
+    }
+
+    public func getRetrievedContext(
+        workspaceId: String,
+        query: String,
+        conversationId: String?,
+        memoryLimit: Int?,
+        embeddingLimit: Int?
+    ) async throws -> RetrievedContext {
+        var params: [String: String] = ["q": query]
+        if let conversationId { params["conversationId"] = conversationId }
+        if let memoryLimit { params["memoryLimit"] = String(memoryLimit) }
+        if let embeddingLimit { params["embeddingLimit"] = String(embeddingLimit) }
+        return try await send(
+            "GET",
+            "/api/workspaces/\(workspaceId)/retrieval/context",
+            query: params,
+            envelope: RetrievedContextEnvelope.self
+        ).context
+    }
+
+    public func reindexEmbeddings(workspaceId: String) async throws -> ReindexWorkspaceResult {
+        try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/retrieval/reindex",
+            envelope: ReindexResultEnvelope.self
+        ).result
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -581,3 +624,6 @@ private struct MemoriesEnvelope: Decodable { let memories: [MemoryRecord] }
 private struct MemorySearchResultsEnvelope: Decodable { let results: [RankedMemoryResult] }
 private struct PatternsEnvelope: Decodable { let patterns: [Pattern] }
 private struct SuggestionsEnvelope: Decodable { let suggestions: [Suggestion] }
+private struct SearchResultsEnvelope: Decodable { let results: [SearchResult] }
+private struct RetrievedContextEnvelope: Decodable { let context: RetrievedContext }
+private struct ReindexResultEnvelope: Decodable { let result: ReindexWorkspaceResult }

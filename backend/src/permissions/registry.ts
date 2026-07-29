@@ -101,6 +101,19 @@ export const DEFAULT_CAPABILITIES: CapabilityDefinition[] = [
     description: 'Re-chunk and re-embed an already-imported document.',
   },
   {
+    actionType: 'semantic_search',
+    defaultTier: 'suggest',
+    tierLocked: false,
+    description:
+      'Run a semantic similarity search across a workspace (memories, conversations, tasks). Read-only, advisory.',
+  },
+  {
+    actionType: 'reindex_embeddings',
+    defaultTier: 'prepare',
+    tierLocked: false,
+    description: 'Re-chunk and re-embed a workspace\'s conversations and tasks for semantic search.',
+  },
+  {
     actionType: 'set_preference',
     defaultTier: 'prepare',
     tierLocked: false,

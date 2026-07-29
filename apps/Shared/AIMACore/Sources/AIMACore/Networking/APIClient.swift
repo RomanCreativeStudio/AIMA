@@ -86,4 +86,19 @@ public protocol APIClient: Sendable {
 
     func getProactivePatterns(workspaceId: String) async throws -> [Pattern]
     func getProactiveSuggestions(workspaceId: String) async throws -> [Suggestion]
+
+    /// Manual semantic search across a workspace's indexed content (Phase 3.6) — never triggered automatically.
+    func searchSemantic(workspaceId: String, query: String, sourceTypes: [EmbeddingSourceType]?, limit: Int?) async throws -> [SearchResult]
+    /// Merged memories/conversations/tasks for a query — the same read `ConversationService.sendMessage` computes
+    /// advisorily server-side, exposed here for a manual "why did it retrieve this" view.
+    func getRetrievedContext(
+        workspaceId: String,
+        query: String,
+        conversationId: String?,
+        memoryLimit: Int?,
+        embeddingLimit: Int?
+    ) async throws -> RetrievedContext
+    /// Re-chunks and re-embeds a workspace's conversations/tasks — requires an explicit call (a reindex button),
+    /// never run automatically or in the background.
+    func reindexEmbeddings(workspaceId: String) async throws -> ReindexWorkspaceResult
 }

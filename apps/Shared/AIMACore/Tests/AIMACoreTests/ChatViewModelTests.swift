@@ -297,4 +297,30 @@ final class ChatViewModelTests: XCTestCase {
 
         XCTAssertEqual(viewModel.conversations.first?.id, originalConversationId)
     }
+
+    func testSendDraftMessageSurfacesRetrievedContext() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+
+        viewModel.draftMessage = "Can we schedule a call with the client?"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertNotNil(viewModel.lastRetrievedContext)
+        XCTAssertFalse(viewModel.lastRetrievedContext?.memories.isEmpty ?? true)
+    }
+
+    func testSelectingAConversationClearsStaleRetrievedContext() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await viewModel.startNewConversation(title: "Second thread")
+        viewModel.draftMessage = "Can we schedule a call with the client?"
+        await viewModel.sendDraftMessage()
+        XCTAssertNotNil(viewModel.lastRetrievedContext, "sanity check: context exists before switching")
+
+        await viewModel.selectConversation(viewModel.conversations.last!.id)
+
+        XCTAssertNil(viewModel.lastRetrievedContext)
+    }
 }

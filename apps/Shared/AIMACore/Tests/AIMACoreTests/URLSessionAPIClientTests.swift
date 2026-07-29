@@ -558,4 +558,49 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(suggestions[0].type, .workflow)
         XCTAssertEqual(suggestions[0].confidence, 0.75)
     }
+
+    func testSearchSemanticJoinsSourceTypesAndUnwrapsTheResultsEnvelope() async throws {
+        let body = """
+        {"results":[{"id":"emb-1","workspaceId":"w1","sourceType":"task","sourceId":"task-1","chunkIndex":0,"content":"Schedule a client call","embeddingVersion":1,"indexedAt":"2026-01-01T00:00:00.000Z","createdAt":"2026-01-01T00:00:00.000Z","score":0.74}]}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/retrieval/search"] = .init(statusCode: 200, body: body)
+
+        let results = try await client.searchSemantic(workspaceId: "w1", query: "client call", sourceTypes: [.task, .conversation], limit: 5)
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results[0].score, 0.74)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let query = try XCTUnwrap(recorded.url?.query)
+        let params = Set(query.split(separator: "&").map(String.init))
+        XCTAssertEqual(params, ["q=client%20call", "sourceTypes=task,conversation", "limit=5"])
+    }
+
+    func testGetRetrievedContextUnwrapsTheContextEnvelope() async throws {
+        let body = """
+        {"context":{"memories":[],"relatedConversations":[],"relatedTasks":[{"id":"emb-1","workspaceId":"w1","sourceType":"task","sourceId":"task-1","chunkIndex":0,"content":"Schedule a client call","embeddingVersion":1,"indexedAt":"2026-01-01T00:00:00.000Z","createdAt":"2026-01-01T00:00:00.000Z","score":0.74}]}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/retrieval/context"] = .init(statusCode: 200, body: body)
+
+        let context = try await client.getRetrievedContext(workspaceId: "w1", query: "client call", conversationId: "c1", memoryLimit: 3, embeddingLimit: 3)
+        XCTAssertEqual(context.relatedTasks.count, 1)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        let query = try XCTUnwrap(recorded.url?.query)
+        let params = Set(query.split(separator: "&").map(String.init))
+        XCTAssertEqual(params, ["q=client%20call", "conversationId=c1", "memoryLimit=3", "embeddingLimit=3"])
+    }
+
+    func testReindexEmbeddingsPostsToTheReindexRouteAndUnwrapsTheResultEnvelope() async throws {
+        let body = """
+        {"result":{"conversations":[{"sourceType":"conversation","sourceId":"c1","chunksIndexed":1,"chunksSkipped":0,"chunksDeleted":0}],"tasks":[]},"permission":{"kind":"prepare"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/retrieval/reindex"] = .init(statusCode: 200, body: body)
+
+        let result = try await client.reindexEmbeddings(workspaceId: "w1")
+        XCTAssertEqual(result.conversations.count, 1)
+        XCTAssertEqual(result.conversations[0].chunksIndexed, 1)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        XCTAssertEqual(recorded.httpMethod, "POST")
+    }
 }

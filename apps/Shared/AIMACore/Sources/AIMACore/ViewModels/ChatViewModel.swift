@@ -39,6 +39,11 @@ public final class ChatViewModel {
     /// `loadConversationIntelligence` follows, and never itself creates/executes/sends anything.
     public private(set) var workspaceSuggestions: [Suggestion] = []
     public private(set) var isLoadingSuggestions = false
+    /// The most recent reply's retrieved context (Phase 3.6) — merged memories, related conversations, and
+    /// related tasks. Purely advisory/display: it played no part in generating the reply, and is `nil` when
+    /// the backend has no `RetrievalService` configured. Reset on `selectConversation` like the other
+    /// per-turn advisory fields.
+    public private(set) var lastRetrievedContext: RetrievedContext?
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -89,6 +94,7 @@ public final class ChatViewModel {
         lastWorkflowSuggestion = nil
         lastExecutionSuggestion = nil
         conversationIntelligence = nil
+        lastRetrievedContext = nil
         do {
             messages = try await apiClient.listMessages(workspaceId: workspaceId, conversationId: conversationId, limit: nil)
         } catch let error as APIError {
@@ -114,6 +120,7 @@ public final class ChatViewModel {
             lastPendingApproval = nil
             lastWorkflowSuggestion = result.workflowSuggestion
             lastExecutionSuggestion = result.executionSuggestion
+            lastRetrievedContext = result.retrievedContext
             if let approvalId = result.approvalDecision.pendingApprovalId {
                 lastPendingApproval = try? await apiClient.getApproval(workspaceId: workspaceId, approvalId: approvalId)
             }

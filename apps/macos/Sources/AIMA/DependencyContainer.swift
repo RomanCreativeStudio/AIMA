@@ -86,6 +86,10 @@ final class DependencyContainer {
     func makeMemoryViewModel(workspaceId: String) -> MemoryViewModel {
         MemoryViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }
+
+    func makeSearchViewModel(workspaceId: String) -> SearchViewModel {
+        SearchViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
 }
 
 #if DEBUG

@@ -8,6 +8,8 @@ import { ActionLogger } from '../actionLog/logger';
 import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
 import { ContextManager } from '../core/contextManager';
+import { EmbeddingService } from '../embeddings/embeddingService';
+import { RetrievalService } from '../embeddings/retrievalService';
 import { IntentEngine } from '../intent/intentEngine';
 import { DocumentService } from '../knowledge/documentService';
 import { MemoryService } from '../memory/memoryService';
@@ -532,6 +534,7 @@ test('sendMessage result matches the full response schema', async () => {
       'executionSuggestion',
       'intent',
       'memorySuggestions',
+      'retrievedContext',
       'retrievedDocumentChunks',
       'retrievedMemories',
       'userMessage',
@@ -542,6 +545,7 @@ test('sendMessage result matches the full response schema', async () => {
     assert.equal(typeof result.assistantMessage.content, 'string');
     assert.ok(Array.isArray(result.retrievedMemories));
     assert.ok(Array.isArray(result.retrievedDocumentChunks));
+    assert.equal(result.retrievedContext, null, 'no RetrievalService configured in this test build');
 
     assert.deepEqual(Object.keys(result.intent).sort(), [
       'approval',
@@ -556,5 +560,64 @@ test('sendMessage result matches the full response schema', async () => {
     assert.ok(['no_approval_needed', 'approval_required'].includes(result.intent.approval));
     assert.equal(typeof result.intent.suggestedNextAction, 'string');
     assert.equal(result.approvalDecision.state, 'no_approval_needed');
+  });
+});
+
+test('sendMessage attaches retrievedContext (memories + related tasks) when a RetrievalService is configured, and never writes anything', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const embeddingProvider = new MockEmbeddingProvider();
+    const memoryServiceForRetrieval = new MemoryService(client, embeddingProvider);
+    const embeddingService = new EmbeddingService(client, embeddingProvider);
+    const retrievalService = new RetrievalService(client, embeddingProvider, embeddingService, memoryServiceForRetrieval);
+
+    await memoryServiceForRetrieval.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: 'The client prefers async written updates over calls.',
+    });
+    const taskResult = await client.query<{ id: string }>(
+      "INSERT INTO tasks (workspace_id, title) VALUES ($1, 'Schedule a client call') RETURNING id",
+      [workspaceId],
+    );
+    await embeddingService.indexContent({
+      workspaceId,
+      sourceType: 'task',
+      sourceId: taskResult.rows[0].id,
+      content: 'Schedule a client call',
+    });
+
+    const provider = new RecordingAIProvider();
+    const { service } = buildService(client, provider, { retrievalService });
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Can we schedule a call with the client this week?',
+    });
+
+    assert.ok(result.retrievedContext !== null);
+    assert.ok(result.retrievedContext!.memories.length >= 1);
+    assert.ok(result.retrievedContext!.relatedTasks.length >= 1);
+
+    // Advisory only: the AI provider's system prompt was assembled by AimaCoreService/ContextManager,
+    // not by retrievedContext — attaching it must not change what was sent to the provider.
+    assert.ok(!provider.lastRequest?.messages.some((m) => m.content.includes('async written updates')));
+
+    const memories = await client.query('SELECT 1 FROM memory_records WHERE workspace_id = $1', [workspaceId]);
+    assert.equal(memories.rows.length, 1, 'sendMessage must never create an additional memory');
+  });
+});
+
+test('sendMessage leaves retrievedContext null when no RetrievalService is configured', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'Hello there.' });
+
+    assert.equal(result.retrievedContext, null);
   });
 });

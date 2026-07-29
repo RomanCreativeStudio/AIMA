@@ -44,6 +44,8 @@ import { IntegrationService } from './integrations/integrationService';
 import { IntegrationRegistry } from './integrations/registry';
 import type { IntegrationProvider } from './integrations/types';
 import { DocumentService } from './knowledge/documentService';
+import { EmbeddingService } from './embeddings/embeddingService';
+import { RetrievalService } from './embeddings/retrievalService';
 import { MemoryService } from './memory/memoryService';
 import { GitHubOAuthProvider } from './oauth/githubOAuthProvider';
 import { GOOGLE_OAUTH_SCOPES, GoogleOAuthProvider } from './oauth/googleOAuthProvider';
@@ -89,6 +91,8 @@ async function main(): Promise<void> {
   const approvalEngine = new ApprovalEngine(pool, permissionEngine);
   const memoryService = new MemoryService(pool, embeddingProvider);
   const documentService = new DocumentService(pool, embeddingProvider);
+  const embeddingService = new EmbeddingService(pool, embeddingProvider);
+  const retrievalService = new RetrievalService(pool, embeddingProvider, embeddingService, memoryService);
   const preferenceService = new PreferenceService(pool);
   const taskService = new TaskService(pool);
   const draftService = new DraftService(pool);
@@ -199,6 +203,7 @@ async function main(): Promise<void> {
     permissionEngine,
     workflowIntentMatcher,
     executionIntentMatcher,
+    retrievalService,
   });
 
   const voiceService = new VoiceService(pool, conversationService, speechToTextProvider, textToSpeechProvider);
@@ -264,6 +269,7 @@ async function main(): Promise<void> {
     proactiveIntelligenceService,
     executionService,
     voiceService,
+    retrievalService,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,
     logger,

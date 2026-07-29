@@ -56,6 +56,10 @@ struct ChatView: View {
                     ConversationIntelligenceCardView(intelligence: intelligence)
                 }
 
+                if let context = viewModel.lastRetrievedContext {
+                    RetrievedContextCardView(context: context)
+                }
+
                 if !viewModel.workspaceSuggestions.isEmpty {
                     RecommendationsCardView(suggestions: viewModel.workspaceSuggestions)
                 }

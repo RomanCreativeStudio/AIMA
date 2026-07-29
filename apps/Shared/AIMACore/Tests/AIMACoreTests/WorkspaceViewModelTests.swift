@@ -61,4 +61,28 @@ final class WorkspaceViewModelTests: XCTestCase {
 
         XCTAssertNil(viewModel.activitySummary)
     }
+
+    func testReindexEmbeddingsPopulatesLastReindexResultForTheActiveWorkspace() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        await viewModel.load()
+        XCTAssertNil(viewModel.lastReindexResult, "sanity check: nothing reindexed yet")
+
+        await viewModel.reindexEmbeddings()
+
+        XCTAssertNotNil(viewModel.lastReindexResult)
+        XCTAssertFalse(viewModel.isReindexing)
+    }
+
+    func testSwitchWorkspaceClearsTheStaleReindexResult() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        await viewModel.load()
+        await viewModel.reindexEmbeddings()
+        let personal = try! XCTUnwrap(viewModel.workspaces.first { $0.slug == .personal })
+
+        viewModel.switchWorkspace(to: personal.id)
+
+        XCTAssertNil(viewModel.lastReindexResult)
+    }
 }

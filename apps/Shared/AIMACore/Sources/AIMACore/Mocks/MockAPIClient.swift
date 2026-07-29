@@ -370,6 +370,13 @@ public actor MockAPIClient: APIClient {
         let executionSuggestion = forcedNextExecutionSuggestion
         forcedNextExecutionSuggestion = nil
 
+        // Mirrors the backend's advisory retrievedContext (Phase 3.6) — populated whenever a workspace has
+        // seeded searchable content, nil otherwise, the same "only present when configured" shape as the
+        // real RetrievalService-optional ConversationService.
+        let retrievedContext: RetrievedContext? = workspaceId == "mock-ws-rcs"
+            ? RetrievedContext(memories: Self.seedRelatedMemories, relatedConversations: [], relatedTasks: [Self.seedSearchResults[1]])
+            : nil
+
         return SendMessageResult(
             userMessage: userMessage,
             assistantMessage: assistantMessage,
@@ -378,7 +385,8 @@ public actor MockAPIClient: APIClient {
             intent: intent,
             approvalDecision: approvalDecision,
             workflowSuggestion: workflowSuggestion,
-            executionSuggestion: executionSuggestion
+            executionSuggestion: executionSuggestion,
+            retrievedContext: retrievedContext
         )
     }
 
@@ -930,6 +938,48 @@ public actor MockAPIClient: APIClient {
         return workspaceId == "mock-ws-rcs" ? Self.seedSuggestions : []
     }
 
+    // MARK: - Retrieval (Phase 3.6)
+
+    public func searchSemantic(workspaceId: String, query: String, sourceTypes: [EmbeddingSourceType]?, limit: Int?) async throws -> [SearchResult] {
+        try await maybeFail()
+        let lowered = query.lowercased()
+        var matches = (workspaceId == "mock-ws-rcs" ? Self.seedSearchResults : [])
+            .filter { sourceTypes == nil || sourceTypes!.contains($0.sourceType) }
+            .filter { $0.content.lowercased().contains(lowered) }
+        if let limit { matches = Array(matches.prefix(limit)) }
+        return matches
+    }
+
+    public func getRetrievedContext(
+        workspaceId: String,
+        query: String,
+        conversationId: String?,
+        memoryLimit: Int?,
+        embeddingLimit: Int?
+    ) async throws -> RetrievedContext {
+        try await maybeFail()
+        let memories = try await searchMemories(workspaceId: workspaceId, query: query, scope: nil, limit: memoryLimit)
+        let relatedConversations = try await searchSemantic(workspaceId: workspaceId, query: query, sourceTypes: [.conversation], limit: embeddingLimit)
+        let relatedTasks = try await searchSemantic(workspaceId: workspaceId, query: query, sourceTypes: [.task], limit: embeddingLimit)
+        return RetrievedContext(memories: memories, relatedConversations: relatedConversations, relatedTasks: relatedTasks)
+    }
+
+    /// A deterministic canned summary — `MockAPIClient` has no real indexing pipeline to actually re-run, unlike
+    /// the backend's `RetrievalService.reindexWorkspace`.
+    public func reindexEmbeddings(workspaceId: String) async throws -> ReindexWorkspaceResult {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        guard workspaceId == "mock-ws-rcs" else {
+            return ReindexWorkspaceResult(conversations: [], tasks: [])
+        }
+        return ReindexWorkspaceResult(
+            conversations: [IndexResult(sourceType: .conversation, sourceId: "mock-conversation-1", chunksIndexed: 1, chunksSkipped: 0, chunksDeleted: 0)],
+            tasks: [IndexResult(sourceType: .task, sourceId: "mock-task-1", chunksIndexed: 1, chunksSkipped: 0, chunksDeleted: 0)]
+        )
+    }
+
     public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {
         try await maybeFail()
         let now = Date()
@@ -1421,6 +1471,23 @@ public actor MockAPIClient: APIClient {
             confidence: 0.3, source: "integration_not_connected",
             timestamp: "2026-01-01T00:00:00.000Z",
             payload: ["provider": .string("calendar")]
+        ),
+    ]
+
+    private static let seedSearchResults: [SearchResult] = [
+        SearchResult(
+            id: "mock-embedding-1", workspaceId: "mock-ws-rcs", sourceType: .conversation,
+            sourceId: "mock-conversation-1", chunkIndex: 0,
+            content: "user: Can we schedule a call with the client this week?",
+            embeddingVersion: 1, indexedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z",
+            score: 0.79
+        ),
+        SearchResult(
+            id: "mock-embedding-2", workspaceId: "mock-ws-rcs", sourceType: .task,
+            sourceId: "mock-task-1", chunkIndex: 0,
+            content: "Schedule client call\n\nCoordinate with the client on timing.",
+            embeddingVersion: 1, indexedAt: "2026-01-01T00:00:00.000Z", createdAt: "2026-01-01T00:00:00.000Z",
+            score: 0.74
         ),
     ]
 

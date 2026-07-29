@@ -1,5 +1,6 @@
 import type { MemoryCandidate } from '@aima/ai-engine';
 import type { ApprovalDecision } from '../approval/types';
+import type { RetrievedContext } from '../embeddings/types';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
 import type { RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
@@ -48,4 +49,6 @@ export interface SendMessageResult {
   executionSuggestion: ExecutionSuggestion | null;
   /** Advisory candidate memories detected in the user's message (Phase 3.4, docs/decisions/0019-advanced-memory-system.md) — never persisted automatically; the user must explicitly call the memory creation endpoint to save one. Empty when nothing was detected. */
   memorySuggestions: MemoryCandidate[];
+  /** Semantically retrieved context for this turn — merged memories, related conversations, and related tasks (Phase 3.6, docs/decisions/0021-semantic-search-and-context-retrieval.md). Purely advisory: never wired into the AI prompt itself, never writes anything. `null` when no RetrievalService was configured. */
+  retrievedContext: RetrievedContext | null;
 }

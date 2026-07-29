@@ -15,6 +15,7 @@ export { MockEmbeddingProvider } from './embeddings/MockEmbeddingProvider';
 export { OpenAIEmbeddingProvider } from './embeddings/OpenAIEmbeddingProvider';
 export { createEmbeddingProvider, createEmbeddingProviderFromEnv } from './embeddings/registry';
 export type { EmbeddingProviderConfig, SupportedEmbeddingProvider } from './embeddings/registry';
+export { embedText, embedBatch, modelName, dimensions } from './embeddings/helpers';
 
 export { INTENTS } from './intent/types';
 export type { Intent, IntentClassifier, IntentDetectionResult } from './intent/types';

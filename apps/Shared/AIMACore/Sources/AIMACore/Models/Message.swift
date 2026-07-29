@@ -84,6 +84,10 @@ public struct SendMessageResult: Codable, Sendable {
     /// Advisory candidate memories detected in the user's message (Phase 3.4) — never persisted automatically;
     /// the user must explicitly save one via the memory creation endpoint. Empty when nothing was detected.
     public let memorySuggestions: [MemorySuggestion]
+    /// Semantically retrieved context for this turn — merged memories, related conversations, and related tasks
+    /// (Phase 3.6). Purely advisory: never wired into the AI prompt itself, never writes anything. `nil` when
+    /// no `RetrievalService` was configured server-side.
+    public let retrievedContext: RetrievedContext?
 
     public init(
         userMessage: Message,
@@ -94,7 +98,8 @@ public struct SendMessageResult: Codable, Sendable {
         approvalDecision: ApprovalDecision,
         workflowSuggestion: WorkflowSuggestion?,
         executionSuggestion: ExecutionSuggestion?,
-        memorySuggestions: [MemorySuggestion] = []
+        memorySuggestions: [MemorySuggestion] = [],
+        retrievedContext: RetrievedContext? = nil
     ) {
         self.userMessage = userMessage
         self.assistantMessage = assistantMessage
@@ -105,15 +110,17 @@ public struct SendMessageResult: Codable, Sendable {
         self.workflowSuggestion = workflowSuggestion
         self.executionSuggestion = executionSuggestion
         self.memorySuggestions = memorySuggestions
+        self.retrievedContext = retrievedContext
     }
 
     private enum CodingKeys: String, CodingKey {
         case userMessage, assistantMessage, retrievedMemories, retrievedDocumentChunks, intent, approvalDecision
-        case workflowSuggestion, executionSuggestion, memorySuggestions
+        case workflowSuggestion, executionSuggestion, memorySuggestions, retrievedContext
     }
 
     /// Custom decode so a payload from before Phase 3.4 (missing `memorySuggestions` entirely) still decodes,
     /// defaulting to an empty array — the same backward-compatible-decode posture as `MemoryRecord`'s new fields.
+    /// `retrievedContext` (Phase 3.6) is similarly optional, decoding to `nil` when absent.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         userMessage = try container.decode(Message.self, forKey: .userMessage)
@@ -125,5 +132,6 @@ public struct SendMessageResult: Codable, Sendable {
         workflowSuggestion = try container.decodeIfPresent(WorkflowSuggestion.self, forKey: .workflowSuggestion)
         executionSuggestion = try container.decodeIfPresent(ExecutionSuggestion.self, forKey: .executionSuggestion)
         memorySuggestions = try container.decodeIfPresent([MemorySuggestion].self, forKey: .memorySuggestions) ?? []
+        retrievedContext = try container.decodeIfPresent(RetrievedContext.self, forKey: .retrievedContext)
     }
 }

@@ -16,6 +16,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case executions = "Executions"
     case voice = "Voice"
     case memory = "Memory"
+    case search = "Search"
     case workspace = "Workspace"
     case settings = "Settings"
 
@@ -32,6 +33,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .executions: return "bolt.fill"
         case .voice: return "mic.fill"
         case .memory: return "brain"
+        case .search: return "magnifyingglass"
         case .workspace: return "square.stack.3d.up"
         case .settings: return "gearshape"
         }
@@ -94,6 +96,8 @@ struct RootNavigationView: View {
             workspaceScopedView { VoiceView(container: container, workspaceId: $0) }
         case .memory:
             workspaceScopedView { MemoryView(container: container, workspaceId: $0) }
+        case .search:
+            workspaceScopedView { SearchView(container: container, workspaceId: $0) }
         case .workspace:
             WorkspaceSwitcherView(viewModel: workspaceViewModel)
         case .settings:

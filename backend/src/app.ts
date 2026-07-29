@@ -6,6 +6,7 @@ import type { AIProvider } from '@aima/ai-engine';
 import type { ActionLogger } from './actionLog/logger';
 import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
+import type { RetrievalService } from './embeddings/retrievalService';
 import type { DraftService } from './drafts/draftService';
 import type { ExecutionService } from './execution/executionService';
 import type { HealthService } from './health/healthService';
@@ -48,6 +49,7 @@ import { integrationsRouter } from './routes/integrations';
 import { oauthRouter } from './routes/oauth';
 import { preferencesRouter } from './routes/preferences';
 import { proactiveRouter } from './routes/proactive';
+import { retrievalRouter } from './routes/retrieval';
 import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
@@ -89,6 +91,8 @@ export interface AppDependencies {
   errorReporter?: ErrorReporter;
   /** Phase 3.5: optional so every pre-existing call site keeps compiling — the `/proactive/*` routes are simply not mounted when this is omitted. */
   proactiveIntelligenceService?: ProactiveIntelligenceService;
+  /** Phase 3.6: optional so every pre-existing call site keeps compiling — the `/retrieval/*` routes are simply not mounted when this is omitted. */
+  retrievalService?: RetrievalService;
 }
 
 /**
@@ -183,6 +187,16 @@ export function createApp(deps: AppDependencies): Application {
   app.use('/api', voiceRouter({ voiceService: deps.voiceService }));
   if (deps.proactiveIntelligenceService) {
     app.use('/api', proactiveRouter({ proactiveIntelligenceService: deps.proactiveIntelligenceService }));
+  }
+  if (deps.retrievalService) {
+    app.use(
+      '/api',
+      retrievalRouter({
+        retrievalService: deps.retrievalService,
+        permissionEngine: deps.permissionEngine,
+        actionLogger: deps.actionLogger,
+      }),
+    );
   }
 
   app.use(createErrorHandler(errorReporter));

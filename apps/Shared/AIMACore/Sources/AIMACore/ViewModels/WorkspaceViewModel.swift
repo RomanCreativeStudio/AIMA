@@ -21,6 +21,10 @@ public final class WorkspaceViewModel {
     /// `WorkspaceInsights` read rather than introducing a parallel metric; fetched only on explicit request
     /// (`loadActivitySummary`), not automatically on every `switchWorkspace`.
     public private(set) var activitySummary: WorkspaceInsights?
+    /// The active workspace's most recent manual re-index result (Phase 3.6) — set only by `reindexEmbeddings()`,
+    /// never fetched or triggered automatically.
+    public private(set) var lastReindexResult: ReindexWorkspaceResult?
+    public private(set) var isReindexing = false
 
     private let apiClient: APIClient
     private let userId: String
@@ -59,6 +63,7 @@ public final class WorkspaceViewModel {
         guard workspaces.contains(where: { $0.id == workspaceId }) else { return }
         activeWorkspaceId = workspaceId
         activitySummary = nil
+        lastReindexResult = nil
     }
 
     /// Fetches the active workspace's activity summary — a plain read, never automatic.
@@ -67,6 +72,23 @@ public final class WorkspaceViewModel {
         errorMessage = nil
         do {
             activitySummary = try await apiClient.getWorkspaceInsights(workspaceId: workspaceId)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Re-chunks and re-embeds the active workspace's conversations/tasks (Phase 3.6) — an explicit
+    /// maintenance action reachable from a workspace settings button, never run automatically.
+    public func reindexEmbeddings() async {
+        guard let workspaceId = activeWorkspaceId else { return }
+        isReindexing = true
+        errorMessage = nil
+        defer { isReindexing = false }
+
+        do {
+            lastReindexResult = try await apiClient.reindexEmbeddings(workspaceId: workspaceId)
         } catch let error as APIError {
             errorMessage = error.userMessage
         } catch {

@@ -415,6 +415,69 @@ final class ModelDecodingTests: XCTestCase {
 
         let result = try decoder.decode(SendMessageResult.self, from: json)
         XCTAssertEqual(result.memorySuggestions, [])
+        XCTAssertNil(result.retrievedContext, "a pre-Phase-3.6 payload has no retrievedContext key at all")
+    }
+
+    func testDecodesSearchResult() throws {
+        let json = """
+        {
+          "id":"emb-1","workspaceId":"w1","sourceType":"task","sourceId":"task-1","chunkIndex":0,
+          "content":"Schedule a client call","embeddingVersion":1,
+          "indexedAt":"2026-01-01T00:00:00.000Z","createdAt":"2026-01-01T00:00:00.000Z","score":0.74
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SearchResult.self, from: json)
+        XCTAssertEqual(result.sourceType, .task)
+        XCTAssertEqual(result.chunkIndex, 0)
+        XCTAssertEqual(result.score, 0.74)
+    }
+
+    func testDecodesRetrievedContext() throws {
+        let json = """
+        {
+          "memories": [{"id":"m1","workspaceId":"w1","scope":"workspace","content":"Prefers async updates.","source":null,"conversationId":null,"projectKey":null,"metadata":{},"createdAt":"2026-01-01T00:00:00.000Z","score":0.9}],
+          "relatedConversations": [{"id":"emb-1","workspaceId":"w1","sourceType":"conversation","sourceId":"c1","chunkIndex":0,"content":"user: hi","embeddingVersion":1,"indexedAt":"2026-01-01T00:00:00.000Z","createdAt":"2026-01-01T00:00:00.000Z","score":0.6}],
+          "relatedTasks": []
+        }
+        """.data(using: .utf8)!
+
+        let context = try decoder.decode(RetrievedContext.self, from: json)
+        XCTAssertEqual(context.memories.count, 1)
+        XCTAssertEqual(context.relatedConversations.count, 1)
+        XCTAssertEqual(context.relatedConversations[0].sourceType, .conversation)
+        XCTAssertEqual(context.relatedTasks, [])
+    }
+
+    func testSendMessageResultDecodesRetrievedContextWhenPresent() throws {
+        let json = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"hi","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"hello","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "retrievedContext": {"memories":[],"relatedConversations":[],"relatedTasks":[]}
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SendMessageResult.self, from: json)
+        XCTAssertNotNil(result.retrievedContext)
+        XCTAssertEqual(result.retrievedContext?.relatedTasks, [])
+    }
+
+    func testDecodesReindexWorkspaceResult() throws {
+        let json = """
+        {
+          "conversations": [{"sourceType":"conversation","sourceId":"c1","chunksIndexed":1,"chunksSkipped":0,"chunksDeleted":0}],
+          "tasks": []
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(ReindexWorkspaceResult.self, from: json)
+        XCTAssertEqual(result.conversations.count, 1)
+        XCTAssertEqual(result.conversations[0].chunksIndexed, 1)
+        XCTAssertEqual(result.tasks, [])
     }
 
     func testDecodesActionLogRecordWithNullActionType() throws {
