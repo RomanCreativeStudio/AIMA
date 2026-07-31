@@ -1,11 +1,578 @@
-# AIMA Product Bible
+# AIMA Engineering Handbook v2.0
 
-**Version:** 0.1 (Founding Draft)
-**Status:** Source of Truth for Product, Engineering, and Business Decisions
-**Owner:** Lead Product Architect
-**Last Updated:** 2026-07-27
+**Document ID:** HB-001
+**Document Name:** AIMA Engineering Handbook
+**Version:** 2.0.0
+**Status:** Active living source of truth
+**Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
+**Owner:** Lead Product Architect / Lead Software Architect
+**Dependencies:** `CONST-001`, ADR index, Technical Architecture, Development Setup, Production Setup
+**Dependents:** Architecture documents, ADRs, requirements, API/database/testing/deployment documentation, sprint plans
+**Review Frequency:** Every sprint close and before every major release
+**Last Updated:** 2026-07-31
+**Related Documents:** [`docs/CONSTITUTION.md`](CONSTITUTION.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md), [`docs/README.md`](README.md)
 
 ---
+
+## Document Governance
+
+### Purpose
+
+This handbook is the living engineering source of truth for AIMA. It preserves the founding Product Bible, organizes engineering knowledge into stable volumes, and defines how future documentation evolves without full rewrites.
+
+### Owner
+
+The handbook is jointly owned by the Lead Product Architect and Lead Software Architect until a formal Engineering Council is active.
+
+### Authority Level
+
+1. **AIMA Constitution (`CONST-001`)** — highest authority. Any conflict is resolved in favor of the Constitution.
+2. **AIMA Engineering Handbook (`HB-001`)** — binding product and engineering operating model.
+3. **Architecture documents (`ARCH-*`) and ADRs (`ADR-*`)** — binding implementation and decision records within their stated scope.
+4. **Sprint, setup, API, database, testing, and deployment documents** — operational guidance subordinate to the above.
+
+### Version
+
+Current handbook version: **2.0.0**.
+
+### Status
+
+Active. This document replaces the Product Bible as the broader engineering handbook while preserving the Product Bible's original content in Volume I and related volume sections.
+
+### Review Frequency
+
+- Sprint close: verify links, changed assumptions, and newly created documentation IDs.
+- Major release: review all volume summaries, governance tables, and traceability placeholders.
+- Constitution change: immediate impact review.
+
+### Update Triggers
+
+Update this handbook when any of the following occurs:
+
+- A constitutional article changes or is added.
+- A product principle, permission tier, workspace rule, roadmap item, or engineering law changes.
+- A new major subsystem is introduced.
+- A new ADR changes an existing architectural commitment.
+- A requirement affects multiple volumes.
+- A documentation gap blocks implementation or review.
+
+### Semantic Versioning Policy
+
+- **Major (`X.0.0`)**: structural reorganization, authority model change, or constitutional alignment change.
+- **Minor (`2.X.0`)**: new volume, new chapter, new governance artifact, or substantial content addition.
+- **Patch (`2.0.X`)**: typo fixes, link repairs, clarifications that do not alter meaning.
+
+### Change Log
+
+| Version | Date | Change |
+| --- | --- | --- |
+| 2.0.0 | 2026-07-31 | Reorganized the Product Bible into the AIMA Engineering Handbook v2.0, added ADS v1.0, stable IDs, volume structure, traceability, ECIA, and governance. |
+| 0.1 | 2026-07-27 | Founding Product Bible draft. |
+
+### Documentation Ownership
+
+| Area | Stable ID Prefix | Owner | Primary Location |
+| --- | --- | --- | --- |
+| Constitution | `CONST-*` | Founder / Engineering Council | `docs/CONSTITUTION.md` |
+| Handbook | `HB-*` | Lead Product Architect / Lead Software Architect | `docs/PRODUCT_BIBLE.md` |
+| Architecture | `ARCH-*` | Lead Software Architect | `docs/TECHNICAL_ARCHITECTURE.md` and future `docs/architecture/` |
+| ADRs | `ADR-*` | Authoring engineer + reviewer | `docs/decisions/` |
+| Requirements | `REQ-*` | Product owner | Future `docs/requirements/` |
+| APIs | `API-*` | Backend owner | Future `docs/api/` |
+| Risks | `RISK-*` | Engineering Council | Future `docs/governance/risk-register.md` |
+| Technical debt | `TD-*` | Engineering Council | Future `docs/governance/technical-debt-register.md` |
+| Sprints | `SPR-*` | Sprint owner | Future `docs/sprints/` |
+
+### Documentation Review Workflow
+
+1. Identify impacted document IDs before writing.
+2. Preserve existing useful content; move it rather than delete it.
+3. Mark unknown details as **Placeholder** or **Open Question** instead of inventing implementation facts.
+4. Add or update cross-references in the master documentation index.
+5. Run documentation validation (`git diff --check` and Markdown formatting/link checks where available).
+6. Include documentation impact in the PR body.
+
+---
+
+## AIMA Documentation Standard (ADS) v1.0
+
+Every major engineering document must include this metadata block:
+
+```markdown
+**Document ID:** <STABLE-ID>
+**Document Name:** <Human-readable name>
+**Version:** <SemVer>
+**Status:** Draft | Active | Deprecated | Superseded
+**Authority Level:** <Constitution | Handbook | Architecture | ADR | Operational>
+**Owner:** <Role>
+**Dependencies:** <Documents this depends on>
+**Dependents:** <Documents/processes that depend on this>
+**Review Frequency:** <Cadence>
+**Last Updated:** <YYYY-MM-DD>
+**Related Documents:** <Links>
+```
+
+### Permanent Numbering Standard
+
+Stable identifiers must never be reused after publication.
+
+| Prefix | Meaning | Example |
+| --- | --- | --- |
+| `CONST-*` | Constitution articles/documents | `CONST-001` |
+| `HB-*` | Handbook sections/documents | `HB-001` |
+| `ADR-*` | Architecture Decision Records | `ADR-001` |
+| `ARCH-*` | Architecture documents | `ARCH-001` |
+| `REQ-*` | Requirements | `REQ-001` |
+| `API-*` | API documents/endpoints | `API-001` |
+| `RISK-*` | Risks | `RISK-001` |
+| `TD-*` | Technical debt items | `TD-001` |
+| `SPR-*` | Sprints | `SPR-001` |
+
+### Universal Chapter Template
+
+Every new major chapter should include these headings, using **Placeholder** when details are not yet known:
+
+- Purpose
+- Scope
+- Requirements
+- Architecture
+- Dependencies
+- Interfaces
+- Security
+- Performance
+- Scalability
+- Failure Recovery
+- Testing
+- Observability
+- Future Expansion
+- Technical Debt
+- Known Risks
+- Open Questions
+- Related Constitution Articles
+- Related ADRs
+- Related Requirements
+- Related APIs
+- Related Database Objects
+- Related Future Epics
+
+---
+
+## Master Documentation Index
+
+| Document Area | Stable ID | Current Location | Status |
+| --- | --- | --- | --- |
+| Constitution | `CONST-001` | [`docs/CONSTITUTION.md`](CONSTITUTION.md) | Placeholder created for highest-authority governance alignment. |
+| Engineering Handbook | `HB-001` | [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md) | Active. |
+| Technical Architecture | `ARCH-001` | [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) | Active companion architecture document. |
+| ADRs | `ADR-0001+` | [`docs/decisions/`](decisions/) | Active decision log. |
+| Roadmap | `HB-ROADMAP` | Volume I and Volume XI below; [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) §10 | Active. |
+| Sprint Documentation | `SPR-*` | Future `docs/sprints/` | Placeholder. |
+| Requirements | `REQ-*` | Future `docs/requirements/` | Placeholder. |
+| API Documentation | `API-*` | Future `docs/api/` | Placeholder. |
+| Database Documentation | `DB-*` | [`database/README.md`](../database/README.md), future `docs/database/` | Partial. |
+| Risk Register | `RISK-*` | Future `docs/governance/risk-register.md` | Placeholder. |
+| Technical Debt Register | `TD-*` | Future `docs/governance/technical-debt-register.md` | Placeholder. |
+| Testing Documentation | `TEST-*` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | Partial. |
+| Deployment Documentation | `DEPLOY-*` | [`docs/PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) | Active. |
+
+### ADR Index
+
+- [ADR 0001](decisions/0001-backend-stack.md) — ADR 0001: Backend Stack for the Foundation Sprint
+- [ADR 0002](decisions/0002-memory-and-embeddings.md) — ADR 0002: Memory Scope Model and Embedding Provider
+- [ADR 0003](decisions/0003-conversation-pipeline.md) — ADR 0003: Conversation Pipeline Design
+- [ADR 0004](decisions/0004-intent-and-approval-engine.md) — ADR 0004: Intent & Approval Engine Design
+- [ADR 0005](decisions/0005-knowledge-ingestion.md) — ADR 0005: Knowledge Ingestion Foundation
+- [ADR 0006](decisions/0006-assistant-core-orchestration.md) — ADR 0006: Assistant Core Orchestration Layer
+- [ADR 0007](decisions/0007-intent-and-approval-workflows.md) — ADR 0007: Intent & Approval Workflows
+- [ADR 0008](decisions/0008-user-identity-and-workspace-intelligence.md) — ADR 0008: User Identity & Workspace Intelligence Layer
+- [ADR 0009](decisions/0009-macos-experience-foundation.md) — ADR 0009: macOS Experience Foundation
+- [ADR 0010](decisions/0010-daily-assistant-interface.md) — ADR 0010: Daily Assistant Interface
+- [ADR 0011](decisions/0011-external-integrations-foundation.md) — ADR 0011: External Integrations Foundation
+- [ADR 0012](decisions/0012-workflow-orchestration-foundation.md) — ADR 0012: Workflow Orchestration Foundation
+- [ADR 0013](decisions/0013-productivity-intelligence.md) — ADR 0013: Productivity Intelligence
+- [ADR 0014](decisions/0014-action-execution-foundation.md) — ADR 0014: Action Execution Foundation
+- [ADR 0015](decisions/0015-live-integration-providers.md) — ADR 0015: Live Integration Providers
+- [ADR 0016](decisions/0016-production-deployment-foundation.md) — ADR 0016: Production Deployment Foundation
+- [ADR 0017](decisions/0017-voice-assistant-foundation.md) — ADR 0017: Voice Assistant Foundation
+- [ADR 0018](decisions/0018-real-voice-provider-integration.md) — ADR 0018: Real Voice Provider Integration
+- [ADR 0019](decisions/0019-advanced-memory-system.md) — ADR 0019: Advanced Memory System
+- [ADR 0020](decisions/0020-proactive-intelligence.md) — ADR 0020: Proactive Intelligence
+- [ADR 0021](decisions/0021-semantic-search-and-context-retrieval.md) — ADR 0021: Semantic Search & Context Retrieval
+
+---
+
+# Volume I — Product
+
+## Vision
+
+A future where one person can run multiple ventures and creative pursuits with the operational leverage of a full team — because a trusted AI assistant handles the organizing, drafting, tracking, and preparing, while the human retains every meaningful decision.
+
+## Mission
+
+To build an AI assistant that earns total trust through transparency and control, and uses that trust to eliminate the busywork standing between the user and their best creative and business work.
+
+## Core Principles
+
+The founding Product Bible principles remain binding: Trust, Privacy, User Control, Reliability, Intelligence, and Transparency. They now operate under the Constitution and alongside the engineering laws in Volume II.
+
+## Success Metrics
+
+**Placeholder:** Define measurable trust, reliability, workspace-isolation, approval-safety, response-quality, and productivity outcomes. Do not add vanity metrics that incentivize unsafe autonomy.
+
+## Target Users
+
+AIMA v0.1–v1.0 remains optimized for a single founding user: a solo creator-entrepreneur-developer operating Roman Creative Studio, Mythic Forge Studios, personal productivity, and software development workspaces.
+
+## Roadmap
+
+The founding roadmap is preserved below in “Preserved Product Bible Content.” Future roadmap updates must retain historical context and add dated changes rather than silently rewriting prior intent.
+
+---
+
+# Volume II — Engineering
+
+## Philosophy
+
+AIMA engineering follows the Constitution and these sprint principles:
+
+- Optimize for Change, Not Perfection.
+- Every Decision Should Leave the Project Better Than Before.
+- Process Serves the Product, Not the Other Way Around.
+- Institutionalize Learning.
+
+## Engineering Laws
+
+1. The Constitution wins over all other documents.
+2. User trust, control, privacy, and reversibility outrank feature breadth.
+3. Backend enforcement is required for permissions, workspace isolation, and audit logging.
+4. AI output is advisory until deterministic code validates and gates it.
+5. Documentation that contradicts working behavior must be corrected in the same change that discovers the contradiction.
+6. New complexity requires a current requirement, not a speculative future use case.
+
+## Development Lifecycle
+
+See [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md). Future updates should add lifecycle detail here only when it is stable enough to govern more than one sprint.
+
+## Sprint Workflow
+
+**Placeholder:** Future sprint documents use `SPR-*` IDs and link requirements, ADRs, tests, documentation updates, and release notes.
+
+## Architecture Review Gates
+
+A change needs architecture review when it alters permission tiers, workspace isolation, provider boundaries, database schema, API contracts, deployment posture, or constitutional guarantees.
+
+## Engineering Council
+
+**Placeholder:** Until formally established, the founder/lead architect acts as council. The future council owns handbook governance, risk/debt triage, and cross-volume consistency.
+
+## CTO Reviews
+
+**Placeholder:** Required before major releases, high-risk integrations, data model changes, and changes to action execution or approval flows.
+
+## Red Team Reviews
+
+**Placeholder:** Required for external integrations, Tier 3 execution paths, authentication/authorization changes, workspace-bridging mechanisms, and sensitive logging/observability changes.
+
+## Definition of Done
+
+A change is done only when code, tests, documentation, ADR/ECIA impact, and user-facing behavior align with the Constitution and this handbook.
+
+---
+
+# Volume III — Architecture
+
+## System Overview
+
+See [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) for the current detailed architecture. Summary: AIMA is one logical assistant across thin clients, one backend enforcement layer, one workspace-scoped data layer, and one AI orchestration layer.
+
+## Services
+
+Current service boundaries are documented in the Technical Architecture and ADRs. Future service documents should use `ARCH-*` IDs.
+
+## Module Boundaries
+
+Preserve the existing separation between `apps/`, `backend/`, `ai-engine/`, `database/`, and `docs/`.
+
+## Dependency Graph
+
+**Placeholder:** Maintain a dependency graph once module count or cross-service coupling makes it necessary.
+
+## Interfaces
+
+**Placeholder:** Future API/interface documentation uses `API-*` IDs and must link to affected requirements and tests.
+
+## Versioning Strategy
+
+Use SemVer for documents and explicit migration/version plans for APIs, schemas, and provider interfaces.
+
+---
+
+# Volume IV — AI
+
+## AI Engine
+
+The AI engine owns provider abstractions, prompt/context assembly support, and model-facing orchestration helpers. The backend remains the enforcement point.
+
+## Provider Layer
+
+Provider-specific behavior must stay behind provider interfaces; provider swaps require ADR coverage when they alter capability, cost, privacy, or reliability assumptions.
+
+## Planning
+
+**Placeholder:** Planning behavior must remain explainable and permission-aware.
+
+## Reflection
+
+**Placeholder:** Reflection mechanisms must not silently mutate memory, tasks, external systems, or user data.
+
+## Tool Calling
+
+Tool calls that produce consequential actions must route through capability registration, approval evaluation, execution logging, and workspace scoping.
+
+## Prompt Orchestration
+
+Prompts support behavior; they do not replace deterministic safety gates.
+
+## Context Management
+
+Context retrieval must preserve workspace isolation and cite/reveal sources when needed for trust and transparency.
+
+---
+
+# Volume V — Memory
+
+## Short-Term Memory
+
+**Placeholder:** Conversation/session context rules belong here once formalized.
+
+## Long-Term Memory
+
+Long-term memory must be user-controlled, workspace-scoped, auditable, and reversible where practical.
+
+## Semantic Search
+
+See ADR 0021 for current semantic search and context retrieval decisions.
+
+## Embeddings
+
+Embedding provider decisions are documented in ADR 0002 and later memory ADRs.
+
+## Ranking
+
+Ranking must optimize usefulness without breaking workspace isolation or transparency.
+
+## Compression
+
+**Placeholder:** Future compression must preserve user meaning and provide recovery/audit strategy for lossy transformations.
+
+## Forgetting Strategy
+
+**Placeholder:** Define archive/delete/forget semantics before expanding autonomous memory management.
+
+## Context Injection
+
+Context injection must be explicit, bounded, workspace-aware, and observable in debugging/review workflows.
+
+---
+
+# Volume VI — Backend
+
+## Authentication
+
+See Technical Architecture and backend documentation. Authentication changes require security review.
+
+## Users
+
+Current product scope is single-user first. Multi-user support is future scope and must not distort founding-user simplicity.
+
+## Workspaces
+
+Workspace separation is a constitutional/handbook-level guarantee and must be enforced structurally in backend data access.
+
+## Permissions
+
+The four-tier permission system remains binding and is preserved in full below.
+
+## Database
+
+Database migrations live under `database/migrations/`. Future database docs should use stable `DB-*` IDs.
+
+## APIs
+
+**Placeholder:** Create endpoint-level `API-*` docs as API surface stabilizes.
+
+## Storage
+
+Storage must treat user business data, creative IP, client data, and personal notes as sensitive by default.
+
+---
+
+# Volume VII — Frontend
+
+## Design System
+
+**Placeholder:** Document shared visual language, tokens, and interaction patterns when stable.
+
+## Components
+
+Client components remain presentation-focused and call backend APIs rather than duplicating business logic.
+
+## Navigation
+
+Navigation should reinforce workspace separation and make pending approvals/action logs discoverable.
+
+## Accessibility
+
+**Placeholder:** Define accessibility acceptance criteria for each client surface.
+
+## Apple Human Interface Guidelines
+
+Apple-platform clients should follow Apple HIG conventions unless doing so conflicts with AIMA trust, control, or transparency requirements.
+
+---
+
+# Volume VIII — Skills
+
+## Skill Registry
+
+**Placeholder:** Future skill registry docs must define ownership, permission tiers, inputs/outputs, and review requirements.
+
+## Plugin System
+
+**Placeholder:** No production plugin architecture is specified in this sprint.
+
+## Skill Lifecycle
+
+**Placeholder:** Define proposal, review, activation, monitoring, rollback, and retirement states before enabling broad skill expansion.
+
+## Permissions
+
+Every skill must map to a capability and permission tier before implementation.
+
+## External Integrations
+
+External integrations are sensitive by default and require Tier 3 gating where they read from or write to connected third-party accounts.
+
+---
+
+# Volume IX — Operations
+
+## Testing
+
+Testing protects trust. Permission, workspace isolation, logging, external execution, and memory behavior require regression coverage.
+
+## Logging
+
+Logs must be useful for auditability and debugging without exposing secrets or sensitive user content unnecessarily.
+
+## Monitoring
+
+**Placeholder:** Define service health, latency, provider failures, approval/execution failures, and retrieval quality signals.
+
+## CI/CD
+
+**Placeholder:** CI should run build/test/lint/docs validation appropriate to changed areas.
+
+## Deployment
+
+See [`docs/PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md).
+
+## Incident Response
+
+**Placeholder:** Define severity levels, user notification standards, rollback authority, and post-incident learning workflow.
+
+## Backup Strategy
+
+**Placeholder:** Define database/storage backup cadence, restore tests, retention, and sensitive-data handling.
+
+---
+
+# Volume X — Governance
+
+## Constitution
+
+`CONST-001` is the highest-authority governance document. If it is absent or incomplete in a working copy, contributors must treat that as a documentation gap and avoid making conflicting claims.
+
+## ADR System
+
+ADRs live in [`docs/decisions/`](decisions/). They preserve historical context and should not be retroactively rewritten to hide superseded decisions.
+
+## Risk Register
+
+**Placeholder:** Future `RISK-*` items should record description, affected areas, likelihood, impact, mitigation, owner, status, and review date.
+
+## Technical Debt Register
+
+**Placeholder:** Future `TD-*` items should record debt description, reason accepted, affected areas, cost of delay, remediation plan, owner, and target review.
+
+## Requirements Traceability Matrix
+
+Future requirements must map through this chain:
+
+Requirement → Architecture → ADR → Database → API → Implementation → Tests → Documentation
+
+| Requirement | Architecture | ADR | Database | API | Implementation | Tests | Documentation |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `REQ-001` Placeholder | `ARCH-001` Placeholder | `ADR-0001+` Placeholder | `DB-001` Placeholder | `API-001` Placeholder | Placeholder | Placeholder | Placeholder |
+
+## Engineering Change Impact Analysis (ECIA)
+
+Every material engineering change should identify:
+
+- Affected Requirements
+- Affected APIs
+- Affected Database Objects
+- Affected Documentation
+- Affected Tests
+- Migration Requirements
+- Rollback Strategy
+- Future Epic Impact
+
+### ECIA Template
+
+```markdown
+## ECIA-<ID>: <Change Name>
+
+- Affected Requirements:
+- Affected APIs:
+- Affected Database Objects:
+- Affected Documentation:
+- Affected Tests:
+- Migration Requirements:
+- Rollback Strategy:
+- Future Epic Impact:
+- Constitution/Handbook Impact:
+```
+
+## Release Process
+
+**Placeholder:** Release process must include versioning, validation, rollback readiness, documentation updates, and user-impact notes.
+
+---
+
+# Volume XI — Future
+
+## Long-Term Vision
+
+AIMA becomes a durable, evolving record of how its user works, thinks, and creates — a compounding asset, not just a tool.
+
+## Enterprise Expansion
+
+**Placeholder:** Enterprise expansion is future scope and must not compromise the founding single-user experience prematurely.
+
+## Research
+
+**Placeholder:** Research topics should be captured without being mistaken for committed roadmap items.
+
+## Experimental Features
+
+Experimental features must be labeled, reversible, permission-aware, and isolated from production guarantees until promoted through review.
+
+---
+
+# Preserved Product Bible Content
+
+The following founding Product Bible content is preserved for historical continuity and remains binding unless superseded by the Constitution or an explicit handbook/ADR update.
 
 ## 1. Product Overview
 

@@ -1,5 +1,19 @@
 # AIMA Production Setup Guide
 
+**Document ID:** DEPLOY-001
+**Document Name:** AIMA Production Setup
+**Version:** 0.1.0
+**Status:** Active
+**Authority Level:** Operational; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
+**Owner:** Lead Software Architect
+**Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`
+**Dependents:** Release process, incident response, monitoring documentation
+**Review Frequency:** Every deployment or infrastructure change
+**Last Updated:** 2026-07-31
+**Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/README.md`](README.md)
+
+---
+
 **Version:** 0.1
 **Status:** Official Engineering Reference — companion to `docs/DEVELOPMENT_SETUP.md` and `docs/decisions/0016-production-deployment-foundation.md`
 **Last Updated:** 2026-07-28

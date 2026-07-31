@@ -1,5 +1,19 @@
 # AIMA Development Setup Guide
 
+**Document ID:** DEV-001
+**Document Name:** AIMA Development Setup
+**Version:** 0.1.0
+**Status:** Active
+**Authority Level:** Operational; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
+**Owner:** Lead Software Architect
+**Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`
+**Dependents:** Sprint workflow, contributor onboarding, CI checks
+**Review Frequency:** Every tooling or workflow change
+**Last Updated:** 2026-07-31
+**Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/README.md`](README.md)
+
+---
+
 **Version:** 0.4
 **Status:** Official Engineering Workflow — companion to `docs/PRODUCT_BIBLE.md`, `docs/TECHNICAL_ARCHITECTURE.md`, and `docs/PRODUCTION_SETUP.md`
 **Owner:** Lead Developer
