@@ -1,5 +1,19 @@
 # AIMA Technical Architecture Document
 
+**Document ID:** ARCH-001
+**Document Name:** AIMA Technical Architecture
+**Version:** 0.1.0
+**Status:** Active
+**Authority Level:** Architecture; subordinate to `CONST-001` and `HB-001`
+**Owner:** Lead Software Architect
+**Dependencies:** `CONST-001`, `HB-001`
+**Dependents:** ADRs, API docs, database docs, implementation plans
+**Review Frequency:** Every architecture-impacting sprint
+**Last Updated:** 2026-07-31
+**Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/README.md`](README.md)
+
+---
+
 **Version:** 0.1 (Founding Draft)
 **Status:** Engineering Source of Truth — companion to `docs/PRODUCT_BIBLE.md`
 **Owner:** Lead Software Architect
