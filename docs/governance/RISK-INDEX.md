@@ -29,11 +29,9 @@ This is the single, canonical index of every risk entry in AIMA's Risk Register.
 
 | Risk ID | Title | Status | Severity | Probability | Owner | File |
 | --- | --- | --- | --- | --- | --- | --- |
-| _(none yet)_ | | | | | | |
+| RISK-001 | Every Backend Endpoint Is Reachable Without Authentication | Confirmed | Critical | High | Lead Software Architect | [`RISK-001-unauthenticated-endpoints.md`](RISK-001-unauthenticated-endpoints.md) |
 
-No risks have been formally identified in AIMA yet. This table will be populated as `RISK-00NN` entries are created from [`RISK-TEMPLATE.md`](RISK-TEMPLATE.md).
-
-**Next available ID:** `RISK-001`.
+**Next available ID:** `RISK-002`.
 
 ## Status Legend
 

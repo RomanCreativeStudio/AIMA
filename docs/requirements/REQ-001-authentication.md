@@ -40,14 +40,19 @@ None registered yet — no ADR has decided the specific managed auth provider or
 
 ## Related Tests
 
-Not yet implemented.
+Not yet implemented. A testing strategy (no live provider calls, regression risk for existing unauthenticated route tests, workspace-ownership rejection tests) is documented in [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md).
 
 ## Related Implementation
 
-Not yet implemented.
+Not yet implemented. Implementation planning (current-state audit, session lifecycle, identity flow, API/database placeholders) is documented in [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`).
+
+## Related Governance Records
+
+[`ECIA-001`](../governance/ECIA-001-authentication-foundation.md) (Authentication Foundation — Implementation Planning). [`RISK-001`](../governance/RISK-001-unauthenticated-endpoints.md) (Every Backend Endpoint Is Reachable Without Authentication), registered as a direct consequence of this requirement not yet being implemented.
 
 ## Revision History
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.1 | 2026-08-01 | Added planning cross-references (`REQ-001-PLAN`, `ECIA-001`, `RISK-001`) following EPIC-004 Sprint 4.2 (Authentication Foundation Planning). No change to Status, Acceptance Criteria, or scope — planning only, no code written. |
 | 1.0 | 2026-08-01 | Initial requirement, formalizing `ARCH-001`'s existing, not-yet-built authentication design. |

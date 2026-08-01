@@ -29,11 +29,9 @@ This is the single, canonical index of every Engineering Change Impact Analysis 
 
 | ECIA ID | Change Name | Status | Date | File |
 | --- | --- | --- | --- | --- |
-| _(none yet)_ | | | | |
+| ECIA-001 | Authentication Foundation — Implementation Planning | Reviewed | 2026-08-01 | [`ECIA-001-authentication-foundation.md`](ECIA-001-authentication-foundation.md) |
 
-No ECIA records have been formally authored in AIMA yet. This table will be populated as `ECIA-00NN` entries are created from [`ECIA-TEMPLATE.md`](ECIA-TEMPLATE.md), for material engineering changes going forward.
-
-**Next available ID:** `ECIA-001`.
+**Next available ID:** `ECIA-002`.
 
 ## Status Legend
 
