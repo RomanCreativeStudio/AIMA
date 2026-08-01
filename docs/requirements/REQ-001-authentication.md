@@ -1,7 +1,7 @@
 # REQ 001: Authentication
 
 **Document ID:** REQ-001
-**Status:** Approved
+**Status:** Implemented
 **Priority:** High
 **Category:** Security
 **Owner:** Product owner
@@ -24,15 +24,15 @@ The backend must authenticate every request before it reaches a workspace-scoped
 4. Per-device session tracking is supported, with a user-visible "signed in devices" list and one-tap revocation (`ARCH-001` §"Authentication", §9).
 5. All authentication endpoints are rate-limited to mitigate credential-stuffing/brute-force attempts (`ARCH-001` §9).
 
-**Status as of EPIC-004 Sprint 4.6 (Authentication API Surface):**
+**Status as of EPIC-004 Sprint 4.7 (Authentication Rate Limiting):**
 
-1. **Met.** Every `/api` route except the OAuth provider callback and the new `POST /api/auth/login`/`POST /api/auth/refresh` pair (which cannot require a pre-existing token — see `backend/src/routes/auth.ts`) now sits behind `requireAuth`; every workspace-scoped route additionally sits behind `requireWorkspaceOwnership`, and every user-scoped route behind `requireUserOwnership` (`backend/src/app.ts`). Cross-user access and unknown-resource access both return the same 404, and unauthenticated requests return 401. `GET /health` remains intentionally public (infrastructure/monitoring convention, not an API business endpoint).
+1. **Met.** Every `/api` route except the OAuth provider callback and the `POST /api/auth/login`/`POST /api/auth/refresh` pair (which cannot require a pre-existing token — see `backend/src/routes/auth.ts`) now sits behind `requireAuth`; every workspace-scoped route additionally sits behind `requireWorkspaceOwnership`, and every user-scoped route behind `requireUserOwnership` (`backend/src/app.ts`). Cross-user access and unknown-resource access both return the same 404, and unauthenticated requests return 401. `GET /health` remains intentionally public (infrastructure/monitoring convention, not an API business endpoint).
 2. **Met** at the mechanism level — `AuthProvider` abstraction with a Supabase Auth implementation, selected via `AUTH_PROVIDER`. No self-built credential store exists or is planned.
-3. **Met.** `POST /api/auth/login` and `POST /api/auth/refresh` now exist as real HTTP endpoints — a client can obtain and rotate a token pair through this API. Login authenticates through `AuthProvider.signInWithPassword` (the direct-credential-exchange flow `REQ-001-PLAN`'s API placeholders already named as an option, matching Supabase GoTrue's real password grant), then creates a local `auth_sessions` row before returning tokens.
-4. **Met.** `GET /api/auth/sessions` (list the caller's own sessions) and `DELETE /api/auth/sessions/:sessionId` (revoke one, 404 if it belongs to someone else) are now real HTTP endpoints over `SessionService.listSessions`/`getSession`/`revokeSession`. `POST /api/auth/logout` revokes the current session (identified by the refresh token in the request body) by default, or every session for the caller when `allSessions: true` is explicitly sent. A dedicated "signed in devices" UI screen is still unbuilt (client-app work, out of this requirement's backend scope), but the API it would call now exists and is tested.
-5. **Not met.** No rate limiting exists on any endpoint, auth or otherwise.
+3. **Met.** `POST /api/auth/login` and `POST /api/auth/refresh` exist as real HTTP endpoints — a client can obtain and rotate a token pair through this API. Login authenticates through `AuthProvider.signInWithPassword` (the direct-credential-exchange flow `REQ-001-PLAN`'s API placeholders already named as an option, matching Supabase GoTrue's real password grant), then creates a local `auth_sessions` row before returning tokens.
+4. **Met.** `GET /api/auth/sessions` (list the caller's own sessions) and `DELETE /api/auth/sessions/:sessionId` (revoke one, 404 if it belongs to someone else) are real HTTP endpoints over `SessionService.listSessions`/`getSession`/`revokeSession`. `POST /api/auth/logout` revokes the current session (identified by the refresh token in the request body) by default, or every session for the caller when `allSessions: true` is explicitly sent. A dedicated "signed in devices" UI screen is still unbuilt (client-app work, out of this requirement's backend scope), but the API it would call now exists and is tested.
+5. **Met.** `POST /api/auth/login` and `POST /api/auth/refresh` are rate-limited (`backend/src/middleware/rateLimit.ts`, `ADR-0023`): login is limited both by normalized email (5/15min, the primary credential-stuffing defense) and by source IP (20/15min, a backstop), refresh by source IP (20/15min). Over-limit requests receive `429` with a `Retry-After` header; a successful login/refresh resets that request's counters. `POST /api/auth/logout`/`GET /api/auth/sessions`/`DELETE /api/auth/sessions/:sessionId` are intentionally not rate-limited — all three already sit behind `requireAuth`, so brute-forcing them isn't the same threat as login/refresh.
 
-Status stays `Approved`, not `Implemented`: criterion 5 is not yet satisfied. This is a substantial, verified improvement over Sprint 4.5's state (where the enforcement mechanism was wired in but no client could obtain a token at all) — not the requirement's completion.
+All five acceptance criteria are now met. Status moves to `Implemented`.
 
 ## Dependencies
 
@@ -40,7 +40,7 @@ None registered yet. `REQ-002` (User Management) and `REQ-003` (Workspace Manage
 
 ## Related ADRs
 
-`ADR-0022` (Authentication Architecture) — decides the provider (Supabase Auth via an `AuthProvider` abstraction), token/session model (JWT access + rotating opaque refresh), device/session revocation, identity mapping, and workspace authorization enforcement.
+`ADR-0022` (Authentication Architecture) — decides the provider (Supabase Auth via an `AuthProvider` abstraction), token/session model (JWT access + rotating opaque refresh), device/session revocation, identity mapping, and workspace authorization enforcement. `ADR-0023` (Authentication Rate Limiting) — decides the rate-limiting mechanism (in-process, in-memory, no distributed store) for acceptance criterion 5.
 
 ## Related Architecture
 
@@ -62,6 +62,11 @@ Authentication API surface tests (EPIC-004 Sprint 4.6):
 - `backend/src/auth/mockAuthProvider.test.ts`, `backend/src/auth/supabaseAuthProvider.test.ts` — new `signInWithPassword` coverage: correct credentials issue a valid token pair, wrong password/rejected credentials throw `AuthLoginFailedError`.
 - `backend/src/auth/sessionService.test.ts` — new `getSession`/`findByRefreshToken` coverage: found and not-found cases for both.
 - `backend/src/routes/auth.test.ts` (new) — real HTTP coverage over `backend/src/app.ts`'s full middleware stack: successful login (creates a session, returns tokens), invalid email/wrong password/malformed email (401/400), refresh success and rotation, refresh reuse detection (401), logout (revokes the named session only, unless `allSessions: true`), session listing scoped to the caller, and unauthorized session access (deleting another user's session returns 404).
+
+Authentication rate limiting tests (EPIC-004 Sprint 4.7):
+
+- `backend/src/middleware/rateLimit.test.ts` (new) — `RateLimiter` unit coverage (attempts under/over max, per-key isolation, window reset via an injectable clock, `reset()` clearing a bucket) and `rateLimitMiddleware` HTTP coverage (allows under the limit, `429` + `Retry-After` once exceeded).
+- `backend/src/routes/auth.test.ts` — new coverage using small test-local limiter configs: login/refresh succeed under their limits, `429` once exceeded (including that an over-limit request blocks even a correct password/valid refresh), different accounts' login buckets are isolated from each other, and a successful login/refresh resets that request's counters. Every pre-existing test in this file (Sprint 4.6's) continues to run against `defaultAuthRateLimiters()` — production-shaped, generous thresholds — and its continued passing is the "no regression to existing auth flows" coverage.
 
 ## Related Implementation
 
@@ -90,7 +95,12 @@ Authentication API surface (EPIC-004 Sprint 4.6), resolving `REQ-001-PLAN`'s rem
 - `backend/src/app.ts` — added `sessionService` as an optional `AppDependencies` field (mirrors the `proactiveIntelligenceService`/`retrievalService` precedent, not the required `authProvider` one, since the new routes are purely additive); mounts `authPublicRouter`/`authRouter` only when it's supplied.
 - `backend/src/index.ts` — constructs a real `SessionService` from the pool and the already-constructed `authProvider`, and passes it into `createApp`.
 
-Still not built: rate limiting on auth endpoints (acceptance criterion 5) — see [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`).
+Authentication rate limiting (EPIC-004 Sprint 4.7), completing acceptance criterion 5 (`ADR-0023`):
+
+- `backend/src/middleware/rateLimit.ts` (new) — `RateLimiter` (a small in-process, in-memory fixed-window counter; no Redis or other distributed store, justified by `ARCH-001` §3's "single backend service" architecture), `rateLimitMiddleware` (the Express middleware factory), `authRateLimitConfigFromEnv` (reads `AUTH_LOGIN_RATE_LIMIT_MAX`/`_WINDOW_MS`, `AUTH_LOGIN_IP_RATE_LIMIT_MAX`/`_WINDOW_MS`, `AUTH_REFRESH_RATE_LIMIT_MAX`/`_WINDOW_MS` with safe defaults — same shape as `createAuthProviderFromEnv`), `ipKey`/`normalizeEmail` (key helpers).
+- `backend/src/routes/auth.ts` — `POST /auth/login` is rate-limited both by normalized email (primary) and by source IP (backstop); `POST /auth/refresh` by source IP. Over-limit requests get `429` + `Retry-After` before credentials are even checked; a successful login/refresh resets that request's counters. `AuthPublicRouterDependencies` (a new interface extending `AuthRouterDependencies`) requires all three `RateLimiter` instances — required, not optional, mirroring `authProvider`'s "no safe default that keeps the app secure if omitted" rationale.
+- `backend/src/app.ts` — added `authRateLimiters` as an optional `AppDependencies` field; `authPublicRouter` now only mounts when both `sessionService` and `authRateLimiters` are present, so the public auth surface can never ship without its abuse protection. Also sets `app.set('trust proxy', 1)` so `req.ip` resolves the real caller behind `ARCH-001` §8's recommended hosting platforms' edge proxies (Fly.io/Render/Vercel), not the proxy's own address.
+- `backend/src/index.ts` — constructs the three `RateLimiter` instances from `authRateLimitConfigFromEnv()` and passes them into `createApp`.
 
 ## Related Governance Records
 
@@ -100,6 +110,7 @@ Still not built: rate limiting on auth endpoints (acceptance criterion 5) — se
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.6 | 2026-08-01 | EPIC-004 Sprint 4.7 (Authentication Rate Limiting): added `backend/src/middleware/rateLimit.ts` (`RateLimiter`, an in-process/in-memory fixed-window counter — no Redis, justified by `ARCH-001` §3's single-instance architecture; see `ADR-0023`) and wired it into `POST /api/auth/login` (rate-limited by email and by IP) and `POST /api/auth/refresh` (by IP), with `429`/`Retry-After` responses and reset-on-success. All five `REQ-001` acceptance criteria are now met. **Status moves from `Approved` to `Implemented`.** No `ADR-0022` change; `ADR-0023` newly decides the rate-limiting mechanism `REQ-001-PLAN` had left open. |
 | 1.5 | 2026-08-01 | EPIC-004 Sprint 4.6 (Authentication API Surface): built the client-accessible HTTP layer — `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:sessionId`. Extended `AuthProvider` with `signInWithPassword` (both `MockAuthProvider` and `SupabaseAuthProvider`), extended `SessionService` with `getSession`/`findByRefreshToken`, added `AuthLoginFailedError`. Wired `sessionService` into `app.ts` (optional dependency, mirroring the `proactiveIntelligenceService` pattern) and `index.ts`. Acceptance criteria 1–4 are now met; criterion 5 (rate limiting) remains unmet. Status stays `Approved`, not `Implemented`. No `ADR-0022` change, no new provider, no invented OAuth flow — this sprint implements login mechanics the already-decided provider (Supabase Auth) natively supports. |
 | 1.4 | 2026-08-01 | EPIC-004 Sprint 4.5 (Authentication Integration): wired `requireAuth`/`requireWorkspaceOwnership` into every `/api` route in `backend/src/app.ts` (except the public OAuth callback), added `requireUserOwnership` for `/users/:userId`-shaped routes, fixed a malformed-workspace-id 500 the wiring would otherwise have introduced, and changed `POST /workspaces` to derive the owner from the authenticated caller instead of a client-supplied body field. Adapted all 17 existing route test suites to attach real tokens; added explicit new coverage for missing/invalid/expired tokens and cross-user access. Acceptance criterion 1 is now met; criteria 3–4 are partially met (mechanism wired, no login/refresh/devices HTTP endpoints yet); criterion 5 remains unmet. Status stays `Approved`, not `Implemented`. No `ADR-0022` change — this sprint implements the already-decided design, it does not revise it. |
 | 1.3 | 2026-08-01 | EPIC-004 Sprint 4.4 (Authentication Implementation Foundation): built the `AuthProvider` abstraction (mock + Supabase), JWT/JWKS verification, session lifecycle (`SessionService`, `auth_sessions` migration), and `requireAuth`/`requireWorkspaceOwnership` middleware — all implementing `ADR-0022` exactly. Updated Related Tests/Related Implementation with real paths. Status stays `Approved`, not `Implemented`: nothing is yet wired into `app.ts` or an existing route, so no acceptance criterion is met in production terms yet. |

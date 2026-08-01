@@ -9,6 +9,7 @@ import {
 import { createApp } from './app';
 import { createAuthProviderFromEnv } from './auth/registry';
 import { SessionService } from './auth/sessionService';
+import { authRateLimitConfigFromEnv, RateLimiter, type AuthRateLimiters } from './middleware/rateLimit';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
@@ -140,6 +141,12 @@ async function main(): Promise<void> {
   const userService = new UserService(pool);
   const workspaceService = new WorkspaceService(pool);
   const sessionService = new SessionService(pool, authProvider);
+  const rateLimitConfig = authRateLimitConfigFromEnv();
+  const authRateLimiters: AuthRateLimiters = {
+    loginEmail: new RateLimiter(rateLimitConfig.loginByEmail),
+    loginIp: new RateLimiter(rateLimitConfig.loginByIp),
+    refreshIp: new RateLimiter(rateLimitConfig.refreshByIp),
+  };
   const integrationReadiness: IntegrationReadiness = {
     gmail: Boolean(oauthProviders.gmail),
     github: Boolean(oauthProviders.github),
@@ -276,6 +283,7 @@ async function main(): Promise<void> {
     voiceService,
     retrievalService,
     sessionService,
+    authRateLimiters,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,
     logger,

@@ -51,8 +51,9 @@ This is the single, canonical index of every Architecture Decision Record in AIM
 | ADR-0020 | Proactive Intelligence | Decided | 2026-07-28 | [`0020-proactive-intelligence.md`](0020-proactive-intelligence.md) |
 | ADR-0021 | Semantic Search & Context Retrieval | Decided | 2026-07-29 | [`0021-semantic-search-and-context-retrieval.md`](0021-semantic-search-and-context-retrieval.md) |
 | ADR-0022 | Authentication Architecture | Decided | 2026-08-01 | [`0022-authentication-architecture.md`](0022-authentication-architecture.md) |
+| ADR-0023 | Authentication Rate Limiting | Decided | 2026-08-01 | [`0023-authentication-rate-limiting.md`](0023-authentication-rate-limiting.md) |
 
-**Next available ID:** `ADR-0023`.
+**Next available ID:** `ADR-0024`.
 
 ## Status Legend
 

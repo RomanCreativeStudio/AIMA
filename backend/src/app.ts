@@ -40,6 +40,7 @@ import { requestLogger } from './middleware/requestLogger';
 import { requireAuth } from './middleware/auth';
 import { requireUserOwnership } from './middleware/userOwnership';
 import { requireWorkspaceOwnership } from './middleware/workspaceOwnership';
+import type { AuthRateLimiters } from './middleware/rateLimit';
 import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
@@ -103,6 +104,8 @@ export interface AppDependencies {
   retrievalService?: RetrievalService;
   /** EPIC-004 Sprint 4.6: optional so every pre-existing call site (tests included) keeps compiling — the `/api/auth/*` routes are simply not mounted when this is omitted. `index.ts`, the one real production call site, always supplies a real one. */
   sessionService?: SessionService;
+  /** EPIC-004 Sprint 4.7 (ADR-0023): the public auth surface's rate limiters. Optional for the same reason `sessionService` is — but `authPublicRouter` only mounts when both are present (see below), so the login/refresh routes can never ship without their abuse protection. `index.ts` always supplies real ones, built by `authRateLimitConfigFromEnv`. */
+  authRateLimiters?: AuthRateLimiters;
 }
 
 /**
@@ -114,6 +117,13 @@ export function createApp(deps: AppDependencies): Application {
   const app = express();
   const logger = deps.logger ?? new ConsoleLogger(deps.nodeEnv ?? 'development');
   const errorReporter = deps.errorReporter ?? new ConsoleErrorReporter(logger);
+
+  // Trust the first proxy hop (ADR-0023) — ARCH-001 §8's recommended hosting
+  // platforms (Fly.io/Render/Vercel) all terminate TLS at an edge proxy, so
+  // without this, req.ip would resolve to that proxy's own address for
+  // every request, making any per-IP rate limit effectively global instead
+  // of per-caller.
+  app.set('trust proxy', 1);
 
   app.use(helmet());
   // No CORS_ORIGINS configured => deny all cross-origin requests by default.
@@ -132,13 +142,20 @@ export function createApp(deps: AppDependencies): Application {
   // Login/refresh (EPIC-004 Sprint 4.6) must stay reachable ahead of the
   // authentication gate below — a caller cannot present a valid access
   // token to obtain one in the first place, or to refresh an expired one.
-  if (deps.sessionService) {
+  // Rate limiters (EPIC-004 Sprint 4.7, ADR-0023, REQ-001 criterion 5) are
+  // required alongside sessionService, not independently optional — the
+  // public auth surface should never be mountable without its abuse
+  // protection.
+  if (deps.sessionService && deps.authRateLimiters) {
     app.use(
       '/api',
       authPublicRouter({
         authProvider: deps.authProvider,
         sessionService: deps.sessionService,
         userService: deps.userService,
+        loginEmailRateLimiter: deps.authRateLimiters.loginEmail,
+        loginIpRateLimiter: deps.authRateLimiters.loginIp,
+        refreshIpRateLimiter: deps.authRateLimiters.refreshIp,
       }),
     );
   }

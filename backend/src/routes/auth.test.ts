@@ -8,6 +8,7 @@ import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, Mock
 import { createApp } from '../app';
 import { MockAuthProvider, mockPasswordFor, mockSubjectIdFor } from '../auth/mockAuthProvider';
 import { SessionService } from '../auth/sessionService';
+import { authRateLimitConfigFromEnv, RateLimiter, type AuthRateLimiters } from '../middleware/rateLimit';
 import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
@@ -60,7 +61,19 @@ const TEST_DATABASE_URL =
   process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
 const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
-async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>): Promise<void> {
+function defaultAuthRateLimiters(): AuthRateLimiters {
+  const config = authRateLimitConfigFromEnv();
+  return {
+    loginEmail: new RateLimiter(config.loginByEmail),
+    loginIp: new RateLimiter(config.loginByIp),
+    refreshIp: new RateLimiter(config.refreshByIp),
+  };
+}
+
+async function withTestServer(
+  fn: (baseUrl: string, pool: Pool) => Promise<void>,
+  authRateLimiters: AuthRateLimiters = defaultAuthRateLimiters(),
+): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(registry);
@@ -153,6 +166,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     registry,
     authProvider,
     sessionService,
+    authRateLimiters,
     permissionEngine,
     actionLogger,
     integrationService,
@@ -476,4 +490,206 @@ test('DELETE /api/auth/sessions/:sessionId returns 400 for a non-UUID sessionId'
     });
     assert.equal(response.status, 400);
   });
+});
+
+// Rate limiting (EPIC-004 Sprint 4.7, ADR-0023, REQ-001 criterion 5) —
+// small, test-local limiter configs so these run instantly rather than
+// waiting out a real 15-minute window. Every test above this point uses
+// `defaultAuthRateLimiters()` (production-shaped, generous thresholds),
+// so their continued passing is itself the "no regression to existing
+// auth flows" coverage this sprint requires.
+
+function testRateLimiters(overrides: Partial<AuthRateLimiters> = {}): AuthRateLimiters {
+  return {
+    loginEmail: overrides.loginEmail ?? new RateLimiter({ windowMs: 60_000, max: 100 }),
+    loginIp: overrides.loginIp ?? new RateLimiter({ windowMs: 60_000, max: 100 }),
+    refreshIp: overrides.refreshIp ?? new RateLimiter({ windowMs: 60_000, max: 100 }),
+  };
+}
+
+test('POST /api/auth/login succeeds for every request under the per-email limit', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 5 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      for (let i = 0; i < 3; i++) {
+        const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        assert.equal(response.status, 201);
+      }
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/login returns 429 once the per-email limit is exceeded, blocking even a correct password', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: 'wrong-password' }),
+        });
+
+      assert.equal((await attempt()).status, 401);
+      assert.equal((await attempt()).status, 401);
+
+      // Third attempt is over budget — rejected with 429 before credentials
+      // are even checked, even though this one uses the correct password.
+      const third = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(third.status, 429);
+      assert.ok(third.headers.get('retry-after'));
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/login rate limiting isolates different accounts from each other', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 1 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedLoginableUser(pool);
+    const b = await seedLoginableUser(pool);
+    try {
+      // Exhaust A's budget with one failed attempt.
+      await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: a.email, password: 'wrong-password' }),
+      });
+      const aBlocked = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: a.email, password: a.password }),
+      });
+      assert.equal(aBlocked.status, 429);
+
+      // B's bucket is untouched by A's exhausted one.
+      const bResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: b.email, password: b.password }),
+      });
+      assert.equal(bResponse.status, 201);
+    } finally {
+      await cleanupUser(pool, a.userId);
+      await cleanupUser(pool, b.userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/login resets the per-email counter on a successful login', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const wrongAttempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: 'wrong-password' }),
+        });
+      const rightAttempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+      assert.equal((await wrongAttempt()).status, 401); // 1 of 2
+      assert.equal((await rightAttempt()).status, 201); // 2 of 2, then reset to 0 on success
+
+      // If the counter had not been reset, this would already be over
+      // budget (a 3rd attempt against a max of 2). It isn't — proving the
+      // successful login cleared the bucket.
+      assert.equal((await wrongAttempt()).status, 401); // 1 of 2, fresh
+      assert.equal((await wrongAttempt()).status, 401); // 2 of 2, fresh
+      assert.equal((await wrongAttempt()).status, 429); // 3rd since reset
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/refresh succeeds for every request under the per-IP limit', async () => {
+  const limiters = testRateLimiters({ refreshIp: new RateLimiter({ windowMs: 60_000, max: 5 }) });
+  await withTestServer(async (baseUrl) => {
+    for (let i = 0; i < 3; i++) {
+      const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: 'garbage' }),
+      });
+      assert.equal(response.status, 401);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/refresh returns 429 once the per-IP limit is exceeded', async () => {
+  const limiters = testRateLimiters({ refreshIp: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl) => {
+    const attempt = () =>
+      fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: 'garbage' }),
+      });
+
+    assert.equal((await attempt()).status, 401);
+    assert.equal((await attempt()).status, 401);
+
+    const third = await attempt();
+    assert.equal(third.status, 429);
+    assert.ok(third.headers.get('retry-after'));
+  }, limiters);
+});
+
+test('POST /api/auth/refresh resets the per-IP counter on a successful refresh', async () => {
+  const limiters = testRateLimiters({ refreshIp: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const { tokens } = (await loginResponse.json()) as { tokens: { refreshToken: string } };
+
+      // Successful refresh: 1 of 2, then reset to 0 on success.
+      const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+      assert.equal(refreshResponse.status, 200);
+
+      const garbageAttempt = () =>
+        fetch(`${baseUrl}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: 'garbage' }),
+        });
+
+      // If the counter had not been reset, this would already be over
+      // budget. It isn't — proving the successful refresh cleared the
+      // bucket.
+      assert.equal((await garbageAttempt()).status, 401); // 1 of 2, fresh
+      assert.equal((await garbageAttempt()).status, 401); // 2 of 2, fresh
+      assert.equal((await garbageAttempt()).status, 429); // 3rd since reset
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
 });

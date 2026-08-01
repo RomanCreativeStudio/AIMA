@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { AuthenticatedRequest } from '../middleware/auth';
+import { ipKey, normalizeEmail, rateLimitMiddleware, respondRateLimited, type RateLimiter } from '../middleware/rateLimit';
 import type { AuthProvider } from '../auth/types';
 import { AuthLoginFailedError, AuthRefreshFailedError, SessionRevokedError } from '../auth/errors';
 import type { SessionService } from '../auth/sessionService';
@@ -14,6 +15,24 @@ export interface AuthRouterDependencies {
 }
 
 /**
+ * `authPublicRouter`'s dependencies, extending the base set with the rate
+ * limiters login/refresh need (ADR-0023, REQ-001 criterion 5) — required,
+ * not optional, mirroring `authProvider`'s own "no safe default that keeps
+ * the app secure if a call site forgets to supply one" rationale
+ * (`backend/src/app.ts`): silently omitting these would silently reopen
+ * the unrate-limited credential-stuffing gap this requirement exists to
+ * close. `authRouter` (logout/sessions) doesn't need them — those routes
+ * already sit behind `requireAuth`, so brute-forcing them isn't the same
+ * threat. `index.ts`, the one real production call site, always
+ * constructs real limiters via `authRateLimitConfigFromEnv`.
+ */
+export interface AuthPublicRouterDependencies extends AuthRouterDependencies {
+  loginEmailRateLimiter: RateLimiter;
+  loginIpRateLimiter: RateLimiter;
+  refreshIpRateLimiter: RateLimiter;
+}
+
+/**
  * The client-accessible authentication HTTP surface (EPIC-004 Sprint 4.6,
  * ADR-0022) — split into two routers, the same public/protected pattern
  * `oauthRouter`/`oauthCallbackRouter` established in Sprint 4.5, because
@@ -23,10 +42,14 @@ export interface AuthRouterDependencies {
  * session listing/deletion) is mounted after it like every other
  * resource router.
  */
-export function authPublicRouter(deps: AuthRouterDependencies): Router {
+export function authPublicRouter(deps: AuthPublicRouterDependencies): Router {
   const router = Router();
 
-  router.post('/auth/login', async (req, res, next) => {
+  // Coarse per-IP backstop (ADR-0023): runs ahead of body parsing/validation
+  // so it also catches a flood of malformed requests, not just well-formed
+  // ones. The account-specific check (per-email, tighter) runs inside the
+  // handler below, once the body is parsed and `email` is validated.
+  router.post('/auth/login', rateLimitMiddleware(deps.loginIpRateLimiter, ipKey), async (req, res, next) => {
     try {
       const { email, password, deviceLabel } = req.body ?? {};
 
@@ -36,6 +59,13 @@ export function authPublicRouter(deps: AuthRouterDependencies): Router {
       }
       if (typeof password !== 'string' || password.length === 0) {
         res.status(400).json({ error: 'password is required' });
+        return;
+      }
+
+      const emailKey = normalizeEmail(email);
+      const emailLimit = deps.loginEmailRateLimiter.consume(emailKey);
+      if (!emailLimit.allowed) {
+        respondRateLimited(res, emailLimit.retryAfterSeconds);
         return;
       }
 
@@ -76,13 +106,20 @@ export function authPublicRouter(deps: AuthRouterDependencies): Router {
         typeof deviceLabel === 'string' ? deviceLabel : undefined,
       );
 
+      // Successful authentication resets both counters (REQ-001 criterion
+      // 5) — a legitimate caller who mistyped their password a couple of
+      // times isn't left soft-locked for the rest of the window once they
+      // get it right.
+      deps.loginEmailRateLimiter.reset(emailKey);
+      deps.loginIpRateLimiter.reset(ipKey(req));
+
       res.status(201).json({ tokens, session });
     } catch (error) {
       next(error);
     }
   });
 
-  router.post('/auth/refresh', async (req, res, next) => {
+  router.post('/auth/refresh', rateLimitMiddleware(deps.refreshIpRateLimiter, ipKey), async (req, res, next) => {
     try {
       const { refreshToken } = req.body ?? {};
       if (typeof refreshToken !== 'string' || refreshToken.length === 0) {
@@ -91,6 +128,7 @@ export function authPublicRouter(deps: AuthRouterDependencies): Router {
       }
 
       const { tokens, session } = await deps.sessionService.refresh(refreshToken);
+      deps.refreshIpRateLimiter.reset(ipKey(req));
       res.json({ tokens, session });
     } catch (error) {
       if (error instanceof SessionRevokedError || error instanceof AuthRefreshFailedError) {
