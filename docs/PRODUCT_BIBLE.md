@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.3.0 | 2026-08-01 | Established the canonical Requirements Traceability Matrix: added `docs/requirements/RTM.md` (`RTM-001`), moved the inline Requirements Traceability Matrix section's table and column definitions there (preserved, not deleted), registered `RTM-*` in the Permanent Numbering Standard and `RTM-001` in the Documentation Ownership and Master Documentation Index tables. No requirements, ADRs, implementations, or tests were invented — the matrix's one row remains the pre-existing illustrative placeholder. |
 | 2.2.0 | 2026-08-01 | Established the Requirements framework: added `docs/requirements/REQ-TEMPLATE.md` and `docs/requirements/REQ-INDEX.md`, registered `REQ-INDEX`/`REQ-TEMPLATE` in the Master Documentation Index, updated the Documentation Ownership table's Requirements row to point at the real (no longer "Future") `docs/requirements/` location, and added a note to the Requirements Traceability Matrix clarifying its `REQ-001 Placeholder` row is illustrative, not a registered requirement. No requirements were authored — the framework is empty by design. |
 | 2.1.0 | 2026-08-01 | Established the ADR framework: added `docs/decisions/ADR-TEMPLATE.md` and `docs/decisions/ADR-INDEX.md`, registered `ADR-INDEX`/`ADR-TEMPLATE` in the Master Documentation Index, and replaced this handbook's inline ADR list with a pointer to the new canonical index (per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it). |
 | 2.0.1 | 2026-08-01 | Reconciliation patch: imported the authoritative Constitution text into `CONST-001` (replacing its placeholder), cleared now-stale "placeholder" language pointing at it, and registered `DEV-001`/`DEPLOY-001`/`DOC-INDEX-001` in the Permanent Numbering Standard, Documentation Ownership, and Master Documentation Index tables — those documents already declared these IDs in their own ADS headers but were never added to the registries. |
@@ -88,6 +89,7 @@ Update this handbook when any of the following occurs:
 | Development Setup | `DEV-*` | Lead Software Architect | `docs/DEVELOPMENT_SETUP.md` |
 | Production Setup | `DEPLOY-*` | Lead Software Architect | `docs/PRODUCTION_SETUP.md` |
 | Documentation Index | `DOC-INDEX-*` | Lead Product Architect / Lead Software Architect | `docs/README.md` |
+| Requirements Traceability Matrix | `RTM-*` | Product owner + Lead Software Architect | `docs/requirements/RTM.md` |
 
 ### Documentation Review Workflow
 
@@ -136,6 +138,7 @@ Stable identifiers must never be reused after publication.
 | `DEV-*` | Development setup/workflow documents | `DEV-001` |
 | `DEPLOY-*` | Production/deployment documents | `DEPLOY-001` |
 | `DOC-INDEX-*` | Documentation index documents | `DOC-INDEX-001` |
+| `RTM-*` | Requirements Traceability Matrix document(s) | `RTM-001` |
 
 ### Universal Chapter Template
 
@@ -181,6 +184,7 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | Requirements | `REQ-*` | [`docs/requirements/`](requirements/) | Framework active (`REQ-INDEX`/`REQ-TEMPLATE`); no requirements registered yet. |
 | Requirements Index | `REQ-INDEX` | [`docs/requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) | Active. Canonical index of every requirement's status and file; currently empty. |
 | Requirements Template | `REQ-TEMPLATE` | [`docs/requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) | Active. Governs how future requirements (`REQ-001` onward) are authored. |
+| Requirements Traceability Matrix | `RTM-001` | [`docs/requirements/RTM.md`](requirements/RTM.md) | Active. Canonical requirement↔architecture↔ADR↔database↔API↔implementation↔tests↔documentation matrix; currently one illustrative placeholder row. |
 | API Documentation | `API-*` | Future `docs/api/` | Placeholder. |
 | Database Documentation | `DB-*` | [`database/README.md`](../database/README.md), future `docs/database/` | Partial. |
 | Risk Register | `RISK-*` | Future `docs/governance/risk-register.md` | Placeholder. |
@@ -502,15 +506,11 @@ ADRs live in [`docs/decisions/`](decisions/). They preserve historical context a
 
 ## Requirements Traceability Matrix
 
-Future requirements must map through this chain:
+Every requirement must map through this chain:
 
 Requirement → Architecture → ADR → Database → API → Implementation → Tests → Documentation
 
-| Requirement | Architecture | ADR | Database | API | Implementation | Tests | Documentation |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `REQ-001` Placeholder | `ARCH-001` Placeholder | `ADR-0001+` Placeholder | `DB-001` Placeholder | `API-001` Placeholder | Placeholder | Placeholder | Placeholder |
-
-The row above is illustrative scaffolding, not a registered requirement. Actual requirements are authored with [`docs/requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) and registered in the canonical [`docs/requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md); this matrix section documents the required traceability chain, it is not itself the requirements list.
+The canonical matrix now lives in [`docs/requirements/RTM.md`](requirements/RTM.md) (`RTM-001`), alongside the Requirements framework it traces (`REQ-INDEX`/`REQ-TEMPLATE`). It was moved out of this handbook, not deleted, per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it. Its single row remains illustrative scaffolding, not a registered requirement — see `RTM-001`'s own scope note.
 
 ## Engineering Change Impact Analysis (ECIA)
 

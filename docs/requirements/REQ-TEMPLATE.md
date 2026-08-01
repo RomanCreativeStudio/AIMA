@@ -10,7 +10,7 @@
 **Dependents:** Every requirement from `REQ-001` onward
 **Review Frequency:** Whenever the requirements practice itself changes
 **Last Updated:** 2026-08-01
-**Related Documents:** [`REQ-INDEX.md`](REQ-INDEX.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md)
+**Related Documents:** [`REQ-INDEX.md`](REQ-INDEX.md), [`RTM.md`](RTM.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md)
 
 ---
 
@@ -18,13 +18,13 @@
 
 This is the template for every new Requirement in AIMA. It formalizes the fields a requirement must cover so its scope, acceptance criteria, and traceability to architecture, decisions, tests, and implementation are captured explicitly, not left implicit.
 
-**Scope note:** `HB-001`'s Requirements Traceability Matrix currently contains a single illustrative row, `REQ-001 Placeholder`, demonstrating the required `Requirement → Architecture → ADR → Database → API → Implementation → Tests → Documentation` chain. That row is example scaffolding, not a real, decided requirement — no requirements have been formally authored in AIMA yet. This template establishes how future requirements must be captured; it does not itself assert any.
+**Scope note:** [`RTM.md`](RTM.md) (`RTM-001`), the canonical Requirements Traceability Matrix, currently contains a single illustrative row, `REQ-001 Placeholder`, demonstrating the required `Requirement → Architecture → ADR → Database → API → Implementation → Tests → Documentation` chain. That row is example scaffolding, not a real, decided requirement — no requirements have been formally authored in AIMA yet. This template establishes how future requirements must be captured; it does not itself assert any.
 
 ## How to Use This Template
 
 1. Copy this file to `docs/requirements/REQ-0NN-short-slug.md`, where `NN` is the next unused number after the highest entry in [`REQ-INDEX.md`](REQ-INDEX.md).
 2. Fill in every field and section below. Use **Placeholder** with a one-line reason, not silence, for a value that genuinely isn't known yet (per `HB-001`'s Universal Chapter Template convention).
-3. Add a row for the new requirement to [`REQ-INDEX.md`](REQ-INDEX.md) — that file is the single canonical index; do not maintain a second copy of the list elsewhere.
+3. Add a row for the new requirement to [`REQ-INDEX.md`](REQ-INDEX.md) — that file is the single canonical index; do not maintain a second copy of the list elsewhere. Add a corresponding row to [`RTM.md`](RTM.md) once the requirement has real architecture/ADR/implementation/test links to record.
 4. Get the requirement reviewed by the Product owner (per `HB-001`'s Documentation Ownership table) before marking it `Approved`.
 5. Never delete or silently rewrite a past requirement to hide that it changed — add a new requirement and mark the old one's Status as `Superseded by REQ-0NN`, or `Deprecated` if withdrawn without replacement (`CONST-001` Article X: the history of why decisions were made should never be lost).
 
