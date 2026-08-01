@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.6.0
+**Version:** 2.7.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.7.0 | 2026-08-01 | Established the canonical AI Contributor Guide: added `docs/governance/AI-CONTRIBUTOR-GUIDE.md` (`AI-GUIDE-001`), the operational workflow reference for AI contributors (Claude, Codex, future agents), codifying the audit/preservation/do-not-invent/escalation discipline already demonstrated across this handbook's own governance-framework work and grounded in `CONST-001`'s Articles and this handbook's Documentation Review Workflow. Registered `AI-GUIDE-*` in the Permanent Numbering Standard and `AI-GUIDE-001` in the Documentation Ownership and Master Documentation Index tables. No new governance authority or invented policy was introduced. |
 | 2.6.0 | 2026-08-01 | Established the canonical Technical Debt Register framework: added `docs/governance/TD-INDEX.md` and `docs/governance/TD-TEMPLATE.md`, extended the inline one-line Technical Debt Register placeholder into the full framework (preserved, not deleted) with Reason Introduced/Affected Systems/Impact/Risk Level/Recommended Resolution/Estimated Effort/Related ADRs/Related Requirements/Related Architecture/Related ECIA/Related Risks/Review History fields, updated the Documentation Ownership row to point at the real (no longer "Future") `docs/governance/` location, and registered `TD-INDEX`/`TD-TEMPLATE` in the Master Documentation Index. No technical debt, risks, requirements, ADRs, or ECIA records were invented — the framework is empty by design. |
 | 2.5.0 | 2026-08-01 | Established the canonical Risk Register framework: added `docs/governance/RISK-INDEX.md` and `docs/governance/RISK-TEMPLATE.md`, extended the inline one-line Risk Register placeholder into the full framework (preserved, not deleted) with Detection Method/Mitigation Strategy/Contingency Plan/Related ADRs/Related Requirements/Related Architecture/Related ECIA/Review History fields, updated the Documentation Ownership row to point at the real (no longer "Future") `docs/governance/` location, and registered `RISK-INDEX`/`RISK-TEMPLATE` in the Master Documentation Index. No risks, requirements, ADRs, or ECIA records were invented — the framework is empty by design. |
 | 2.4.0 | 2026-08-01 | Established the canonical Engineering Change Impact Analysis (ECIA) framework: added `docs/governance/ECIA-INDEX.md` and `docs/governance/ECIA-TEMPLATE.md`, moved the inline ECIA checklist and template there (preserved, not deleted) and extended them with Architecture/ADRs/Implementation/Security/Operations categories, registered `ECIA-*` in the Permanent Numbering Standard and `ECIA-INDEX`/`ECIA-TEMPLATE` in the Documentation Ownership and Master Documentation Index tables. No ECIA records, requirements, ADRs, implementations, or tests were invented — the framework is empty by design. |
@@ -94,6 +95,7 @@ Update this handbook when any of the following occurs:
 | Documentation Index | `DOC-INDEX-*` | Lead Product Architect / Lead Software Architect | `docs/README.md` |
 | Requirements Traceability Matrix | `RTM-*` | Product owner + Lead Software Architect | `docs/requirements/RTM.md` |
 | Engineering Change Impact Analysis | `ECIA-*` | Authoring engineer + reviewer | `docs/governance/` |
+| AI Contributor Guide | `AI-GUIDE-*` | Lead Software Architect | `docs/governance/AI-CONTRIBUTOR-GUIDE.md` |
 
 ### Documentation Review Workflow
 
@@ -144,6 +146,7 @@ Stable identifiers must never be reused after publication.
 | `DOC-INDEX-*` | Documentation index documents | `DOC-INDEX-001` |
 | `RTM-*` | Requirements Traceability Matrix document(s) | `RTM-001` |
 | `ECIA-*` | Engineering Change Impact Analysis records | `ECIA-001` |
+| `AI-GUIDE-*` | AI Contributor Guide document(s) | `AI-GUIDE-001` |
 
 ### Universal Chapter Template
 
@@ -200,6 +203,7 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | Technical Debt Register | `TD-*` | [`docs/governance/`](governance/) | Framework active (`TD-INDEX`/`TD-TEMPLATE`); no debt items registered yet. |
 | Technical Debt Register Index | `TD-INDEX` | [`docs/governance/TD-INDEX.md`](governance/TD-INDEX.md) | Active. Canonical index of every technical debt entry's status, priority, and file; currently empty. |
 | Technical Debt Register Template | `TD-TEMPLATE` | [`docs/governance/TD-TEMPLATE.md`](governance/TD-TEMPLATE.md) | Active. Governs how future technical debt entries (`TD-001` onward) are authored. |
+| AI Contributor Guide | `AI-GUIDE-001` | [`docs/governance/AI-CONTRIBUTOR-GUIDE.md`](governance/AI-CONTRIBUTOR-GUIDE.md) | Active. Operational workflow reference for AI contributors (Claude, Codex, future agents). |
 | Development Setup | `DEV-001` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | Active. |
 | Documentation Index | `DOC-INDEX-001` | [`docs/README.md`](README.md) | Active. |
 | Testing Documentation | `TEST-*` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) §7 | Partial — testing standards currently live as a section of `DEV-001`; a dedicated `TEST-*` document is future scope. |
