@@ -6,6 +6,7 @@ Personal AI operating assistant for Roman Creative Studio, Mythic Forge Studios,
 
 Start here — these documents are the binding source of truth for product, architecture, and workflow decisions:
 
+- [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md) — highest-authority foundational principles for AIMA's mission, trust model, engineering philosophy, and long-term evolution.
 - [`docs/PRODUCT_BIBLE.md`](docs/PRODUCT_BIBLE.md) — product vision, principles, permission tiers, roadmap.
 - [`docs/TECHNICAL_ARCHITECTURE.md`](docs/TECHNICAL_ARCHITECTURE.md) — engineering blueprint.
 - [`docs/DEVELOPMENT_SETUP.md`](docs/DEVELOPMENT_SETUP.md) — tools, repo structure, branch strategy, local dev workflow.
@@ -18,7 +19,7 @@ AIMA/
 ├── backend/      # API layer, auth, permission engine, intent/approval engines, conversation pipeline, memory + document retrieval, action log
 ├── ai-engine/    # AI provider, embedding provider, and intent classifier abstractions
 ├── database/     # Schema migrations
-└── docs/         # Product Bible, Technical Architecture, this workflow guide
+└── docs/         # Constitution, Product Bible, Technical Architecture, and workflow guides
 ```
 
 ## Getting Started

@@ -1,9 +1,15 @@
 # AIMA Product Bible
 
 **Version:** 0.1 (Founding Draft)
-**Status:** Source of Truth for Product, Engineering, and Business Decisions
+**Status:** Source of Truth for Product, Engineering, and Business Decisions under the AIMA Constitution
 **Owner:** Lead Product Architect
 **Last Updated:** 2026-07-27
+
+---
+
+## 0. Constitutional Authority
+
+The [AIMA Constitution](CONSTITUTION.md) is the highest-authority governance document for the project. This Product Bible must remain aligned with its mission, user-trust commitments, engineering philosophy, security principles, and evolution requirements.
 
 ---
 
