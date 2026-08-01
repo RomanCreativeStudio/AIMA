@@ -21,7 +21,7 @@
 5. [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — `DEPLOY-001`, production deployment and operations guide.
 6. [`decisions/`](decisions/) — Architecture Decision Records (`ADR-*`). Start at [`decisions/ADR-INDEX.md`](decisions/ADR-INDEX.md) (canonical index) and [`decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) (template for new ADRs).
 7. [`requirements/`](requirements/) — Requirements (`REQ-*`). Start at [`requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) (canonical index) and [`requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) (template for new requirements); no requirements are registered yet. Traceability across requirements/architecture/ADRs/database/API/implementation/tests/documentation is tracked in [`requirements/RTM.md`](requirements/RTM.md) (`RTM-001`).
-8. [`governance/`](governance/) — cross-cutting governance records. Engineering Change Impact Analyses (`ECIA-*`): [`governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) and [`governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md). Risk Register (`RISK-*`): [`governance/RISK-INDEX.md`](governance/RISK-INDEX.md) and [`governance/RISK-TEMPLATE.md`](governance/RISK-TEMPLATE.md). No ECIA or risk records are registered yet.
+8. [`governance/`](governance/) — cross-cutting governance records. Engineering Change Impact Analyses (`ECIA-*`): [`governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) and [`governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md). Risk Register (`RISK-*`): [`governance/RISK-INDEX.md`](governance/RISK-INDEX.md) and [`governance/RISK-TEMPLATE.md`](governance/RISK-TEMPLATE.md). Technical Debt Register (`TD-*`): [`governance/TD-INDEX.md`](governance/TD-INDEX.md) and [`governance/TD-TEMPLATE.md`](governance/TD-TEMPLATE.md). No ECIA, risk, or technical debt records are registered yet.
 
 ## Documentation Map
 
@@ -39,7 +39,7 @@
 | APIs | Future `api/` | `API-*` |
 | Database | [`../database/README.md`](../database/README.md), future `database/` | `DB-*` |
 | Risk Register | [`governance/RISK-INDEX.md`](governance/RISK-INDEX.md) | `RISK-*` |
-| Technical Debt Register | Future `governance/technical-debt-register.md` | `TD-*` |
+| Technical Debt Register | [`governance/TD-INDEX.md`](governance/TD-INDEX.md) | `TD-*` |
 | Sprints | Future `sprints/` | `SPR-*` |
 
 ## Contributor Rule
