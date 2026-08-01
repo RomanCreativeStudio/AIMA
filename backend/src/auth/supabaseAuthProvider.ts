@@ -1,5 +1,5 @@
 import { AuthLoginFailedError, AuthRefreshFailedError } from './errors';
-import { verifyJwtRs256, type Jwks } from './jwt';
+import { verifyJwtSignature, type Jwks } from './jwt';
 import type { AuthProvider, IssuedTokens, VerifiedAccessToken } from './types';
 
 interface SupabaseTokenResponse {
@@ -17,10 +17,14 @@ const DEFAULT_ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
  * Supabase Auth (GoTrue) implementation of `AuthProvider` (ADR-0022
  * Decision 1). Takes an injectable `fetch`, the same "one endpoint doesn't
  * need a whole SDK" precedent as `GitHubOAuthProvider`/
- * `OpenAISpeechToTextProvider` — the backend test suite exercises real
- * request/response shapes against a fake HTTP layer, never a live network
- * call, since this environment cannot register a real Supabase project or
- * run a live end-to-end test against one.
+ * `OpenAISpeechToTextProvider` — the mock-fixture backend test suite
+ * exercises real request/response shapes against a fake HTTP layer, never a
+ * live network call. Separately, EPIC-004 Sprint 4.9 verified this class
+ * end-to-end against a real, active Supabase project (login, refresh,
+ * token verification, logout) — see `docs/requirements/REQ-001-authentication.md`
+ * for the verification record; that live project issues ES256-signed
+ * tokens, which is why `verifyJwtSignature` (`./jwt.ts`) supports both
+ * ES256 and RS256 rather than only the latter.
  *
  * `verifyAccessToken` fetches the project's published JWKS once and caches
  * it for this instance's lifetime (JWKS rotates rarely; a full
@@ -71,7 +75,7 @@ export class SupabaseAuthProvider implements AuthProvider {
       return null;
     }
 
-    const claims = verifyJwtRs256(accessToken, jwks);
+    const claims = verifyJwtSignature(accessToken, jwks);
     if (!claims) return null;
 
     const exp = claims.exp;
