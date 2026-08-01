@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.3.0
+**Version:** 2.4.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.4.0 | 2026-08-01 | Established the canonical Engineering Change Impact Analysis (ECIA) framework: added `docs/governance/ECIA-INDEX.md` and `docs/governance/ECIA-TEMPLATE.md`, moved the inline ECIA checklist and template there (preserved, not deleted) and extended them with Architecture/ADRs/Implementation/Security/Operations categories, registered `ECIA-*` in the Permanent Numbering Standard and `ECIA-INDEX`/`ECIA-TEMPLATE` in the Documentation Ownership and Master Documentation Index tables. No ECIA records, requirements, ADRs, implementations, or tests were invented — the framework is empty by design. |
 | 2.3.0 | 2026-08-01 | Established the canonical Requirements Traceability Matrix: added `docs/requirements/RTM.md` (`RTM-001`), moved the inline Requirements Traceability Matrix section's table and column definitions there (preserved, not deleted), registered `RTM-*` in the Permanent Numbering Standard and `RTM-001` in the Documentation Ownership and Master Documentation Index tables. No requirements, ADRs, implementations, or tests were invented — the matrix's one row remains the pre-existing illustrative placeholder. |
 | 2.2.0 | 2026-08-01 | Established the Requirements framework: added `docs/requirements/REQ-TEMPLATE.md` and `docs/requirements/REQ-INDEX.md`, registered `REQ-INDEX`/`REQ-TEMPLATE` in the Master Documentation Index, updated the Documentation Ownership table's Requirements row to point at the real (no longer "Future") `docs/requirements/` location, and added a note to the Requirements Traceability Matrix clarifying its `REQ-001 Placeholder` row is illustrative, not a registered requirement. No requirements were authored — the framework is empty by design. |
 | 2.1.0 | 2026-08-01 | Established the ADR framework: added `docs/decisions/ADR-TEMPLATE.md` and `docs/decisions/ADR-INDEX.md`, registered `ADR-INDEX`/`ADR-TEMPLATE` in the Master Documentation Index, and replaced this handbook's inline ADR list with a pointer to the new canonical index (per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it). |
@@ -90,6 +91,7 @@ Update this handbook when any of the following occurs:
 | Production Setup | `DEPLOY-*` | Lead Software Architect | `docs/PRODUCTION_SETUP.md` |
 | Documentation Index | `DOC-INDEX-*` | Lead Product Architect / Lead Software Architect | `docs/README.md` |
 | Requirements Traceability Matrix | `RTM-*` | Product owner + Lead Software Architect | `docs/requirements/RTM.md` |
+| Engineering Change Impact Analysis | `ECIA-*` | Authoring engineer + reviewer | `docs/governance/` |
 
 ### Documentation Review Workflow
 
@@ -139,6 +141,7 @@ Stable identifiers must never be reused after publication.
 | `DEPLOY-*` | Production/deployment documents | `DEPLOY-001` |
 | `DOC-INDEX-*` | Documentation index documents | `DOC-INDEX-001` |
 | `RTM-*` | Requirements Traceability Matrix document(s) | `RTM-001` |
+| `ECIA-*` | Engineering Change Impact Analysis records | `ECIA-001` |
 
 ### Universal Chapter Template
 
@@ -185,6 +188,8 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | Requirements Index | `REQ-INDEX` | [`docs/requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) | Active. Canonical index of every requirement's status and file; currently empty. |
 | Requirements Template | `REQ-TEMPLATE` | [`docs/requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) | Active. Governs how future requirements (`REQ-001` onward) are authored. |
 | Requirements Traceability Matrix | `RTM-001` | [`docs/requirements/RTM.md`](requirements/RTM.md) | Active. Canonical requirement↔architecture↔ADR↔database↔API↔implementation↔tests↔documentation matrix; currently one illustrative placeholder row. |
+| ECIA Index | `ECIA-INDEX` | [`docs/governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) | Active. Canonical index of every Engineering Change Impact Analysis record; currently empty. |
+| ECIA Template | `ECIA-TEMPLATE` | [`docs/governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md) | Active. Governs how future ECIA records (`ECIA-001` onward) are authored. |
 | API Documentation | `API-*` | Future `docs/api/` | Placeholder. |
 | Database Documentation | `DB-*` | [`database/README.md`](../database/README.md), future `docs/database/` | Partial. |
 | Risk Register | `RISK-*` | Future `docs/governance/risk-register.md` | Placeholder. |
@@ -514,32 +519,9 @@ The canonical matrix now lives in [`docs/requirements/RTM.md`](requirements/RTM.
 
 ## Engineering Change Impact Analysis (ECIA)
 
-Every material engineering change should identify:
+Every material engineering change should identify its impact across requirements, ADRs, architecture, database, APIs, implementation, tests, documentation, security, and operations.
 
-- Affected Requirements
-- Affected APIs
-- Affected Database Objects
-- Affected Documentation
-- Affected Tests
-- Migration Requirements
-- Rollback Strategy
-- Future Epic Impact
-
-### ECIA Template
-
-```markdown
-## ECIA-<ID>: <Change Name>
-
-- Affected Requirements:
-- Affected APIs:
-- Affected Database Objects:
-- Affected Documentation:
-- Affected Tests:
-- Migration Requirements:
-- Rollback Strategy:
-- Future Epic Impact:
-- Constitution/Handbook Impact:
-```
+The canonical ECIA framework now lives in [`docs/governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) (canonical index) and [`docs/governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md) (`ECIA-TEMPLATE`, the authoring template). This handbook's original eight-category checklist and inline template were moved there, not deleted, and extended with the Architecture, ADRs, Implementation, Security, and Operations categories — per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it. No ECIA record has been authored yet; the index is currently empty.
 
 ## Release Process
 

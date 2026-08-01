@@ -21,6 +21,7 @@
 5. [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — `DEPLOY-001`, production deployment and operations guide.
 6. [`decisions/`](decisions/) — Architecture Decision Records (`ADR-*`). Start at [`decisions/ADR-INDEX.md`](decisions/ADR-INDEX.md) (canonical index) and [`decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) (template for new ADRs).
 7. [`requirements/`](requirements/) — Requirements (`REQ-*`). Start at [`requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) (canonical index) and [`requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) (template for new requirements); no requirements are registered yet. Traceability across requirements/architecture/ADRs/database/API/implementation/tests/documentation is tracked in [`requirements/RTM.md`](requirements/RTM.md) (`RTM-001`).
+8. [`governance/`](governance/) — cross-cutting governance records. Start at [`governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) (canonical index) and [`governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md) (template for new Engineering Change Impact Analyses, `ECIA-*`); no ECIA records are registered yet.
 
 ## Documentation Map
 
@@ -34,6 +35,7 @@
 | Production Setup | [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) | `DEPLOY-*` |
 | Requirements | [`requirements/`](requirements/) | `REQ-*` |
 | Requirements Traceability Matrix | [`requirements/RTM.md`](requirements/RTM.md) | `RTM-*` |
+| Engineering Change Impact Analysis | [`governance/`](governance/) | `ECIA-*` |
 | APIs | Future `api/` | `API-*` |
 | Database | [`../database/README.md`](../database/README.md), future `database/` | `DB-*` |
 | Risk Register | Future `governance/risk-register.md` | `RISK-*` |

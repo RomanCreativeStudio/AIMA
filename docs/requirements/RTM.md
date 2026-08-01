@@ -7,10 +7,10 @@
 **Authority Level:** Operational traceability register; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
 **Owner:** Product owner + Lead Software Architect (joint — the matrix spans both the requirements and architecture domains, per `HB-001`'s Documentation Ownership table)
 **Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`, `REQ-INDEX`, `ADR-INDEX`
-**Dependents:** `REQ-INDEX` (each new requirement should gain a row here), `ADR-INDEX`, contributors performing Engineering Change Impact Analysis (ECIA)
+**Dependents:** `REQ-INDEX` (each new requirement should gain a row here), `ADR-INDEX`, `ECIA-INDEX` (change impact analyses reference this matrix)
 **Review Frequency:** Every new or changed requirement, ADR, or architecture section
 **Last Updated:** 2026-08-01
-**Related Documents:** [`REQ-INDEX.md`](REQ-INDEX.md), [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md)
+**Related Documents:** [`REQ-INDEX.md`](REQ-INDEX.md), [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md), [`../governance/ECIA-INDEX.md`](../governance/ECIA-INDEX.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md)
 
 ---
 
