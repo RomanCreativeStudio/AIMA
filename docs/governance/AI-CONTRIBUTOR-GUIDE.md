@@ -10,7 +10,7 @@
 **Dependents:** Every AI-authored change to this repository (Claude, Codex, and future AI contributors)
 **Review Frequency:** Whenever the governance framework it references changes, or an AI-contributor incident reveals a gap
 **Last Updated:** 2026-08-01
-**Related Documents:** [`../CONSTITUTION.md`](../CONSTITUTION.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md), [`../README.md`](../README.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md), [`../requirements/REQ-INDEX.md`](../requirements/REQ-INDEX.md), [`../requirements/RTM.md`](../requirements/RTM.md), [`ECIA-INDEX.md`](ECIA-INDEX.md), [`RISK-INDEX.md`](RISK-INDEX.md), [`TD-INDEX.md`](TD-INDEX.md)
+**Related Documents:** [`../CONSTITUTION.md`](../CONSTITUTION.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md), [`../README.md`](../README.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md), [`../requirements/REQ-INDEX.md`](../requirements/REQ-INDEX.md), [`../requirements/RTM.md`](../requirements/RTM.md), [`ECIA-INDEX.md`](ECIA-INDEX.md), [`RISK-INDEX.md`](RISK-INDEX.md), [`TD-INDEX.md`](TD-INDEX.md), [`DOC-VALIDATION.md`](DOC-VALIDATION.md)
 
 ---
 
@@ -77,7 +77,7 @@ If a document conflicts with one above it in this order, the higher document win
 Before any commit, run and confirm clean:
 
 1. `git diff --check` — whitespace and formatting.
-2. A full-repository Markdown link check (relative links resolve to real files; skip `http(s)://`/`mailto:` targets).
+2. `node scripts/validate-docs.js` (`DOC-VALIDATION-001`) — broken internal links, missing ADS metadata, stable IDs unregistered in `HB-001`'s Master Documentation Index, documentation index drift against `docs/README.md`, and invalid cross-references between governance documents. See [`DOC-VALIDATION.md`](DOC-VALIDATION.md) for failure-output guidance.
 3. A manual review of `git status` / `git diff --stat` to confirm the change set matches intent — no unrelated files, no accidental staging.
 
 ## Testing Expectations

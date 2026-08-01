@@ -23,6 +23,7 @@
 7. [`requirements/`](requirements/) — Requirements (`REQ-*`). Start at [`requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) (canonical index) and [`requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) (template for new requirements); no requirements are registered yet. Traceability across requirements/architecture/ADRs/database/API/implementation/tests/documentation is tracked in [`requirements/RTM.md`](requirements/RTM.md) (`RTM-001`).
 8. [`governance/`](governance/) — cross-cutting governance records. Engineering Change Impact Analyses (`ECIA-*`): [`governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) and [`governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md). Risk Register (`RISK-*`): [`governance/RISK-INDEX.md`](governance/RISK-INDEX.md) and [`governance/RISK-TEMPLATE.md`](governance/RISK-TEMPLATE.md). Technical Debt Register (`TD-*`): [`governance/TD-INDEX.md`](governance/TD-INDEX.md) and [`governance/TD-TEMPLATE.md`](governance/TD-TEMPLATE.md). No ECIA, risk, or technical debt records are registered yet.
 9. [`governance/AI-CONTRIBUTOR-GUIDE.md`](governance/AI-CONTRIBUTOR-GUIDE.md) — `AI-GUIDE-001`, the operational workflow reference AI contributors (Claude, Codex, future agents) should read before working in this repository.
+10. [`governance/DOC-VALIDATION.md`](governance/DOC-VALIDATION.md) — `DOC-VALIDATION-001`, how to run `scripts/validate-docs.js`, the automated documentation checker (`npm run docs:validate`).
 
 ## Documentation Map
 
@@ -42,6 +43,7 @@
 | Risk Register | [`governance/RISK-INDEX.md`](governance/RISK-INDEX.md) | `RISK-*` |
 | Technical Debt Register | [`governance/TD-INDEX.md`](governance/TD-INDEX.md) | `TD-*` |
 | AI Contributor Guide | [`governance/AI-CONTRIBUTOR-GUIDE.md`](governance/AI-CONTRIBUTOR-GUIDE.md) | `AI-GUIDE-*` |
+| Documentation Validation | [`governance/DOC-VALIDATION.md`](governance/DOC-VALIDATION.md) | `DOC-VALIDATION-*` |
 | Sprints | Future `sprints/` | `SPR-*` |
 
 ## Contributor Rule

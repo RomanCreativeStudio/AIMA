@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.7.0
+**Version:** 2.8.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.8.0 | 2026-08-01 | Added automated documentation validation: `scripts/validate-docs.js` (zero-dependency Node script) and `docs/governance/DOC-VALIDATION.md` (`DOC-VALIDATION-001`), checking broken internal links, missing ADS metadata, stable IDs unregistered in this handbook's Master Documentation Index, documentation index drift against `docs/README.md`, and invalid cross-references between governance documents. Registered `DOC-VALIDATION-*` in the Permanent Numbering Standard and `DOC-VALIDATION-001` in the Documentation Ownership and Master Documentation Index tables. Updated `AI-GUIDE-001`'s Validation Requirements to reference the new tool. Verified clean against the current repository (0 issues across all five checks). No application code, architecture, or fictional documentation entries were introduced. |
 | 2.7.0 | 2026-08-01 | Established the canonical AI Contributor Guide: added `docs/governance/AI-CONTRIBUTOR-GUIDE.md` (`AI-GUIDE-001`), the operational workflow reference for AI contributors (Claude, Codex, future agents), codifying the audit/preservation/do-not-invent/escalation discipline already demonstrated across this handbook's own governance-framework work and grounded in `CONST-001`'s Articles and this handbook's Documentation Review Workflow. Registered `AI-GUIDE-*` in the Permanent Numbering Standard and `AI-GUIDE-001` in the Documentation Ownership and Master Documentation Index tables. No new governance authority or invented policy was introduced. |
 | 2.6.0 | 2026-08-01 | Established the canonical Technical Debt Register framework: added `docs/governance/TD-INDEX.md` and `docs/governance/TD-TEMPLATE.md`, extended the inline one-line Technical Debt Register placeholder into the full framework (preserved, not deleted) with Reason Introduced/Affected Systems/Impact/Risk Level/Recommended Resolution/Estimated Effort/Related ADRs/Related Requirements/Related Architecture/Related ECIA/Related Risks/Review History fields, updated the Documentation Ownership row to point at the real (no longer "Future") `docs/governance/` location, and registered `TD-INDEX`/`TD-TEMPLATE` in the Master Documentation Index. No technical debt, risks, requirements, ADRs, or ECIA records were invented — the framework is empty by design. |
 | 2.5.0 | 2026-08-01 | Established the canonical Risk Register framework: added `docs/governance/RISK-INDEX.md` and `docs/governance/RISK-TEMPLATE.md`, extended the inline one-line Risk Register placeholder into the full framework (preserved, not deleted) with Detection Method/Mitigation Strategy/Contingency Plan/Related ADRs/Related Requirements/Related Architecture/Related ECIA/Review History fields, updated the Documentation Ownership row to point at the real (no longer "Future") `docs/governance/` location, and registered `RISK-INDEX`/`RISK-TEMPLATE` in the Master Documentation Index. No risks, requirements, ADRs, or ECIA records were invented — the framework is empty by design. |
@@ -96,6 +97,7 @@ Update this handbook when any of the following occurs:
 | Requirements Traceability Matrix | `RTM-*` | Product owner + Lead Software Architect | `docs/requirements/RTM.md` |
 | Engineering Change Impact Analysis | `ECIA-*` | Authoring engineer + reviewer | `docs/governance/` |
 | AI Contributor Guide | `AI-GUIDE-*` | Lead Software Architect | `docs/governance/AI-CONTRIBUTOR-GUIDE.md` |
+| Documentation Validation | `DOC-VALIDATION-*` | Lead Software Architect | `docs/governance/DOC-VALIDATION.md`, `scripts/validate-docs.js` |
 
 ### Documentation Review Workflow
 
@@ -147,6 +149,7 @@ Stable identifiers must never be reused after publication.
 | `RTM-*` | Requirements Traceability Matrix document(s) | `RTM-001` |
 | `ECIA-*` | Engineering Change Impact Analysis records | `ECIA-001` |
 | `AI-GUIDE-*` | AI Contributor Guide document(s) | `AI-GUIDE-001` |
+| `DOC-VALIDATION-*` | Documentation validation tooling document(s) | `DOC-VALIDATION-001` |
 
 ### Universal Chapter Template
 
@@ -204,6 +207,7 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | Technical Debt Register Index | `TD-INDEX` | [`docs/governance/TD-INDEX.md`](governance/TD-INDEX.md) | Active. Canonical index of every technical debt entry's status, priority, and file; currently empty. |
 | Technical Debt Register Template | `TD-TEMPLATE` | [`docs/governance/TD-TEMPLATE.md`](governance/TD-TEMPLATE.md) | Active. Governs how future technical debt entries (`TD-001` onward) are authored. |
 | AI Contributor Guide | `AI-GUIDE-001` | [`docs/governance/AI-CONTRIBUTOR-GUIDE.md`](governance/AI-CONTRIBUTOR-GUIDE.md) | Active. Operational workflow reference for AI contributors (Claude, Codex, future agents). |
+| Documentation Validation | `DOC-VALIDATION-001` | [`docs/governance/DOC-VALIDATION.md`](governance/DOC-VALIDATION.md), [`scripts/validate-docs.js`](../scripts/validate-docs.js) | Active. Automated checks for broken links, missing ADS metadata, unregistered stable IDs, index drift, and invalid governance cross-references. |
 | Development Setup | `DEV-001` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | Active. |
 | Documentation Index | `DOC-INDEX-001` | [`docs/README.md`](README.md) | Active. |
 | Testing Documentation | `TEST-*` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) §7 | Partial — testing standards currently live as a section of `DEV-001`; a dedicated `TEST-*` document is future scope. |
