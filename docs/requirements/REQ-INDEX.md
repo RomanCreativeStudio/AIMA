@@ -29,13 +29,13 @@ This is the single, canonical index of every Requirement in AIMA. It exists so a
 
 | Requirement ID | Title | Status | Priority | Category | File |
 | --- | --- | --- | --- | --- | --- |
-| REQ-001 | Authentication | Approved | High | Security | [`REQ-001-authentication.md`](REQ-001-authentication.md) |
+| REQ-001 | Authentication | Implemented | High | Security | [`REQ-001-authentication.md`](REQ-001-authentication.md) |
 | REQ-002 | User Management | Approved | High | Functional | [`REQ-002-user-management.md`](REQ-002-user-management.md) |
 | REQ-003 | Workspace Management | Approved | High | Functional | [`REQ-003-workspace-management.md`](REQ-003-workspace-management.md) |
 | REQ-004 | Permission Engine | Approved | Critical | Security | [`REQ-004-permission-engine.md`](REQ-004-permission-engine.md) |
 | REQ-005 | Configuration Management | Approved | High | Non-Functional | [`REQ-005-configuration-management.md`](REQ-005-configuration-management.md) |
 
-REQ-002 through REQ-005 document existing, implemented Core Platform systems; REQ-001 documents `ARCH-001`'s existing authentication design, which is not yet built (see the requirement's own repository audit finding).
+REQ-002 through REQ-005 document existing, implemented Core Platform systems. REQ-001 documented `ARCH-001`'s existing authentication design at a time it was not yet built; as of EPIC-004 Sprint 4.7 (`ADR-0022`, `ADR-0023`) all five of its acceptance criteria are met and its status reflects that — see the requirement's own repository audit finding for the implementation history, and `RTM.md`'s `REQ-001` row for the live source/test trace.
 
 **Next available ID:** `REQ-006`.
 
