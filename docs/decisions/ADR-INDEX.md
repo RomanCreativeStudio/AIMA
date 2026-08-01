@@ -50,13 +50,14 @@ This is the single, canonical index of every Architecture Decision Record in AIM
 | ADR-0019 | Advanced Memory System | Decided | 2026-07-28 | [`0019-advanced-memory-system.md`](0019-advanced-memory-system.md) |
 | ADR-0020 | Proactive Intelligence | Decided | 2026-07-28 | [`0020-proactive-intelligence.md`](0020-proactive-intelligence.md) |
 | ADR-0021 | Semantic Search & Context Retrieval | Decided | 2026-07-29 | [`0021-semantic-search-and-context-retrieval.md`](0021-semantic-search-and-context-retrieval.md) |
+| ADR-0022 | Authentication Architecture | Decided | 2026-08-01 | [`0022-authentication-architecture.md`](0022-authentication-architecture.md) |
 
-**Next available ID:** `ADR-0022`.
+**Next available ID:** `ADR-0023`.
 
 ## Status Legend
 
 - **Proposed** — drafted, not yet reviewed/adopted.
-- **Decided** — adopted and in effect. All 21 entries above are `Decided`; none have been superseded to date.
+- **Decided** — adopted and in effect. All 22 entries above are `Decided`; none have been superseded to date.
 - **Deprecated** — no longer recommended, but not replaced by a specific later ADR.
 - **Superseded by ADR-00NN** — replaced by a specific later decision; the original text is preserved, not deleted (`CONST-001` Article X).
 

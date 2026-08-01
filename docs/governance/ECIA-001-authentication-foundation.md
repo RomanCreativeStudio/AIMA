@@ -33,7 +33,7 @@ N/A — nothing was deployed or implemented in this pass. A rollback strategy is
 
 ## Future Epic Impact
 
-Phase 4 (Core Platform) implementation work on `REQ-001` should start from `REQ-001-PLAN.md` rather than re-deriving this analysis. The open questions it lists (token model, device-revocation storage, 401-vs-403 on cross-workspace access) should be resolved as part of that implementation's own ADR, once one is written against an actual chosen provider.
+Phase 4 (Core Platform) implementation work on `REQ-001` should start from `REQ-001-PLAN.md` rather than re-deriving this analysis. The open questions it lists (token model, device-revocation storage, 401-vs-403 on cross-workspace access) have since been resolved by `ADR-0022` (Authentication Architecture, Sprint 4.3) — implementation should follow that decision rather than re-opening these questions.
 
 ## Constitution/Handbook Impact
 
@@ -43,4 +43,5 @@ None. This planning pass did not propose, and does not require, any change to `C
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.1 | 2026-08-01 | Noted in "Future Epic Impact" that `ADR-0022` (Sprint 4.3) has since resolved the open questions this ECIA's planning pass left open. No change to the original Impact Analysis — it remains an accurate record of Sprint 4.2's scope. |
 | 1.0 | 2026-08-01 | Initial ECIA, covering the authentication planning pass (EPIC-004 Sprint 4.2). No code, schema, or API changes — planning only. |

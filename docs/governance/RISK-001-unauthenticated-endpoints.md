@@ -22,7 +22,7 @@ No automated detection exists today — there's nothing to authenticate, so ther
 
 ## Mitigation Strategy
 
-Implement `REQ-001` (Authentication), per `ARCH-001`'s existing design (managed auth provider, session tokens, device revocation) and the planning already done in `REQ-001-PLAN.md`. Until then: this risk is accepted for local/single-developer use (per `ARCH-001`'s explicit framing of authentication as protecting one account, not multi-tenant isolation), and any deployment beyond a trusted local network should not occur before `REQ-001` is implemented.
+Implement `REQ-001` (Authentication), per `ARCH-001`'s existing design and `ADR-0022`'s decided provider (Supabase Auth), token model (JWT access + rotating opaque refresh), and workspace authorization enforcement. Until then: this risk is accepted for local/single-developer use (per `ARCH-001`'s explicit framing of authentication as protecting one account, not multi-tenant isolation), and any deployment beyond a trusted local network should not occur before `REQ-001` is implemented.
 
 ## Contingency Plan
 
@@ -30,7 +30,7 @@ If a deployed instance is found to have been accessed without authorization: rot
 
 ## Related ADRs
 
-None registered yet.
+`ADR-0022` (Authentication Architecture) — the decision that makes closing this risk possible to implement. This risk remains `Confirmed` and open until implementation actually ships.
 
 ## Related Requirements
 
@@ -48,4 +48,5 @@ None registered yet.
 
 | Version | Date | Reviewer | Change |
 | --- | --- | --- | --- |
+| 1.1 | 2026-08-01 | Product owner | Added `ADR-0022` reference (Sprint 4.3) as the decision enabling mitigation. Status remains `Confirmed` — not resolved until implemented. |
 | 1.0 | 2026-08-01 | Product owner | Initial identification, during `REQ-001` implementation planning (EPIC-004 Sprint 4.2). |

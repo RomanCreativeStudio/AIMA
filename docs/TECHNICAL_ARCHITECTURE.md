@@ -9,7 +9,7 @@
 **Dependencies:** `CONST-001`, `HB-001`
 **Dependents:** ADRs, API docs, database docs, implementation plans
 **Review Frequency:** Every architecture-impacting sprint
-**Last Updated:** 2026-07-31
+**Last Updated:** 2026-08-01
 **Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/README.md`](README.md)
 
 ---
@@ -100,6 +100,7 @@ All clients are **thin, presentation-focused surfaces** over the same backend AP
 ### Authentication
 - Single-user system in early versions — authentication exists primarily to secure the account against unauthorized device/browser access, not to manage multiple tenants.
 - Use a managed auth provider (Section 8) rather than building auth from scratch — solo developer time is better spent on AIMA's actual value.
+- The specific provider, token/session model, device revocation mechanics, identity mapping, and workspace authorization enforcement are decided in [ADR 0022](decisions/0022-authentication-architecture.md) — not yet implemented as of that decision.
 - Session-based auth for clients (short-lived access tokens + refresh tokens), device-level revocation supported (e.g., "sign out this device") from day one, since this is a security-relevant control that's cheap to add early and expensive to retrofit.
 
 ### Database
@@ -319,6 +320,7 @@ Recommendations are optimized for **one developer, Apple-first, low operational 
 - Managed auth provider (Section 8) with short-lived access tokens and refresh tokens.
 - Per-device session tracking with user-visible "signed in devices" list and one-tap revocation.
 - All authentication endpoints rate-limited to mitigate credential-stuffing/brute-force attempts, even in a single-user system (defense against a compromised password).
+- See [ADR 0022](decisions/0022-authentication-architecture.md) for the decided provider (Supabase Auth), JWT-access/rotating-opaque-refresh token model, and locally-owned device/session storage.
 
 ### Data Protection
 - Encryption in transit (TLS everywhere) and at rest (managed database/storage encryption).

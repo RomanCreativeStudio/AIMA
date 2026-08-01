@@ -32,7 +32,7 @@ None registered yet. `REQ-002` (User Management) and `REQ-003` (Workspace Manage
 
 ## Related ADRs
 
-None registered yet — no ADR has decided the specific managed auth provider or session library.
+`ADR-0022` (Authentication Architecture) — decides the provider (Supabase Auth via an `AuthProvider` abstraction), token/session model (JWT access + rotating opaque refresh), device/session revocation, identity mapping, and workspace authorization enforcement.
 
 ## Related Architecture
 
@@ -54,5 +54,6 @@ Not yet implemented. Implementation planning (current-state audit, session lifec
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.2 | 2026-08-01 | Added `ADR-0022` (Authentication Architecture) reference following EPIC-004 Sprint 4.3. No change to Status, Acceptance Criteria, or scope — the ADR decides *how* this requirement will be implemented, not whether it's required. |
 | 1.1 | 2026-08-01 | Added planning cross-references (`REQ-001-PLAN`, `ECIA-001`, `RISK-001`) following EPIC-004 Sprint 4.2 (Authentication Foundation Planning). No change to Status, Acceptance Criteria, or scope — planning only, no code written. |
 | 1.0 | 2026-08-01 | Initial requirement, formalizing `ARCH-001`'s existing, not-yet-built authentication design. |
