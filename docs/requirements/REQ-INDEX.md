@@ -29,11 +29,15 @@ This is the single, canonical index of every Requirement in AIMA. It exists so a
 
 | Requirement ID | Title | Status | Priority | Category | File |
 | --- | --- | --- | --- | --- | --- |
-| _(none yet)_ | | | | | |
+| REQ-001 | Authentication | Approved | High | Security | [`REQ-001-authentication.md`](REQ-001-authentication.md) |
+| REQ-002 | User Management | Approved | High | Functional | [`REQ-002-user-management.md`](REQ-002-user-management.md) |
+| REQ-003 | Workspace Management | Approved | High | Functional | [`REQ-003-workspace-management.md`](REQ-003-workspace-management.md) |
+| REQ-004 | Permission Engine | Approved | Critical | Security | [`REQ-004-permission-engine.md`](REQ-004-permission-engine.md) |
+| REQ-005 | Configuration Management | Approved | High | Non-Functional | [`REQ-005-configuration-management.md`](REQ-005-configuration-management.md) |
 
-No requirements have been formally authored in AIMA yet. This table will be populated as `REQ-00NN` entries are created from [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md).
+REQ-002 through REQ-005 document existing, implemented Core Platform systems; REQ-001 documents `ARCH-001`'s existing authentication design, which is not yet built (see the requirement's own repository audit finding).
 
-**Next available ID:** `REQ-001`.
+**Next available ID:** `REQ-006`.
 
 ## Status Legend
 
@@ -45,4 +49,4 @@ No requirements have been formally authored in AIMA yet. This table will be popu
 
 ## Relationship to `RTM-001`
 
-[`RTM.md`](RTM.md) (`RTM-001`) is the canonical Requirements Traceability Matrix and contains one illustrative row, `REQ-001 Placeholder`, showing the `Requirement → Architecture → ADR → Database → API → Implementation → Tests → Documentation` chain every requirement must map through. That row is example scaffolding, not a registered requirement — it predates this index and is left in place as-is (preserve existing work). Once a real `REQ-001` is authored here using [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md), it becomes the actual `REQ-001`, and should gain a real row in `RTM-001`; the two are not the same thing and the placeholder text should not be mistaken for a decided requirement.
+[`RTM.md`](RTM.md) (`RTM-001`) is the canonical Requirements Traceability Matrix. It now carries real rows for `REQ-001` through `REQ-005`, alongside the original illustrative `REQ-001 Placeholder` row — which predates this index, is not a registered requirement, and is left in place as historical scaffolding (`HB-001`'s Documentation Review Workflow: preserve existing content rather than delete it). Do not confuse the placeholder row with the real `REQ-001` below it.

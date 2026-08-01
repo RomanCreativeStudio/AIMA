@@ -93,6 +93,23 @@ function getDeclaredDocumentId(headerBlock) {
   return value ? value.replace(/`/g, '').trim() : null;
 }
 
+/**
+ * A "lightweight numbered record" (e.g. ADR-0001, REQ-003, RISK-012) is an
+ * itemized entry under one of the five record-style prefixes, governed by
+ * its own template's lighter header, not the full ADS v1.0 block — the same
+ * convention the historical ADR-0001..0021 files already established
+ * (docs/decisions/ADR-TEMPLATE.md's scope note). Canonical governance
+ * documents (indexes, templates, and singular artifacts like HB-001,
+ * RTM-001, AI-GUIDE-001) still require full ADS. This distinguishes the two
+ * so Checks 2-4 don't require an ADR/REQ/RISK/TD/ECIA record's lightweight
+ * header to look like a canonical document's, or expect it to be registered
+ * individually where the repo's convention is a single range/prefix entry
+ * (e.g. "ADR-0001+") instead.
+ */
+function isLightweightRecordId(id) {
+  return /^(ADR|REQ|RISK|TD|ECIA)-\d{3,4}$/.test(id);
+}
+
 // ---------------------------------------------------------------------------
 // Check 1: Broken internal links
 // ---------------------------------------------------------------------------
@@ -135,7 +152,9 @@ function checkMissingADSFields(files) {
   for (const file of files) {
     const content = fs.readFileSync(file, 'utf8');
     const header = getHeaderBlock(content);
-    if (!getDeclaredDocumentId(header)) continue; // not an ADS-governed doc; not in scope
+    const id = getDeclaredDocumentId(header);
+    if (!id) continue; // not an ADS-governed doc; not in scope
+    if (isLightweightRecordId(id)) continue; // governed by its own template's lighter header, not full ADS
     const missing = ADS_REQUIRED_FIELDS.filter((f) => getFieldLine(header, f) === null);
     if (missing.length > 0) {
       problems.push({ file: relPath(file), missing });
@@ -210,6 +229,7 @@ function loadRegistry(hbContent) {
 function checkStableIdRegistration(declaredIds, registeredStableIds) {
   const problems = [];
   for (const [id, file] of declaredIds) {
+    if (isLightweightRecordId(id)) continue; // registered as a range/prefix (e.g. "ADR-0001+"), not individually
     if (!registeredStableIds.has(id)) {
       problems.push({ id, file, detail: `not found in HB-001's Master Documentation Index` });
     }
@@ -225,6 +245,7 @@ function checkIndexDrift(declaredIds, docsReadmeContent) {
   const problems = [];
   for (const [id, file] of declaredIds) {
     if (!file.startsWith('docs/')) continue;
+    if (isLightweightRecordId(id)) continue; // covered by its own INDEX file, not individually from docs/README.md
     const basename = path.posix.basename(file);
     if (!docsReadmeContent.includes(basename)) {
       problems.push({ id, file, detail: `not referenced by filename from docs/README.md` });

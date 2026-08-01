@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.8.0
+**Version:** 2.8.1
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.8.1 | 2026-08-01 | First five real requirements authored: `REQ-001` (Authentication, `ARCH-001`'s existing but not-yet-built design), `REQ-002` (User Management), `REQ-003` (Workspace Management), `REQ-004` (Permission Engine), `REQ-005` (Configuration Management) — the latter four documenting existing, implemented Core Platform systems, grounded in real source paths, ADRs, and tests. Registered in `REQ-INDEX.md` and given real rows in `RTM.md` (whose prior placeholder row was renumbered `REQ-001`→`REQ-000` to remove the ID collision). Corrected this handbook's now-stale "no requirements registered yet" / "one illustrative placeholder row" status text in the Master Documentation Index (patch-level clarification, not new governance). No application code, architecture decisions, database changes, or APIs were introduced. |
 | 2.8.0 | 2026-08-01 | Added automated documentation validation: `scripts/validate-docs.js` (zero-dependency Node script) and `docs/governance/DOC-VALIDATION.md` (`DOC-VALIDATION-001`), checking broken internal links, missing ADS metadata, stable IDs unregistered in this handbook's Master Documentation Index, documentation index drift against `docs/README.md`, and invalid cross-references between governance documents. Registered `DOC-VALIDATION-*` in the Permanent Numbering Standard and `DOC-VALIDATION-001` in the Documentation Ownership and Master Documentation Index tables. Updated `AI-GUIDE-001`'s Validation Requirements to reference the new tool. Verified clean against the current repository (0 issues across all five checks). No application code, architecture, or fictional documentation entries were introduced. |
 | 2.7.0 | 2026-08-01 | Established the canonical AI Contributor Guide: added `docs/governance/AI-CONTRIBUTOR-GUIDE.md` (`AI-GUIDE-001`), the operational workflow reference for AI contributors (Claude, Codex, future agents), codifying the audit/preservation/do-not-invent/escalation discipline already demonstrated across this handbook's own governance-framework work and grounded in `CONST-001`'s Articles and this handbook's Documentation Review Workflow. Registered `AI-GUIDE-*` in the Permanent Numbering Standard and `AI-GUIDE-001` in the Documentation Ownership and Master Documentation Index tables. No new governance authority or invented policy was introduced. |
 | 2.6.0 | 2026-08-01 | Established the canonical Technical Debt Register framework: added `docs/governance/TD-INDEX.md` and `docs/governance/TD-TEMPLATE.md`, extended the inline one-line Technical Debt Register placeholder into the full framework (preserved, not deleted) with Reason Introduced/Affected Systems/Impact/Risk Level/Recommended Resolution/Estimated Effort/Related ADRs/Related Requirements/Related Architecture/Related ECIA/Related Risks/Review History fields, updated the Documentation Ownership row to point at the real (no longer "Future") `docs/governance/` location, and registered `TD-INDEX`/`TD-TEMPLATE` in the Master Documentation Index. No technical debt, risks, requirements, ADRs, or ECIA records were invented — the framework is empty by design. |
@@ -192,10 +193,10 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | ADR Template | `ADR-TEMPLATE` | [`docs/decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) | Active. Governs `ADR-0022` onward. |
 | Roadmap | `HB-ROADMAP` | Volume I and Volume XI below; [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) §10 | Active. |
 | Sprint Documentation | `SPR-*` | Future `docs/sprints/` | Placeholder. |
-| Requirements | `REQ-*` | [`docs/requirements/`](requirements/) | Framework active (`REQ-INDEX`/`REQ-TEMPLATE`); no requirements registered yet. |
+| Requirements | `REQ-*` | [`docs/requirements/`](requirements/) | Active. First 5 requirements registered (`REQ-001`–`REQ-005`, Core Platform foundations). |
 | Requirements Index | `REQ-INDEX` | [`docs/requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) | Active. Canonical index of every requirement's status and file; currently empty. |
 | Requirements Template | `REQ-TEMPLATE` | [`docs/requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) | Active. Governs how future requirements (`REQ-001` onward) are authored. |
-| Requirements Traceability Matrix | `RTM-001` | [`docs/requirements/RTM.md`](requirements/RTM.md) | Active. Canonical requirement↔architecture↔ADR↔database↔API↔implementation↔tests↔documentation matrix; currently one illustrative placeholder row. |
+| Requirements Traceability Matrix | `RTM-001` | [`docs/requirements/RTM.md`](requirements/RTM.md) | Active. Canonical requirement↔architecture↔ADR↔database↔API↔implementation↔tests↔documentation matrix; 5 real rows (`REQ-001`–`REQ-005`) plus 1 illustrative placeholder row (`REQ-000`). |
 | ECIA Index | `ECIA-INDEX` | [`docs/governance/ECIA-INDEX.md`](governance/ECIA-INDEX.md) | Active. Canonical index of every Engineering Change Impact Analysis record; currently empty. |
 | ECIA Template | `ECIA-TEMPLATE` | [`docs/governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md) | Active. Governs how future ECIA records (`ECIA-001` onward) are authored. |
 | API Documentation | `API-*` | Future `docs/api/` | Placeholder. |
