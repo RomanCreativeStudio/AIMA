@@ -6,7 +6,7 @@ Personal AI operating assistant for Roman Creative Studio, Mythic Forge Studios,
 
 Start here — these documents are the binding source of truth for product, architecture, and workflow decisions:
 
-- [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md) — highest-authority governance document placeholder pending authoritative Constitution text import.
+- [`docs/CONSTITUTION.md`](docs/CONSTITUTION.md) — `CONST-001`, the highest-authority governance document. Every other document defers to it.
 - [`docs/PRODUCT_BIBLE.md`](docs/PRODUCT_BIBLE.md) — AIMA Engineering Handbook v2.0; product vision, engineering governance, ADS v1.0, traceability, ECIA, permission tiers, and roadmap.
 - [`docs/TECHNICAL_ARCHITECTURE.md`](docs/TECHNICAL_ARCHITECTURE.md) — engineering blueprint.
 - [`docs/DEVELOPMENT_SETUP.md`](docs/DEVELOPMENT_SETUP.md) — tools, repo structure, branch strategy, local dev workflow.

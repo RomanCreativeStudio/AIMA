@@ -14,7 +14,7 @@
 
 ## Start Here
 
-1. [`CONSTITUTION.md`](CONSTITUTION.md) — `CONST-001`, highest-authority governance document placeholder pending authoritative text import.
+1. [`CONSTITUTION.md`](CONSTITUTION.md) — `CONST-001`, the highest-authority governance document.
 2. [`PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md) — `HB-001`, AIMA Engineering Handbook v2.0 and preserved Product Bible content.
 3. [`TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) — `ARCH-001`, engineering blueprint.
 4. [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) — local development and workflow guide.

@@ -161,7 +161,7 @@ Every new major chapter should include these headings, using **Placeholder** whe
 
 | Document Area | Stable ID | Current Location | Status |
 | --- | --- | --- | --- |
-| Constitution | `CONST-001` | [`docs/CONSTITUTION.md`](CONSTITUTION.md) | Placeholder created for highest-authority governance alignment. |
+| Constitution | `CONST-001` | [`docs/CONSTITUTION.md`](CONSTITUTION.md) | Active. Highest-authority governance document. |
 | Engineering Handbook | `HB-001` | [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md) | Active. |
 | Technical Architecture | `ARCH-001` | [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) | Active companion architecture document. |
 | ADRs | `ADR-0001+` | [`docs/decisions/`](decisions/) | Active decision log. |
