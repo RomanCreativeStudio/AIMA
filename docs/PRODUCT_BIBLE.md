@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.1.0
+**Version:** 2.2.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.2.0 | 2026-08-01 | Established the Requirements framework: added `docs/requirements/REQ-TEMPLATE.md` and `docs/requirements/REQ-INDEX.md`, registered `REQ-INDEX`/`REQ-TEMPLATE` in the Master Documentation Index, updated the Documentation Ownership table's Requirements row to point at the real (no longer "Future") `docs/requirements/` location, and added a note to the Requirements Traceability Matrix clarifying its `REQ-001 Placeholder` row is illustrative, not a registered requirement. No requirements were authored — the framework is empty by design. |
 | 2.1.0 | 2026-08-01 | Established the ADR framework: added `docs/decisions/ADR-TEMPLATE.md` and `docs/decisions/ADR-INDEX.md`, registered `ADR-INDEX`/`ADR-TEMPLATE` in the Master Documentation Index, and replaced this handbook's inline ADR list with a pointer to the new canonical index (per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it). |
 | 2.0.1 | 2026-08-01 | Reconciliation patch: imported the authoritative Constitution text into `CONST-001` (replacing its placeholder), cleared now-stale "placeholder" language pointing at it, and registered `DEV-001`/`DEPLOY-001`/`DOC-INDEX-001` in the Permanent Numbering Standard, Documentation Ownership, and Master Documentation Index tables — those documents already declared these IDs in their own ADS headers but were never added to the registries. |
 | 2.0.0 | 2026-07-31 | Reorganized the Product Bible into the AIMA Engineering Handbook v2.0, added ADS v1.0, stable IDs, volume structure, traceability, ECIA, and governance. |
@@ -79,7 +80,7 @@ Update this handbook when any of the following occurs:
 | Handbook | `HB-*` | Lead Product Architect / Lead Software Architect | `docs/PRODUCT_BIBLE.md` |
 | Architecture | `ARCH-*` | Lead Software Architect | `docs/TECHNICAL_ARCHITECTURE.md` and future `docs/architecture/` |
 | ADRs | `ADR-*` | Authoring engineer + reviewer | `docs/decisions/` |
-| Requirements | `REQ-*` | Product owner | Future `docs/requirements/` |
+| Requirements | `REQ-*` | Product owner | `docs/requirements/` |
 | APIs | `API-*` | Backend owner | Future `docs/api/` |
 | Risks | `RISK-*` | Engineering Council | Future `docs/governance/risk-register.md` |
 | Technical debt | `TD-*` | Engineering Council | Future `docs/governance/technical-debt-register.md` |
@@ -177,7 +178,9 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | ADR Template | `ADR-TEMPLATE` | [`docs/decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) | Active. Governs `ADR-0022` onward. |
 | Roadmap | `HB-ROADMAP` | Volume I and Volume XI below; [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) §10 | Active. |
 | Sprint Documentation | `SPR-*` | Future `docs/sprints/` | Placeholder. |
-| Requirements | `REQ-*` | Future `docs/requirements/` | Placeholder. |
+| Requirements | `REQ-*` | [`docs/requirements/`](requirements/) | Framework active (`REQ-INDEX`/`REQ-TEMPLATE`); no requirements registered yet. |
+| Requirements Index | `REQ-INDEX` | [`docs/requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) | Active. Canonical index of every requirement's status and file; currently empty. |
+| Requirements Template | `REQ-TEMPLATE` | [`docs/requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) | Active. Governs how future requirements (`REQ-001` onward) are authored. |
 | API Documentation | `API-*` | Future `docs/api/` | Placeholder. |
 | Database Documentation | `DB-*` | [`database/README.md`](../database/README.md), future `docs/database/` | Partial. |
 | Risk Register | `RISK-*` | Future `docs/governance/risk-register.md` | Placeholder. |
@@ -506,6 +509,8 @@ Requirement → Architecture → ADR → Database → API → Implementation →
 | Requirement | Architecture | ADR | Database | API | Implementation | Tests | Documentation |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `REQ-001` Placeholder | `ARCH-001` Placeholder | `ADR-0001+` Placeholder | `DB-001` Placeholder | `API-001` Placeholder | Placeholder | Placeholder | Placeholder |
+
+The row above is illustrative scaffolding, not a registered requirement. Actual requirements are authored with [`docs/requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) and registered in the canonical [`docs/requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md); this matrix section documents the required traceability chain, it is not itself the requirements list.
 
 ## Engineering Change Impact Analysis (ECIA)
 

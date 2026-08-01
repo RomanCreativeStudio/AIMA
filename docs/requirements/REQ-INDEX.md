@@ -1,0 +1,48 @@
+# AIMA Requirements Index
+
+**Document ID:** REQ-INDEX
+**Document Name:** AIMA Requirements Index
+**Version:** 1.0.0
+**Status:** Active
+**Authority Level:** Operational index; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
+**Owner:** Product owner (per `HB-001`'s Documentation Ownership table)
+**Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`
+**Dependents:** Contributors, future requirements, `HB-001`'s Requirements Traceability Matrix
+**Review Frequency:** Every new or changed requirement
+**Last Updated:** 2026-08-01
+**Related Documents:** [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md)
+
+---
+
+## Purpose
+
+This is the single, canonical index of every Requirement in AIMA. It exists so a requirement's status, priority, and file location can be found in one place. This file is authoritative for the requirements list; `HB-001`'s Requirements Traceability Matrix section is about the traceability chain a requirement must map through, not a second registry — see "Relationship to `HB-001`" below.
+
+## Adding a New Requirement
+
+1. Start from [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md).
+2. Use the next sequential number after the highest one below.
+3. Add a row to the table, in numeric order.
+4. Never reuse or renumber a stable Requirement ID after publication (`HB-001`'s Permanent Numbering Standard).
+
+## Index
+
+| Requirement ID | Title | Status | Priority | Category | File |
+| --- | --- | --- | --- | --- | --- |
+| _(none yet)_ | | | | | |
+
+No requirements have been formally authored in AIMA yet. This table will be populated as `REQ-00NN` entries are created from [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md).
+
+**Next available ID:** `REQ-001`.
+
+## Status Legend
+
+- **Proposed** — drafted, not yet reviewed/approved.
+- **Approved** — reviewed and accepted; implementation not necessarily complete.
+- **Implemented** — built and traceable to source/tests.
+- **Deprecated** — no longer required, withdrawn without a replacement.
+- **Superseded by REQ-00NN** — replaced by a specific later requirement; the original text is preserved, not deleted (`CONST-001` Article X).
+
+## Relationship to `HB-001`'s Requirements Traceability Matrix
+
+`HB-001` §"Requirements Traceability Matrix" contains one illustrative row, `REQ-001 Placeholder`, showing the `Requirement → Architecture → ADR → Database → API → Implementation → Tests → Documentation` chain every requirement must map through. That row is example scaffolding, not a registered requirement — it predates this index and is left in place as-is (preserve existing work). Once a real `REQ-001` is authored here using [`REQ-TEMPLATE.md`](REQ-TEMPLATE.md), it becomes the actual `REQ-001`; the two are not the same thing and the placeholder text should not be mistaken for a decided requirement.

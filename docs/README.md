@@ -20,6 +20,7 @@
 4. [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) — `DEV-001`, local development and workflow guide.
 5. [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — `DEPLOY-001`, production deployment and operations guide.
 6. [`decisions/`](decisions/) — Architecture Decision Records (`ADR-*`). Start at [`decisions/ADR-INDEX.md`](decisions/ADR-INDEX.md) (canonical index) and [`decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) (template for new ADRs).
+7. [`requirements/`](requirements/) — Requirements (`REQ-*`). Start at [`requirements/REQ-INDEX.md`](requirements/REQ-INDEX.md) (canonical index) and [`requirements/REQ-TEMPLATE.md`](requirements/REQ-TEMPLATE.md) (template for new requirements); no requirements are registered yet.
 
 ## Documentation Map
 
@@ -31,7 +32,7 @@
 | ADRs | [`decisions/`](decisions/) | `ADR-*` |
 | Development Setup | [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | `DEV-*` |
 | Production Setup | [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) | `DEPLOY-*` |
-| Requirements | Future `requirements/` | `REQ-*` |
+| Requirements | [`requirements/`](requirements/) | `REQ-*` |
 | APIs | Future `api/` | `API-*` |
 | Database | [`../database/README.md`](../database/README.md), future `database/` | `DB-*` |
 | Risk Register | Future `governance/risk-register.md` | `RISK-*` |
