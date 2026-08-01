@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.4.0
+**Version:** 2.5.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.5.0 | 2026-08-01 | Established the canonical Risk Register framework: added `docs/governance/RISK-INDEX.md` and `docs/governance/RISK-TEMPLATE.md`, extended the inline one-line Risk Register placeholder into the full framework (preserved, not deleted) with Detection Method/Mitigation Strategy/Contingency Plan/Related ADRs/Related Requirements/Related Architecture/Related ECIA/Review History fields, updated the Documentation Ownership row to point at the real (no longer "Future") `docs/governance/` location, and registered `RISK-INDEX`/`RISK-TEMPLATE` in the Master Documentation Index. No risks, requirements, ADRs, or ECIA records were invented — the framework is empty by design. |
 | 2.4.0 | 2026-08-01 | Established the canonical Engineering Change Impact Analysis (ECIA) framework: added `docs/governance/ECIA-INDEX.md` and `docs/governance/ECIA-TEMPLATE.md`, moved the inline ECIA checklist and template there (preserved, not deleted) and extended them with Architecture/ADRs/Implementation/Security/Operations categories, registered `ECIA-*` in the Permanent Numbering Standard and `ECIA-INDEX`/`ECIA-TEMPLATE` in the Documentation Ownership and Master Documentation Index tables. No ECIA records, requirements, ADRs, implementations, or tests were invented — the framework is empty by design. |
 | 2.3.0 | 2026-08-01 | Established the canonical Requirements Traceability Matrix: added `docs/requirements/RTM.md` (`RTM-001`), moved the inline Requirements Traceability Matrix section's table and column definitions there (preserved, not deleted), registered `RTM-*` in the Permanent Numbering Standard and `RTM-001` in the Documentation Ownership and Master Documentation Index tables. No requirements, ADRs, implementations, or tests were invented — the matrix's one row remains the pre-existing illustrative placeholder. |
 | 2.2.0 | 2026-08-01 | Established the Requirements framework: added `docs/requirements/REQ-TEMPLATE.md` and `docs/requirements/REQ-INDEX.md`, registered `REQ-INDEX`/`REQ-TEMPLATE` in the Master Documentation Index, updated the Documentation Ownership table's Requirements row to point at the real (no longer "Future") `docs/requirements/` location, and added a note to the Requirements Traceability Matrix clarifying its `REQ-001 Placeholder` row is illustrative, not a registered requirement. No requirements were authored — the framework is empty by design. |
@@ -84,7 +85,7 @@ Update this handbook when any of the following occurs:
 | ADRs | `ADR-*` | Authoring engineer + reviewer | `docs/decisions/` |
 | Requirements | `REQ-*` | Product owner | `docs/requirements/` |
 | APIs | `API-*` | Backend owner | Future `docs/api/` |
-| Risks | `RISK-*` | Engineering Council | Future `docs/governance/risk-register.md` |
+| Risks | `RISK-*` | Engineering Council | `docs/governance/` |
 | Technical debt | `TD-*` | Engineering Council | Future `docs/governance/technical-debt-register.md` |
 | Sprints | `SPR-*` | Sprint owner | Future `docs/sprints/` |
 | Development Setup | `DEV-*` | Lead Software Architect | `docs/DEVELOPMENT_SETUP.md` |
@@ -192,7 +193,9 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | ECIA Template | `ECIA-TEMPLATE` | [`docs/governance/ECIA-TEMPLATE.md`](governance/ECIA-TEMPLATE.md) | Active. Governs how future ECIA records (`ECIA-001` onward) are authored. |
 | API Documentation | `API-*` | Future `docs/api/` | Placeholder. |
 | Database Documentation | `DB-*` | [`database/README.md`](../database/README.md), future `docs/database/` | Partial. |
-| Risk Register | `RISK-*` | Future `docs/governance/risk-register.md` | Placeholder. |
+| Risk Register | `RISK-*` | [`docs/governance/`](governance/) | Framework active (`RISK-INDEX`/`RISK-TEMPLATE`); no risks registered yet. |
+| Risk Register Index | `RISK-INDEX` | [`docs/governance/RISK-INDEX.md`](governance/RISK-INDEX.md) | Active. Canonical index of every risk entry's status, severity, and file; currently empty. |
+| Risk Register Template | `RISK-TEMPLATE` | [`docs/governance/RISK-TEMPLATE.md`](governance/RISK-TEMPLATE.md) | Active. Governs how future risk entries (`RISK-001` onward) are authored. |
 | Technical Debt Register | `TD-*` | Future `docs/governance/technical-debt-register.md` | Placeholder. |
 | Development Setup | `DEV-001` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | Active. |
 | Documentation Index | `DOC-INDEX-001` | [`docs/README.md`](README.md) | Active. |
@@ -503,7 +506,9 @@ ADRs live in [`docs/decisions/`](decisions/). They preserve historical context a
 
 ## Risk Register
 
-**Placeholder:** Future `RISK-*` items should record description, affected areas, likelihood, impact, mitigation, owner, status, and review date.
+Risks should be tracked with description, affected areas, likelihood, impact, mitigation, owner, status, and review date.
+
+The canonical Risk Register now lives in [`docs/governance/RISK-INDEX.md`](governance/RISK-INDEX.md) (canonical index) and [`docs/governance/RISK-TEMPLATE.md`](governance/RISK-TEMPLATE.md) (`RISK-TEMPLATE`, the authoring template). This handbook's original one-line placeholder was extended, not deleted, into the full framework — per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it. No risk has been identified yet; the index is currently empty.
 
 ## Technical Debt Register
 
