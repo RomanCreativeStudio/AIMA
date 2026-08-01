@@ -30,8 +30,9 @@ This is the single, canonical index of every risk entry in AIMA's Risk Register.
 | Risk ID | Title | Status | Severity | Probability | Owner | File |
 | --- | --- | --- | --- | --- | --- | --- |
 | RISK-001 | Every Backend Endpoint Is Reachable Without Authentication | Closed | Critical | High | Lead Software Architect | [`RISK-001-unauthenticated-endpoints.md`](RISK-001-unauthenticated-endpoints.md) |
+| RISK-002 | Live Supabase Project Exposed the Public Schema via PostgREST | Closed | Critical | High | Lead Software Architect | [`RISK-002-postgrest-public-schema-exposure.md`](RISK-002-postgrest-public-schema-exposure.md) |
 
-**Next available ID:** `RISK-002`.
+**Next available ID:** `RISK-003`.
 
 ## Status Legend
 

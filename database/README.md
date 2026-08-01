@@ -53,6 +53,10 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `executions` | One row per requested external action — `provider`, `action_type`, `status`, `request_payload`/`response_summary` (JSONB), `error_details`, a nullable `pending_approval_id` FK, `started_at`/`completed_at`, ordered by a monotonic `sequence` column (`0014_executions.sql`). Created/read by `backend/src/execution/executionService.ts`. |
 | `auth_sessions` | One row per issued session/device — `user_id` FK, `device_label`, a unique `refresh_token_hash` (never the raw token), `created_at`/`last_seen_at`/`revoked_at` (`0020_auth_sessions.sql`). The authoritative local record of "which devices are signed in" and "is this session still valid," independent of the auth provider's own state (docs/decisions/0022-authentication-architecture.md, Decision 3). Created/read by `backend/src/auth/sessionService.ts`. |
 
+## Security boundary (RLS)
+
+Row Level Security is deliberately **not** used on any table. The application backend (`backend/src/db/pool.ts`) is the sole database access path — a direct `pg` connection over `DATABASE_URL`, distinct from the Supabase `anon`/`authenticated` roles PostgREST serves requests as — and all authorization (`requireAuth`, `requireWorkspaceOwnership`/`requireUserOwnership`, `PermissionEngine`) happens in application code in front of every query, per `docs/TECHNICAL_ARCHITECTURE.md` §3 ("the API layer is the only component allowed to talk to the database"). On the live Supabase project, `anon`/`authenticated` PostgREST access to every `public` table is revoked (including `ALTER DEFAULT PRIVILEGES` so future tables stay closed automatically) rather than gated with row policies — see [`docs/decisions/0024-database-security-boundary.md`](../docs/decisions/0024-database-security-boundary.md) (`ADR-0024`) for the investigation and full reasoning. A Supabase security advisor scan will still report `rls_disabled_in_public` for every table; that finding is a known, accepted false positive for this architecture (ADR-0024's Trade-offs section explains why), not an unaddressed gap.
+
 ## Running migrations locally
 
 ```bash

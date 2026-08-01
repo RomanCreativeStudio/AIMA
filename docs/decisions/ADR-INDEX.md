@@ -52,13 +52,14 @@ This is the single, canonical index of every Architecture Decision Record in AIM
 | ADR-0021 | Semantic Search & Context Retrieval | Decided | 2026-07-29 | [`0021-semantic-search-and-context-retrieval.md`](0021-semantic-search-and-context-retrieval.md) |
 | ADR-0022 | Authentication Architecture | Decided | 2026-08-01 | [`0022-authentication-architecture.md`](0022-authentication-architecture.md) |
 | ADR-0023 | Authentication Rate Limiting | Decided | 2026-08-01 | [`0023-authentication-rate-limiting.md`](0023-authentication-rate-limiting.md) |
+| ADR-0024 | Database Security Boundary (RLS Decision) | Decided | 2026-08-01 | [`0024-database-security-boundary.md`](0024-database-security-boundary.md) |
 
-**Next available ID:** `ADR-0024`.
+**Next available ID:** `ADR-0025`.
 
 ## Status Legend
 
 - **Proposed** — drafted, not yet reviewed/adopted.
-- **Decided** — adopted and in effect. All 22 entries above are `Decided`; none have been superseded to date.
+- **Decided** — adopted and in effect. All 23 entries above are `Decided`; none have been superseded to date.
 - **Deprecated** — no longer recommended, but not replaced by a specific later ADR.
 - **Superseded by ADR-00NN** — replaced by a specific later decision; the original text is preserved, not deleted (`CONST-001` Article X).
 
