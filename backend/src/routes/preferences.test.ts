@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -216,7 +219,7 @@ test('PUT /api/workspaces/:id/preferences sets a preference and logs the action'
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'formal' }),
       });
 
@@ -246,16 +249,18 @@ test('PUT .../preferences upserts on (category, key) instead of duplicating', as
     try {
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'formal' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'casual' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/preferences`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/preferences`, {
+        headers: authHeader(userId),
+      });
       const body = (await response.json()) as { preferences: Array<{ value: string }> };
       assert.equal(body.preferences.length, 1);
       assert.equal(body.preferences[0].value, 'casual');
@@ -271,7 +276,7 @@ test('PUT .../preferences rejects an invalid category', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ category: 'not_a_real_category', key: 'tone', value: 'formal' }),
       });
       assert.equal(response.status, 400);
@@ -282,13 +287,18 @@ test('PUT .../preferences rejects an invalid category', async () => {
 });
 
 test('PUT .../preferences rejects an unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/preferences`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'formal' }),
-    });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'formal' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -299,26 +309,30 @@ test('GET .../preferences lists preferences scoped to the workspace and can filt
     try {
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'formal' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ category: 'workflow_preferences', key: 'cadence', value: 'weekly' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ category: 'writing_style', key: 'tone', value: 'playful' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences`, {
+        headers: authHeader(a.userId),
+      });
       const body = (await response.json()) as { preferences: Array<{ workspaceId: string }> };
       assert.equal(body.preferences.length, 2);
       assert.ok(body.preferences.every((preference) => preference.workspaceId === a.workspaceId));
 
-      const filtered = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences?category=writing_style`);
+      const filtered = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences?category=writing_style`, {
+        headers: authHeader(a.userId),
+      });
       const filteredBody = (await filtered.json()) as { preferences: Array<{ key: string }> };
       assert.equal(filteredBody.preferences.length, 1);
       assert.equal(filteredBody.preferences[0].key, 'tone');
@@ -336,18 +350,20 @@ test('DELETE .../preferences/:id removes the preference; 404s across workspaces'
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ category: 'project_rules', key: 'deploy_freeze', value: 'no deploys after 5pm' }),
       });
       const { preference } = (await createResponse.json()) as { preference: { id: string } };
 
       const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/preferences/${preference.id}`, {
         method: 'DELETE',
+        headers: authHeader(b.userId),
       });
       assert.equal(crossResponse.status, 404);
 
       const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/preferences/${preference.id}`, {
         method: 'DELETE',
+        headers: authHeader(a.userId),
       });
       assert.equal(deleteResponse.status, 200);
     } finally {

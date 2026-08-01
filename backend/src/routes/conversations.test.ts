@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -216,7 +219,7 @@ test('POST /api/workspaces/:id/conversations creates a conversation', async () =
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ title: 'Client onboarding' }),
       });
 
@@ -231,13 +234,18 @@ test('POST /api/workspaces/:id/conversations creates a conversation', async () =
 });
 
 test('POST .../conversations rejects an unknown workspaceId with 404', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/conversations`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/conversations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({}),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -248,32 +256,34 @@ test('GET /api/workspaces/:id/conversations lists conversations newest-active-fi
     try {
       const first = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ title: 'First' }),
       });
       const { conversation: firstConversation } = (await first.json()) as { conversation: { id: string } };
 
       const second = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ title: 'Second' }),
       });
       const { conversation: secondConversation } = (await second.json()) as { conversation: { id: string } };
 
       await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ title: 'Other workspace' }),
       });
 
       // Sending a message to the first conversation should bump it back to the top.
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations/${firstConversation.id}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ content: 'hello again' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`, {
+        headers: authHeader(a.userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { conversations: Array<{ id: string; workspaceId: string }> };
       assert.equal(body.conversations.length, 2);
@@ -288,9 +298,16 @@ test('GET /api/workspaces/:id/conversations lists conversations newest-active-fi
 });
 
 test('GET .../conversations rejects an unknown workspaceId with 404', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/conversations`);
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/conversations`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -300,7 +317,7 @@ test('full pipeline: create conversation, send a message, read it back in histor
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({}),
       });
       const { conversation } = (await createResponse.json()) as { conversation: { id: string } };
@@ -309,7 +326,7 @@ test('full pipeline: create conversation, send a message, read it back in histor
         `${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversation.id}/messages`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
           body: JSON.stringify({ content: 'What is the status of the Acme project?' }),
         },
       );
@@ -325,6 +342,7 @@ test('full pipeline: create conversation, send a message, read it back in histor
 
       const historyResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversation.id}/messages`,
+        { headers: authHeader(userId) },
       );
       assert.equal(historyResponse.status, 200);
       const historyBody = (await historyResponse.json()) as { messages: Array<{ role: string }> };
@@ -344,7 +362,7 @@ test('sending a message to a conversation via the wrong workspace returns 404', 
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({}),
       });
       const { conversation } = (await createResponse.json()) as { conversation: { id: string } };
@@ -353,7 +371,7 @@ test('sending a message to a conversation via the wrong workspace returns 404', 
         `${baseUrl}/api/workspaces/${b.workspaceId}/conversations/${conversation.id}/messages`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
           body: JSON.stringify({ content: 'hello' }),
         },
       );
@@ -371,7 +389,7 @@ test('POST .../messages rejects empty content with 400', async () => {
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({}),
       });
       const { conversation } = (await createResponse.json()) as { conversation: { id: string } };
@@ -380,7 +398,7 @@ test('POST .../messages rejects empty content with 400', async () => {
         `${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversation.id}/messages`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
           body: JSON.stringify({ content: '' }),
         },
       );

@@ -3,6 +3,7 @@ import express, { type Application } from 'express';
 import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
+import type { AuthProvider } from './auth/types';
 import type { ActionLogger } from './actionLog/logger';
 import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
@@ -35,6 +36,9 @@ import { ConsoleLogger } from './logging/consoleLogger';
 import type { ErrorReporter } from './monitoring/types';
 import { ConsoleErrorReporter } from './monitoring/consoleErrorReporter';
 import { requestLogger } from './middleware/requestLogger';
+import { requireAuth } from './middleware/auth';
+import { requireUserOwnership } from './middleware/userOwnership';
+import { requireWorkspaceOwnership } from './middleware/workspaceOwnership';
 import { healthRouter } from './routes/health';
 import { capabilitiesRouter } from './routes/capabilities';
 import { aiRouter } from './routes/ai';
@@ -46,7 +50,7 @@ import { draftsRouter } from './routes/drafts';
 import { executionsRouter } from './routes/executions';
 import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
-import { oauthRouter } from './routes/oauth';
+import { oauthRouter, oauthCallbackRouter } from './routes/oauth';
 import { preferencesRouter } from './routes/preferences';
 import { proactiveRouter } from './routes/proactive';
 import { retrievalRouter } from './routes/retrieval';
@@ -60,6 +64,8 @@ import { createErrorHandler } from './middleware/errorHandler';
 export interface AppDependencies {
   pool: Pool;
   registry: CapabilityRegistry;
+  /** REQ-001/ADR-0022 (EPIC-004 Sprint 4.5): the authentication gate every `/api` route (other than the OAuth callback) sits behind. Required, not optional — unlike `logger`/`errorReporter`, there is no safe default that keeps the app secure if a call site forgets to supply one. */
+  authProvider: AuthProvider;
   permissionEngine: PermissionEngine;
   actionLogger: ActionLogger;
   memoryService: MemoryService;
@@ -112,6 +118,23 @@ export function createApp(deps: AppDependencies): Application {
   app.use(requestLogger(logger));
 
   app.use(healthRouter(deps.healthService));
+
+  // OAuth's callback is hit by an external provider's browser redirect,
+  // which carries no AIMA Authorization header — it must stay reachable
+  // ahead of the authentication gate below (see backend/src/routes/oauth.ts
+  // for why it can't require requireAuth or be workspace-scoped).
+  app.use('/api', oauthCallbackRouter({ oauthService: deps.oauthService }));
+
+  // Authentication gate (ADR-0022 Decision 2/5, REQ-001, EPIC-004 Sprint
+  // 4.5): every other /api route requires a verified caller identity.
+  app.use('/api', requireAuth(deps.authProvider));
+  // Account-boundary ownership checks — uniform 404 for "doesn't exist" vs
+  // "belongs to someone else" (ADR-0022 Decision 5). Path-scoped so they
+  // apply to every current and future route under these prefixes without
+  // each router needing to know auth exists.
+  app.use('/api/users/:userId', requireUserOwnership());
+  app.use('/api/workspaces/:workspaceId', requireWorkspaceOwnership(deps.workspaceService));
+
   app.use('/api', capabilitiesRouter(deps.registry));
   app.use('/api', aiRouter(deps.aiProvider));
   app.use(

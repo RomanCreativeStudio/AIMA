@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -162,6 +164,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool, gmailOAuth: Fake
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -221,7 +224,10 @@ test('POST /api/workspaces/:id/integrations/:provider/oauth/start returns an aut
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/oauth/start`, { method: 'POST' });
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/oauth/start`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
 
       assert.equal(response.status, 200);
       const body = (await response.json()) as { authorizationUrl: string };
@@ -236,10 +242,16 @@ test('POST .../oauth/start rejects an unknown provider or malformed workspaceId'
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const badProvider = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/not-a-provider/oauth/start`, { method: 'POST' });
+      const badProvider = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/not-a-provider/oauth/start`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       assert.equal(badProvider.status, 400);
 
-      const badWorkspace = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/integrations/gmail/oauth/start`, { method: 'POST' });
+      const badWorkspace = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/integrations/gmail/oauth/start`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       assert.equal(badWorkspace.status, 400);
     } finally {
       await cleanupWorkspace(pool, userId);
@@ -248,9 +260,17 @@ test('POST .../oauth/start rejects an unknown provider or malformed workspaceId'
 });
 
 test('POST .../oauth/start returns 404 for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/integrations/gmail/oauth/start`, { method: 'POST' });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/integrations/gmail/oauth/start`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -258,7 +278,10 @@ test('GET /api/oauth/:provider/callback completes the connection and renders a s
   await withTestServer(async (baseUrl, pool, gmailOAuth) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const startResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/oauth/start`, { method: 'POST' });
+      const startResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/oauth/start`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const { authorizationUrl } = (await startResponse.json()) as { authorizationUrl: string };
       const state = new URL(authorizationUrl).searchParams.get('state')!;
 
@@ -269,7 +292,9 @@ test('GET /api/oauth/:provider/callback completes the connection and renders a s
       assert.match(html, /Connected/i);
       assert.deepEqual(gmailOAuth.exchangedCodes, ['the-code']);
 
-      const integrationsResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations`);
+      const integrationsResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations`, {
+        headers: authHeader(userId),
+      });
       const { integrations } = (await integrationsResponse.json()) as { integrations: Array<{ provider: string; enabled: boolean }> };
       const gmail = integrations.find((integration) => integration.provider === 'gmail')!;
       assert.equal(gmail.enabled, true);

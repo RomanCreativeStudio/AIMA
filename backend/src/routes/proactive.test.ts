@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -178,6 +180,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -240,7 +243,9 @@ test('GET .../proactive/patterns returns an empty-but-valid pattern list for a f
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/patterns`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/patterns`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as { patterns: Array<{ type: string }> };
@@ -253,16 +258,30 @@ test('GET .../proactive/patterns returns an empty-but-valid pattern list for a f
 });
 
 test('GET .../proactive/patterns rejects a malformed workspaceId', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/proactive/patterns`);
-    assert.equal(response.status, 400);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/proactive/patterns`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
 test('GET .../proactive/patterns 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/proactive/patterns`);
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/proactive/patterns`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -270,7 +289,9 @@ test('GET .../proactive/suggestions recommends connecting unconnected integratio
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as {
@@ -285,17 +306,30 @@ test('GET .../proactive/suggestions recommends connecting unconnected integratio
 });
 
 test('GET .../proactive/suggestions rejects a malformed workspaceId', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/proactive/suggestions`);
-    assert.equal(response.status, 400);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/proactive/suggestions`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
 test('GET .../proactive/suggestions 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(
-      `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/proactive/suggestions`,
-    );
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/proactive/suggestions`,
+        { headers: authHeader(userId) },
+      );
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });

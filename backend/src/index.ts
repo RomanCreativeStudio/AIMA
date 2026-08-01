@@ -7,6 +7,7 @@ import {
   RuleBasedIntentClassifier,
 } from '@aima/ai-engine';
 import { createApp } from './app';
+import { createAuthProviderFromEnv } from './auth/registry';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
@@ -82,6 +83,7 @@ async function main(): Promise<void> {
 
   const permissionEngine = new PermissionEngine(registry);
   const actionLogger = new ActionLogger(pool);
+  const authProvider = createAuthProviderFromEnv();
   const aiProvider = createAIProviderFromEnv();
   const embeddingProvider = createEmbeddingProviderFromEnv();
   const speechToTextProvider = createSpeechToTextProviderFromEnv();
@@ -244,6 +246,7 @@ async function main(): Promise<void> {
   const app = createApp({
     pool,
     registry,
+    authProvider,
     permissionEngine,
     actionLogger,
     memoryService,

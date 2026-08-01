@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -153,6 +155,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -221,16 +224,30 @@ async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
 }
 
 test('GET .../briefing 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/briefing`);
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/briefing`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
 test('GET .../briefing 400s for a malformed workspaceId', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/briefing`);
-    assert.equal(response.status, 400);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/briefing`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -238,7 +255,9 @@ test('GET .../briefing returns a well-formed daily briefing for a fresh workspac
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/briefing`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/briefing`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as {
@@ -270,11 +289,13 @@ test('GET .../task-intelligence buckets due-soon and overdue tasks created throu
       const overdueDueDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ title: 'Late thing', dueDate: overdueDueDate }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/task-intelligence`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/task-intelligence`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as {
@@ -295,6 +316,7 @@ test('GET .../conversations/:id/intelligence 404s for an unknown conversation', 
     try {
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/conversations/00000000-0000-0000-0000-000000000000/intelligence`,
+        { headers: authHeader(userId) },
       );
       assert.equal(response.status, 404);
     } finally {
@@ -310,11 +332,13 @@ test('GET .../conversations/:id/intelligence summarizes real conversation histor
       const conversationId = await seedConversation(pool, workspaceId);
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversationId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ content: 'What should I tell Acme about the timeline?' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversationId}/intelligence`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/conversations/${conversationId}/intelligence`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as {
@@ -335,11 +359,13 @@ test('GET .../insights aggregates metrics scoped to the workspace', async () => 
     try {
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ title: 'A task' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/insights`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/insights`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as {
@@ -364,8 +390,15 @@ test('GET .../insights aggregates metrics scoped to the workspace', async () => 
 });
 
 test('GET .../insights 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/insights`);
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/insights`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });

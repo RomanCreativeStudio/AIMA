@@ -11,16 +11,23 @@ export interface OAuthRouterDependencies {
 
 /**
  * The OAuth Framework's API (Phase 2.7, item 4): starting a connection and
- * completing it. `start` is workspace-scoped and returns a plain JSON
+ * completing it — split into two routers (EPIC-004 Sprint 4.5) because the
+ * two routes have opposite authentication requirements. `oauthRouter`'s
+ * `start` route is workspace-scoped and returns a plain JSON
  * `authorizationUrl` — the client (the macOS app) opens it in the system
  * browser itself rather than this route redirecting, keeping every other
- * route in this API JSON-only. `callback` is the one genuinely
- * provider-driven endpoint: Google/GitHub redirect the user's browser here
- * directly with `code`/`state` (or `error`) as query parameters, so it
- * can't be workspace-scoped in the path — the workspace and provider are
- * recovered from `state`, which `OAuthService` itself issued and verifies.
- * It renders a minimal static HTML page rather than JSON, since a browser
- * — not a fetch client — lands here.
+ * route in this API JSON-only; it requires an authenticated, owning caller
+ * like every other workspace resource (`backend/src/app.ts`'s
+ * `/api/workspaces/:workspaceId` gate covers it). `oauthCallbackRouter`'s
+ * `callback` route is the one genuinely provider-driven endpoint:
+ * Google/GitHub redirect the user's browser here directly with
+ * `code`/`state` (or `error`) as query parameters, carrying no AIMA
+ * Authorization header — it can't require `requireAuth` and can't be
+ * workspace-scoped in the path either way. The workspace and provider are
+ * instead recovered from `state`, which `OAuthService` itself issued and
+ * verifies — that is this route's actual authorization mechanism. It
+ * renders a minimal static HTML page rather than JSON, since a browser —
+ * not a fetch client — lands here.
  */
 export function oauthRouter(deps: OAuthRouterDependencies): Router {
   const router = Router();
@@ -43,6 +50,13 @@ export function oauthRouter(deps: OAuthRouterDependencies): Router {
       next(error);
     }
   });
+
+  return router;
+}
+
+/** The public half of the OAuth Framework's API — see `oauthRouter`'s doc comment for why this must stay separate and unauthenticated. */
+export function oauthCallbackRouter(deps: OAuthRouterDependencies): Router {
+  const router = Router();
 
   router.get('/oauth/:provider/callback', async (req, res) => {
     const { provider } = req.params;

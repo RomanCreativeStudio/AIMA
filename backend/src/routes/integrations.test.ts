@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -223,7 +226,9 @@ test('GET /api/workspaces/:id/integrations lists all three providers, disconnect
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
 
       const body = (await response.json()) as { integrations: IntegrationSummaryBody[] };
@@ -250,7 +255,7 @@ test('POST .../integrations/:provider/connect connects with valid credentials', 
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'gh-token' } }),
       });
 
@@ -273,7 +278,7 @@ test('POST .../integrations/:provider/connect rejects missing credential fields'
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'only-one' } }),
       });
 
@@ -292,7 +297,7 @@ test('POST .../integrations/:provider/connect rejects an unknown provider', asyn
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/slack/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'x' } }),
       });
 
@@ -309,13 +314,13 @@ test('connect then disconnect then reconnect works end to end', async () => {
     try {
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/calendar/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b' } }),
       });
 
       const disconnectResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/integrations/calendar/disconnect`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(disconnectResponse.status, 200);
       const disconnectBody = (await disconnectResponse.json()) as { integration: IntegrationSummaryBody };
@@ -325,7 +330,7 @@ test('connect then disconnect then reconnect works end to end', async () => {
         `${baseUrl}/api/workspaces/${workspaceId}/integrations/calendar/connect`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
           body: JSON.stringify({ credentials: { accessToken: 'c', refreshToken: 'd' } }),
         },
       );
@@ -344,6 +349,7 @@ test('POST .../integrations/:provider/disconnect returns 404 for a provider neve
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/disconnect`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
       assert.equal(response.status, 404);
     } finally {
@@ -358,13 +364,13 @@ test('POST .../integrations/:provider/rotate replaces credentials for an already
     try {
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'first' } }),
       });
 
       const rotateResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/rotate`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'second' } }),
       });
 
@@ -378,8 +384,15 @@ test('POST .../integrations/:provider/rotate replaces credentials for an already
 });
 
 test('GET /api/workspaces/:id/integrations 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/integrations`);
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/integrations`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });

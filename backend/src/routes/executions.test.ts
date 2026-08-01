@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ApprovalEngine } from '../approval/approvalEngine';
 import { AimaCoreService } from '../core/aimaCoreService';
@@ -149,6 +151,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -204,10 +207,10 @@ async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
 
-async function connectGmail(baseUrl: string, workspaceId: string): Promise<void> {
+async function connectGmail(baseUrl: string, workspaceId: string, userId: string): Promise<void> {
   await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
     body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b' } }),
   });
 }
@@ -223,13 +226,18 @@ interface ExecutionBody {
 }
 
 test('POST .../executions/preview 400s for a malformed workspaceId', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/executions/preview`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ actionType: 'send_email', payload: {} }),
-    });
-    assert.equal(response.status, 400);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/executions/preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ actionType: 'send_email', payload: {} }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -239,17 +247,17 @@ test('POST .../executions/preview reports requiresApproval and integrationConnec
     try {
       const before = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: { to: 'a@b.com' } }),
       });
       const beforeBody = (await before.json()) as { preview: { requiresApproval: boolean; integrationConnected: boolean } };
       assert.equal(beforeBody.preview.requiresApproval, true);
       assert.equal(beforeBody.preview.integrationConnected, false);
 
-      await connectGmail(baseUrl, workspaceId);
+      await connectGmail(baseUrl, workspaceId, userId);
       const after = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: { to: 'a@b.com' } }),
       });
       const afterBody = (await after.json()) as { preview: { integrationConnected: boolean } };
@@ -266,7 +274,7 @@ test('POST .../executions/preview surfaces the connected integration\'s live tok
     try {
       const disconnected = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: {} }),
       });
       const disconnectedBody = (await disconnected.json()) as { preview: { tokenExpiresAt: string | null } };
@@ -275,13 +283,13 @@ test('POST .../executions/preview surfaces the connected integration\'s live tok
       const expiresAt = new Date(Date.now() + 3600_000).toISOString();
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b', expiresAt } }),
       });
 
       const connected = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/preview`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: {} }),
       });
       const connectedBody = (await connected.json()) as { preview: { tokenExpiresAt: string | null } };
@@ -298,7 +306,7 @@ test('POST .../executions rejects an unregistered actionType with 400', async ()
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'launch_the_missiles', payload: {} }),
       });
       assert.equal(response.status, 400);
@@ -314,7 +322,7 @@ test('POST .../executions 404s when the integration is not connected', async () 
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: { to: 'a@b.com' } }),
       });
       assert.equal(response.status, 404);
@@ -328,11 +336,11 @@ test('full lifecycle: create -> awaiting_approval -> approve -> execute -> succe
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      await connectGmail(baseUrl, workspaceId);
+      await connectGmail(baseUrl, workspaceId, userId);
 
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: { to: 'client@example.com', subject: 'Hi', body: 'Hello' } }),
       });
       assert.equal(createResponse.status, 201);
@@ -343,15 +351,18 @@ test('full lifecycle: create -> awaiting_approval -> approve -> execute -> succe
 
       const executeBeforeApproval = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/executions/${created.execution.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(executeBeforeApproval.status, 409);
 
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${pendingApprovalId}/approve`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${pendingApprovalId}/approve`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
 
       const executeResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/executions/${created.execution.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const executed = (await executeResponse.json()) as { execution: ExecutionBody };
       assert.equal(executed.execution.status, 'succeeded');
@@ -359,17 +370,21 @@ test('full lifecycle: create -> awaiting_approval -> approve -> execute -> succe
 
       const retryResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/executions/${created.execution.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const retried = (await retryResponse.json()) as { execution: ExecutionBody };
       assert.equal(retried.execution.status, 'succeeded');
       assert.deepEqual(retried.execution.responseSummary, executed.execution.responseSummary);
 
-      const detailResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/${created.execution.id}`);
+      const detailResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions/${created.execution.id}`, {
+        headers: authHeader(userId),
+      });
       const detail = (await detailResponse.json()) as { execution: ExecutionBody };
       assert.equal(detail.execution.status, 'succeeded');
 
-      const historyResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`);
+      const historyResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`, {
+        headers: authHeader(userId),
+      });
       const history = (await historyResponse.json()) as { executions: ExecutionBody[] };
       assert.equal(history.executions.length, 1);
     } finally {
@@ -382,21 +397,22 @@ test('rejected approval marks the execution failed', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      await connectGmail(baseUrl, workspaceId);
+      await connectGmail(baseUrl, workspaceId, userId);
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: { to: 'a@b.com', subject: 's', body: 'b' } }),
       });
       const created = (await createResponse.json()) as { execution: ExecutionBody };
 
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.execution.pendingApprovalId}/reject`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
 
       const executeResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/executions/${created.execution.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const executed = (await executeResponse.json()) as { execution: ExecutionBody };
       assert.equal(executed.execution.status, 'failed');
@@ -414,18 +430,21 @@ test('GET .../executions/:id 404s for an unknown execution, and enforces workspa
     try {
       const missing = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/executions/00000000-0000-0000-0000-000000000000`,
+        { headers: authHeader(userId) },
       );
       assert.equal(missing.status, 404);
 
-      await connectGmail(baseUrl, workspaceId);
+      await connectGmail(baseUrl, workspaceId, userId);
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/executions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ actionType: 'send_email', payload: { to: 'a@b.com', subject: 's', body: 'b' } }),
       });
       const created = (await createResponse.json()) as { execution: ExecutionBody };
 
-      const crossWorkspace = await fetch(`${baseUrl}/api/workspaces/${otherWorkspaceId}/executions/${created.execution.id}`);
+      const crossWorkspace = await fetch(`${baseUrl}/api/workspaces/${otherWorkspaceId}/executions/${created.execution.id}`, {
+        headers: authHeader(otherUserId),
+      });
       assert.equal(crossWorkspace.status, 404);
     } finally {
       await cleanupWorkspace(pool, userId);

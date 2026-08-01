@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -216,7 +219,7 @@ test('POST /api/workspaces/:id/tasks creates a task and logs the action', async 
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ title: 'Follow up with Acme', priority: 'high' }),
       });
 
@@ -244,7 +247,7 @@ test('POST .../tasks rejects an empty title', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ title: '' }),
       });
       assert.equal(response.status, 400);
@@ -255,13 +258,68 @@ test('POST .../tasks rejects an empty title', async () => {
 });
 
 test('POST .../tasks rejects an unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/tasks`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'x' }),
-    });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'x' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../tasks rejects a request with no Authorization header with 401', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: 'x' }),
+      });
+      assert.equal(response.status, 401);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../tasks rejects an invalid access token with 401', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer garbage' },
+        body: JSON.stringify({ title: 'x' }),
+      });
+      assert.equal(response.status, 401);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../tasks rejects a caller who does not own the workspace with 404 (cross-user access)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const owner = await seedWorkspace(pool);
+    const intruder = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${owner.workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(intruder.userId) },
+        body: JSON.stringify({ title: 'x' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, owner.userId);
+      await cleanupWorkspace(pool, intruder.userId);
+    }
   });
 });
 
@@ -272,16 +330,18 @@ test('GET .../tasks lists tasks scoped to the workspace', async () => {
     try {
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ title: 'Task in A' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ title: 'Task in B' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
+        headers: authHeader(a.userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { tasks: Array<{ workspaceId: string }> };
       assert.equal(body.tasks.length, 1);
@@ -300,23 +360,26 @@ test('PATCH .../tasks/:id updates status; 404s across workspaces', async () => {
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ title: 'Ship it' }),
       });
       const { task } = (await createResponse.json()) as { task: { id: string } };
 
       const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/tasks/${task.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ status: 'done' }),
       });
       assert.equal(updateResponse.status, 200);
       const updated = (await updateResponse.json()) as { task: { status: string } };
       assert.equal(updated.task.status, 'done');
 
+      // b legitimately owns workspace b, so the auth/ownership gate passes;
+      // this proves TaskService's own workspace isolation still 404s a task
+      // id that exists but belongs to a different workspace.
       const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/tasks/${task.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ status: 'cancelled' }),
       });
       assert.equal(crossResponse.status, 404);
@@ -333,17 +396,20 @@ test('DELETE .../tasks/:id removes the task', async () => {
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ title: 'To be deleted' }),
       });
       const { task } = (await createResponse.json()) as { task: { id: string } };
 
       const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
         method: 'DELETE',
+        headers: authHeader(userId),
       });
       assert.equal(deleteResponse.status, 200);
 
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`);
+      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
+        headers: authHeader(userId),
+      });
       assert.equal(getResponse.status, 404);
     } finally {
       await cleanupWorkspace(pool, userId);

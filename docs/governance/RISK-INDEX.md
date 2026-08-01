@@ -29,7 +29,7 @@ This is the single, canonical index of every risk entry in AIMA's Risk Register.
 
 | Risk ID | Title | Status | Severity | Probability | Owner | File |
 | --- | --- | --- | --- | --- | --- | --- |
-| RISK-001 | Every Backend Endpoint Is Reachable Without Authentication | Confirmed | Critical | High | Lead Software Architect | [`RISK-001-unauthenticated-endpoints.md`](RISK-001-unauthenticated-endpoints.md) |
+| RISK-001 | Every Backend Endpoint Is Reachable Without Authentication | Mitigating | Critical | High | Lead Software Architect | [`RISK-001-unauthenticated-endpoints.md`](RISK-001-unauthenticated-endpoints.md) |
 
 **Next available ID:** `RISK-002`.
 

@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -214,7 +217,7 @@ test('GET /api/users/:id returns the profile', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/users/${userId}`);
+      const response = await fetch(`${baseUrl}/api/users/${userId}`, { headers: authHeader(userId) });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { user: { id: string; preferences: Record<string, unknown> } };
       assert.equal(body.user.id, userId);
@@ -225,10 +228,37 @@ test('GET /api/users/:id returns the profile', async () => {
   });
 });
 
-test('GET /api/users/:id returns 404 for an unknown id', async () => {
+test('GET /api/users/:id returns 404 for an unknown id (authenticated as that same id)', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/users/00000000-0000-0000-0000-000000000000`);
+    const unknownId = '00000000-0000-0000-0000-000000000000';
+    const response = await fetch(`${baseUrl}/api/users/${unknownId}`, { headers: authHeader(unknownId) });
     assert.equal(response.status, 404);
+  });
+});
+
+test('GET /api/users/:id returns 404 when the caller requests a different user\'s profile', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedWorkspace(pool);
+    const b = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/users/${a.userId}`, { headers: authHeader(b.userId) });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, a.userId);
+      await cleanupWorkspace(pool, b.userId);
+    }
+  });
+});
+
+test('GET /api/users/:id returns 401 with no Authorization header', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/users/${userId}`);
+      assert.equal(response.status, 401);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -238,7 +268,7 @@ test('PATCH /api/users/:id updates displayName and preferences', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/users/${userId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ displayName: 'Roman', preferences: { theme: 'dark' } }),
       });
 
@@ -258,7 +288,7 @@ test('PATCH /api/users/:id sets defaultWorkspaceId when it belongs to the user',
     try {
       const response = await fetch(`${baseUrl}/api/users/${userId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ defaultWorkspaceId: workspaceId }),
       });
 
@@ -278,7 +308,7 @@ test('PATCH /api/users/:id rejects a defaultWorkspaceId from a different user wi
     try {
       const response = await fetch(`${baseUrl}/api/users/${a.userId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ defaultWorkspaceId: b.workspaceId }),
       });
       assert.equal(response.status, 404);
@@ -295,7 +325,7 @@ test('PATCH /api/users/:id rejects a non-string displayName', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/users/${userId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ displayName: 42 }),
       });
       assert.equal(response.status, 400);

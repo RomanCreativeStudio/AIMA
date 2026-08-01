@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -154,6 +156,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -228,7 +231,9 @@ test('GET .../approvals lists approvals scoped to the workspace', async () => {
       await createApproval(pool, a.workspaceId, { to: 'second@example.com' });
       await createApproval(pool, b.workspaceId, { to: 'other@example.com' });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/approvals`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/approvals`, {
+        headers: authHeader(a.userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { approvals: Array<{ workspaceId: string; status: string }> };
       assert.equal(body.approvals.length, 2);
@@ -249,16 +254,21 @@ test('GET .../approvals filters by status', async () => {
       const toApprove = await createApproval(pool, workspaceId);
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${toApprove.pendingApprovalId}/approve`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
 
-      const pendingOnly = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals?status=pending`);
+      const pendingOnly = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals?status=pending`, {
+        headers: authHeader(userId),
+      });
       const pendingBody = (await pendingOnly.json()) as { approvals: Array<{ id: string }> };
       assert.deepEqual(
         pendingBody.approvals.map((approval) => approval.id),
         [pending.pendingApprovalId],
       );
 
-      const approvedOnly = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals?status=approved`);
+      const approvedOnly = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals?status=approved`, {
+        headers: authHeader(userId),
+      });
       const approvedBody = (await approvedOnly.json()) as { approvals: Array<{ id: string }> };
       assert.deepEqual(
         approvedBody.approvals.map((approval) => approval.id),
@@ -276,7 +286,9 @@ test('GET .../approvals/:id returns the full approval record', async () => {
     try {
       const created = await createApproval(pool, workspaceId, { to: 'client@example.com' });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as {
         approval: { actionType: string; status: string; payload: unknown };
@@ -297,7 +309,9 @@ test('GET .../approvals/:id returns 404 across workspaces (isolation)', async ()
     try {
       const created = await createApproval(pool, a.workspaceId);
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/approvals/${created.pendingApprovalId}`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/approvals/${created.pendingApprovalId}`, {
+        headers: authHeader(b.userId),
+      });
       assert.equal(response.status, 404);
     } finally {
       await cleanupWorkspace(pool, a.userId);
@@ -310,7 +324,9 @@ test('GET .../approvals/:id rejects a malformed id', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/not-a-uuid`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/not-a-uuid`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 400);
     } finally {
       await cleanupWorkspace(pool, userId);
@@ -326,7 +342,7 @@ test('POST .../approvals/:id/approve transitions a pending approval to approved'
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}/approve`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(response.status, 200);
       const body = (await response.json()) as { decision: ApprovalDecision };
@@ -345,7 +361,7 @@ test('POST .../approvals/:id/reject transitions a pending approval to rejected',
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}/reject`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(response.status, 200);
       const body = (await response.json()) as { decision: ApprovalDecision };
@@ -365,12 +381,13 @@ test('POST .../approvals/:id/approve returns 404 across workspaces and does not 
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${b.workspaceId}/approvals/${created.pendingApprovalId}/approve`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(b.userId) },
       );
       assert.equal(response.status, 404);
 
       const stillPending = await fetch(
         `${baseUrl}/api/workspaces/${a.workspaceId}/approvals/${created.pendingApprovalId}`,
+        { headers: authHeader(a.userId) },
       );
       const body = (await stillPending.json()) as { approval: { status: string } };
       assert.equal(body.approval.status, 'pending');
@@ -388,11 +405,12 @@ test('POST .../approvals/:id/approve returns 409 for an already-resolved approva
       const created = await createApproval(pool, workspaceId);
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}/approve`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}/approve`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(response.status, 409);
     } finally {
@@ -412,7 +430,7 @@ test('POST .../approvals/:id/approve returns 410 for an expired approval', async
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/approvals/${created.pendingApprovalId}/approve`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(response.status, 410);
     } finally {

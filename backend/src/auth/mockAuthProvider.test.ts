@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { MockAuthProvider, issueMockTokens } from './mockAuthProvider';
 import { AuthRefreshFailedError } from './errors';
+import type { AuthProvider } from './types';
 
 test('verifyAccessToken accepts a freshly issued token', async () => {
   const provider = new MockAuthProvider();
@@ -40,6 +41,6 @@ test('refreshSession rejects an unrecognized refresh token', async () => {
 });
 
 test('revokeSession resolves without error (no provider-side state)', async () => {
-  const provider = new MockAuthProvider();
+  const provider: AuthProvider = new MockAuthProvider();
   await assert.doesNotReject(() => provider.revokeSession('mock-access:user-123:2999-01-01T00:00:00.000Z'));
 });

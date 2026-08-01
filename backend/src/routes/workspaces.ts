@@ -1,4 +1,5 @@
 import { Router, type Response } from 'express';
+import type { AuthenticatedRequest } from '../middleware/auth';
 import { UserNotFoundError } from '../users/errors';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { WORKSPACE_SLUGS, WORKSPACE_TYPES, isWorkspaceSlug, isWorkspaceType } from '../types/workspace';
@@ -22,14 +23,15 @@ export interface WorkspacesRouterDependencies {
 export function workspacesRouter(deps: WorkspacesRouterDependencies): Router {
   const router = Router();
 
-  router.post('/workspaces', async (req, res, next) => {
+  router.post('/workspaces', async (req: AuthenticatedRequest, res, next) => {
     try {
-      const { userId, slug, name, type, instructions, assistantBehavior, metadata } = req.body ?? {};
+      // The owner is the authenticated caller, never a client-supplied
+      // value (ADR-0022 Decision 4/5, REQ-001-PLAN's "User Identity Flow") —
+      // `requireAuth` guarantees `req.identity` is set before this handler
+      // runs (backend/src/app.ts's blanket `/api` gate).
+      const userId = req.identity!.userId;
+      const { slug, name, type, instructions, assistantBehavior, metadata } = req.body ?? {};
 
-      if (!isUuid(userId)) {
-        res.status(400).json({ error: 'userId must be a valid UUID' });
-        return;
-      }
       if (!isWorkspaceSlug(slug)) {
         res.status(400).json({ error: `slug must be one of: ${WORKSPACE_SLUGS.join(', ')}` });
         return;

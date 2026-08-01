@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -157,6 +159,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -233,6 +236,7 @@ test('POST .../retrieval/reindex indexes tasks and conversations, then GET .../r
 
       const reindexResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/retrieval/reindex`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
       assert.equal(reindexResponse.status, 200);
       const reindexBody = (await reindexResponse.json()) as {
@@ -249,6 +253,7 @@ test('POST .../retrieval/reindex indexes tasks and conversations, then GET .../r
 
       const searchResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/retrieval/search?q=${encodeURIComponent('domain registration renewal')}`,
+        { headers: authHeader(userId) },
       );
       assert.equal(searchResponse.status, 200);
       const searchBody = (await searchResponse.json()) as {
@@ -268,7 +273,9 @@ test('GET .../retrieval/search rejects a missing query', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/retrieval/search`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/retrieval/search`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 400);
     } finally {
       await cleanupWorkspace(pool, userId);
@@ -282,6 +289,7 @@ test('GET .../retrieval/search rejects an invalid sourceTypes value', async () =
     try {
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/retrieval/search?q=x&sourceTypes=not_a_real_type`,
+        { headers: authHeader(userId) },
       );
       assert.equal(response.status, 400);
     } finally {
@@ -291,11 +299,17 @@ test('GET .../retrieval/search rejects an invalid sourceTypes value', async () =
 });
 
 test('GET .../retrieval/search 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(
-      `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/retrieval/search?q=x`,
-    );
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/retrieval/search?q=x`,
+        { headers: authHeader(userId) },
+      );
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -305,14 +319,18 @@ test('GET .../retrieval/context merges memories, conversations, and tasks', asyn
     try {
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ scope: 'workspace', content: 'The client prefers async written updates over calls.' }),
       });
       await seedTask(pool, workspaceId, 'Schedule client call to discuss timing');
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/retrieval/reindex`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/retrieval/reindex`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/retrieval/context?q=${encodeURIComponent('schedule a call with the client')}`,
+        { headers: authHeader(userId) },
       );
       assert.equal(response.status, 200);
       const body = (await response.json()) as {
@@ -334,6 +352,7 @@ test('GET .../retrieval/context rejects an invalid conversationId', async () => 
     try {
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/retrieval/context?q=x&conversationId=not-a-uuid`,
+        { headers: authHeader(userId) },
       );
       assert.equal(response.status, 400);
     } finally {
@@ -343,12 +362,17 @@ test('GET .../retrieval/context rejects an invalid conversationId', async () => 
 });
 
 test('POST .../retrieval/reindex 404s for an unknown workspace', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(
-      `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/retrieval/reindex`,
-      { method: 'POST' },
-    );
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/retrieval/reindex`,
+        { method: 'POST', headers: authHeader(userId) },
+      );
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -359,11 +383,18 @@ test('search results never leak across workspaces', async () => {
     try {
       await seedTask(pool, a.workspaceId, 'Acme redesign kickoff task');
       await seedTask(pool, b.workspaceId, 'Kestrel character backstory task');
-      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/retrieval/reindex`, { method: 'POST' });
-      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/retrieval/reindex`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/retrieval/reindex`, {
+        method: 'POST',
+        headers: authHeader(a.userId),
+      });
+      await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/retrieval/reindex`, {
+        method: 'POST',
+        headers: authHeader(b.userId),
+      });
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${a.workspaceId}/retrieval/search?q=${encodeURIComponent('Acme redesign')}`,
+        { headers: authHeader(a.userId) },
       );
       const body = (await response.json()) as { results: Array<{ workspaceId: string }> };
       assert.ok(body.results.length >= 1);

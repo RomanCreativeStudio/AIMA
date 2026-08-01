@@ -1,6 +1,7 @@
 import type { NextFunction, RequestHandler, Response } from 'express';
 import { WorkspaceNotFoundError } from '../types/errors';
 import type { WorkspaceService } from '../workspaces/workspaceService';
+import { isUuid } from '../util/uuid';
 import type { AuthenticatedRequest } from './auth';
 
 /**
@@ -13,6 +14,13 @@ import type { AuthenticatedRequest } from './auth';
  * is a workspace-ownership check only; it does not replace or duplicate
  * the Permission Engine's per-capability authorization boundary
  * (docs/decisions — Permission Engine), which remains a separate layer.
+ *
+ * A malformed (non-UUID) workspaceId is rejected with 400 before ever
+ * reaching `WorkspaceService` — this mirrors the `isUuid` check every
+ * workspace-scoped route already performs itself (EPIC-004 Sprint 4.5),
+ * and avoids passing a non-UUID literal into a `uuid`-typed SQL column,
+ * which Postgres would otherwise reject as a query error (500), not a
+ * routine validation failure.
  */
 export function requireWorkspaceOwnership(
   workspaceService: WorkspaceService,
@@ -25,6 +33,11 @@ export function requireWorkspaceOwnership(
 
       if (!userId) {
         res.status(401).json({ error: 'Authentication required' });
+        return;
+      }
+
+      if (!isUuid(workspaceId)) {
+        res.status(400).json({ error: `${paramName} must be a valid UUID` });
         return;
       }
 

@@ -24,7 +24,15 @@ The backend must authenticate every request before it reaches a workspace-scoped
 4. Per-device session tracking is supported, with a user-visible "signed in devices" list and one-tap revocation (`ARCH-001` §"Authentication", §9).
 5. All authentication endpoints are rate-limited to mitigate credential-stuffing/brute-force attempts (`ARCH-001` §9).
 
-None of the above is met today. EPIC-004 Sprint 4.4 built the foundation modules acceptance criteria 2–4 will eventually rest on (`AuthProvider` abstraction with a Supabase Auth implementation, JWT+refresh-token session handling, per-device session storage/revocation) — see Related Implementation — but none is yet wired into a real endpoint, so every criterion below remains unmet in production terms. Criterion 5 (rate limiting) has no implementation yet at all.
+**Status as of EPIC-004 Sprint 4.5 (Authentication Integration):**
+
+1. **Met.** Every `/api` route except the OAuth provider callback (which cannot carry an AIMA-issued token — see `backend/src/routes/oauth.ts`) now sits behind `requireAuth`; every workspace-scoped route additionally sits behind `requireWorkspaceOwnership`, and every user-scoped route behind `requireUserOwnership` (`backend/src/app.ts`). Cross-user access and unknown-resource access both return the same 404, and unauthenticated requests return 401. `GET /health` remains intentionally public (infrastructure/monitoring convention, not an API business endpoint).
+2. **Met** at the mechanism level — `AuthProvider` abstraction with a Supabase Auth implementation, selected via `AUTH_PROVIDER`. No self-built credential store exists or is planned.
+3. **Partially met.** The JWT-access/rotating-refresh-token mechanism exists and is enforced end-to-end (`SessionService`, `requireAuth`), but there is still no `POST /api/auth/login` or `/api/auth/refresh` HTTP endpoint for a client to actually obtain a token pair through this API — see "Related Implementation" below and `REQ-001-PLAN`'s API placeholders, still unresolved.
+4. **Partially met.** `SessionService.listSessions`/`revokeSession` exist and are tested, but are not yet exposed as HTTP routes (`GET /api/auth/devices`, `DELETE /api/auth/devices/:id` remain placeholders) — no user-visible "signed in devices" UI is possible yet.
+5. **Not met.** No rate limiting exists on any endpoint, auth or otherwise.
+
+Status stays `Approved`, not `Implemented`: criteria 3–5 are not fully satisfied. This is a substantial, verified improvement over Sprint 4.4's state (where nothing was wired in and every criterion was unmet) — not the requirement's completion.
 
 ## Dependencies
 
@@ -40,27 +48,32 @@ None registered yet. `REQ-002` (User Management) and `REQ-003` (Workspace Manage
 
 ## Related Tests
 
-Foundation layer only (EPIC-004 Sprint 4.4) — none of these are yet exercised against a real endpoint, since no route wires the middleware in:
+Foundation-layer unit/integration tests (EPIC-004 Sprint 4.4):
 
 - `backend/src/auth/jwt.test.ts`, `backend/src/auth/mockAuthProvider.test.ts`, `backend/src/auth/supabaseAuthProvider.test.ts` — token verification/refresh/revocation, valid/invalid/expired tokens.
 - `backend/src/auth/sessionService.test.ts` — session creation, refresh-token rotation, revocation (including reuse-of-a-revoked-token), per-user listing/isolation.
 - `backend/src/middleware/auth.test.ts` — `requireAuth` over real HTTP: valid token, missing header, invalid token, expired token.
-- `backend/src/middleware/workspaceOwnership.test.ts` — `requireWorkspaceOwnership` over real HTTP: owner allowed, cross-user access rejected (404), unknown workspace (404), unauthenticated (401).
+- `backend/src/middleware/workspaceOwnership.test.ts` — `requireWorkspaceOwnership` over real HTTP: owner allowed, cross-user access rejected (404), unknown workspace (404), unauthenticated (401), malformed workspace id (400).
 
-The remaining testing strategy (retrofitting existing route test suites once middleware is wired in) is still documented in [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) and remains future work.
+Live-wiring tests, added against the real `app.ts` middleware stack (EPIC-004 Sprint 4.5) — every one of the 17 existing route-suite files under `backend/src/routes/*.test.ts` now attaches a real `Authorization` header via `backend/src/testUtils/auth.ts`'s `authHeader()`, and `backend/src/routes/workspaces.test.ts`, `tasks.test.ts`, `memories.test.ts`, and `users.test.ts` carry explicit new coverage for: authenticated success, missing token (401), invalid token (401), expired token (401), cross-user workspace/user access (404), and unknown workspace (404). Every existing positive-path test across all 17 files was adapted, not bypassed, to keep testing real request/response behavior end to end.
 
 ## Related Implementation
 
-Foundation layer only (EPIC-004 Sprint 4.4), implementing `ADR-0022` exactly — not yet wired into `app.ts` or any existing route:
+Foundation layer (EPIC-004 Sprint 4.4) plus live integration (EPIC-004 Sprint 4.5), implementing `ADR-0022` exactly:
 
 - `database/migrations/0020_auth_sessions.sql` — local session/device storage.
 - `backend/src/auth/types.ts`, `errors.ts`, `jwt.ts` — the `AuthProvider` abstraction and standards-based RS256/JWKS verification.
 - `backend/src/auth/mockAuthProvider.ts`, `supabaseAuthProvider.ts`, `registry.ts` — the mock and Supabase Auth implementations, selected via `AUTH_PROVIDER`.
 - `backend/src/auth/sessionService.ts` — local session lifecycle (create/refresh-with-rotation/revoke/list) over `auth_sessions`.
 - `backend/src/middleware/auth.ts` — `requireAuth`, access-token validation and identity injection.
-- `backend/src/middleware/workspaceOwnership.ts` — `requireWorkspaceOwnership`, uniform 404 for both "workspace doesn't exist" and "belongs to another user".
+- `backend/src/middleware/workspaceOwnership.ts` — `requireWorkspaceOwnership`, uniform 404 for both "workspace doesn't exist" and "belongs to another user"; now also rejects a malformed workspace id with 400 before it ever reaches a database query.
+- `backend/src/middleware/userOwnership.ts` — `requireUserOwnership` (new, Sprint 4.5), the parallel check `REQ-001-PLAN`'s "User Identity Flow" section anticipated for `/users/:userId`-shaped routes; a pure parameter comparison against `req.identity`, no database lookup needed, since `users.id` **is** the subject id (ADR-0022 Decision 4).
+- `backend/src/app.ts` (Sprint 4.5) — wires `requireAuth` in front of every `/api` route except the OAuth callback, and `requireWorkspaceOwnership`/`requireUserOwnership` in front of `/api/workspaces/:workspaceId/*` and `/api/users/:userId/*` respectively, via path-scoped middleware so no individual route file needs to know auth exists.
+- `backend/src/routes/oauth.ts` (Sprint 4.5) — split into `oauthRouter` (the workspace-scoped `start` route, now protected like any other workspace resource) and `oauthCallbackRouter` (the provider-driven `callback` route, which must stay public since it carries no AIMA `Authorization` header).
+- `backend/src/routes/workspaces.ts` (Sprint 4.5) — `POST /workspaces` now derives the owning `userId` from the authenticated caller's resolved identity (`req.identity`), never from a client-supplied request body field, per `REQ-001-PLAN`'s "User Identity Flow."
+- `backend/src/index.ts` (Sprint 4.5) — constructs the real `AuthProvider` via `createAuthProviderFromEnv()` for the composition root.
 
-Wiring this into `app.ts`/existing routers, and building the login/refresh/logout HTTP endpoints themselves, remain future work — see [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`)'s API/database placeholders.
+Still not built: `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/devices`, `DELETE /api/auth/devices/:deviceId` — see [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`)'s API placeholders, still open. Rate limiting on auth endpoints is also not built.
 
 ## Related Governance Records
 
@@ -70,6 +83,7 @@ Wiring this into `app.ts`/existing routers, and building the login/refresh/logou
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.4 | 2026-08-01 | EPIC-004 Sprint 4.5 (Authentication Integration): wired `requireAuth`/`requireWorkspaceOwnership` into every `/api` route in `backend/src/app.ts` (except the public OAuth callback), added `requireUserOwnership` for `/users/:userId`-shaped routes, fixed a malformed-workspace-id 500 the wiring would otherwise have introduced, and changed `POST /workspaces` to derive the owner from the authenticated caller instead of a client-supplied body field. Adapted all 17 existing route test suites to attach real tokens; added explicit new coverage for missing/invalid/expired tokens and cross-user access. Acceptance criterion 1 is now met; criteria 3–4 are partially met (mechanism wired, no login/refresh/devices HTTP endpoints yet); criterion 5 remains unmet. Status stays `Approved`, not `Implemented`. No `ADR-0022` change — this sprint implements the already-decided design, it does not revise it. |
 | 1.3 | 2026-08-01 | EPIC-004 Sprint 4.4 (Authentication Implementation Foundation): built the `AuthProvider` abstraction (mock + Supabase), JWT/JWKS verification, session lifecycle (`SessionService`, `auth_sessions` migration), and `requireAuth`/`requireWorkspaceOwnership` middleware — all implementing `ADR-0022` exactly. Updated Related Tests/Related Implementation with real paths. Status stays `Approved`, not `Implemented`: nothing is yet wired into `app.ts` or an existing route, so no acceptance criterion is met in production terms yet. |
 | 1.2 | 2026-08-01 | Added `ADR-0022` (Authentication Architecture) reference following EPIC-004 Sprint 4.3. No change to Status, Acceptance Criteria, or scope — the ADR decides *how* this requirement will be implemented, not whether it's required. |
 | 1.1 | 2026-08-01 | Added planning cross-references (`REQ-001-PLAN`, `ECIA-001`, `RISK-001`) following EPIC-004 Sprint 4.2 (Authentication Foundation Planning). No change to Status, Acceptance Criteria, or scope — planning only, no code written. |

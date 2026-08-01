@@ -103,6 +103,21 @@ test('requireWorkspaceOwnership returns 404 for a nonexistent workspace', async 
   });
 });
 
+test('requireWorkspaceOwnership returns 400 for a malformed workspaceId (not a UUID)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedUserWithWorkspace(pool);
+    try {
+      const tokens = issueMockTokens(userId);
+      const response = await fetch(`${baseUrl}/workspaces/not-a-uuid/protected`, {
+        headers: { Authorization: `Bearer ${tokens.accessToken}` },
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
 test('requireWorkspaceOwnership returns 401 without authentication', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedUserWithWorkspace(pool);

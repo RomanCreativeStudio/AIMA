@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -216,7 +219,7 @@ test('POST /api/workspaces/:id/drafts creates a draft and logs the action', asyn
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ type: 'email', title: 'Follow-up', content: 'Hi Acme, following up...' }),
       });
 
@@ -246,7 +249,7 @@ test('POST .../drafts rejects an invalid type', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ type: 'invoice', content: 'x' }),
       });
       assert.equal(response.status, 400);
@@ -262,7 +265,7 @@ test('POST .../drafts rejects empty content', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ type: 'email', content: '' }),
       });
       assert.equal(response.status, 400);
@@ -273,13 +276,18 @@ test('POST .../drafts rejects empty content', async () => {
 });
 
 test('POST .../drafts rejects an unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/drafts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'email', content: 'x' }),
-    });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/drafts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ type: 'email', content: 'x' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -290,27 +298,31 @@ test('GET .../drafts lists drafts scoped to the workspace and can filter by type
     try {
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ type: 'email', content: 'Draft in A' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ type: 'proposal', content: 'Proposal in A' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ type: 'email', content: 'Draft in B' }),
       });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
+        headers: authHeader(a.userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { drafts: Array<{ workspaceId: string }> };
       assert.equal(body.drafts.length, 2);
       assert.ok(body.drafts.every((draft) => draft.workspaceId === a.workspaceId));
 
-      const filtered = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts?type=proposal`);
+      const filtered = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts?type=proposal`, {
+        headers: authHeader(a.userId),
+      });
       const filteredBody = (await filtered.json()) as { drafts: Array<{ type: string }> };
       assert.equal(filteredBody.drafts.length, 1);
       assert.equal(filteredBody.drafts[0].type, 'proposal');
@@ -328,14 +340,14 @@ test('PATCH .../drafts/:id updates content; 404s across workspaces', async () =>
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ type: 'report', content: 'Draft 1' }),
       });
       const { draft } = (await createResponse.json()) as { draft: { id: string } };
 
       const updateResponse = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/drafts/${draft.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ content: 'Draft 2' }),
       });
       assert.equal(updateResponse.status, 200);
@@ -344,7 +356,7 @@ test('PATCH .../drafts/:id updates content; 404s across workspaces', async () =>
 
       const crossResponse = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/drafts/${draft.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ content: 'hijacked' }),
       });
       assert.equal(crossResponse.status, 404);
@@ -361,17 +373,20 @@ test('DELETE .../drafts/:id removes the draft', async () => {
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ type: 'client_response', content: 'To be deleted' }),
       });
       const { draft } = (await createResponse.json()) as { draft: { id: string } };
 
       const deleteResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`, {
         method: 'DELETE',
+        headers: authHeader(userId),
       });
       assert.equal(deleteResponse.status, 200);
 
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`);
+      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/drafts/${draft.id}`, {
+        headers: authHeader(userId),
+      });
       assert.equal(getResponse.status, 404);
     } finally {
       await cleanupWorkspace(pool, userId);

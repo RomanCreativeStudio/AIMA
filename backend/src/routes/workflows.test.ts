@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -153,6 +155,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -221,7 +224,7 @@ interface WorkflowRunBody {
 
 test('GET /api/workflows lists the four built-in workflow definitions', async () => {
   await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workflows`);
+    const response = await fetch(`${baseUrl}/api/workflows`, { headers: authHeader(randomUUID()) });
     assert.equal(response.status, 200);
 
     const body = (await response.json()) as { workflows: Array<{ key: string }> };
@@ -236,7 +239,7 @@ test('POST .../workflow-runs creates a run; GET lists and fetches it', async () 
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ workflowKey: 'daily_workspace_briefing', input: {} }),
       });
       assert.equal(createResponse.status, 201);
@@ -244,11 +247,15 @@ test('POST .../workflow-runs creates a run; GET lists and fetches it', async () 
       assert.equal(created.run.status, 'pending');
       assert.equal(created.run.steps.length, 2);
 
-      const listResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`);
+      const listResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
+        headers: authHeader(userId),
+      });
       const listed = (await listResponse.json()) as { runs: WorkflowRunBody[] };
       assert.equal(listed.runs.length, 1);
 
-      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}`);
+      const getResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}`, {
+        headers: authHeader(userId),
+      });
       const fetched = (await getResponse.json()) as { run: WorkflowRunBody };
       assert.equal(fetched.run.id, created.run.id);
     } finally {
@@ -263,7 +270,7 @@ test('POST .../workflow-runs rejects an unknown workflowKey', async () => {
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ workflowKey: 'send_all_my_money', input: {} }),
       });
       assert.equal(response.status, 400);
@@ -279,14 +286,14 @@ test('POST .../execute advances one step; running to completion takes multiple c
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ workflowKey: 'daily_workspace_briefing', input: {} }),
       });
       const created = (await createResponse.json()) as { run: WorkflowRunBody };
 
       const step1Response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const afterStep1 = (await step1Response.json()) as { run: WorkflowRunBody };
       assert.equal(afterStep1.run.status, 'running');
@@ -294,7 +301,7 @@ test('POST .../execute advances one step; running to completion takes multiple c
 
       const step2Response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const afterStep2 = (await step2Response.json()) as { run: WorkflowRunBody };
       assert.equal(afterStep2.run.status, 'completed');
@@ -310,20 +317,20 @@ test('a Tier 3 gated step pauses at awaiting_approval, then resume completes it 
     try {
       await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/connect`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ credentials: { accessToken: 'a', refreshToken: 'b' } }),
       });
 
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ workflowKey: 'summarize_unread_email', input: {} }),
       });
       const created = (await createResponse.json()) as { run: WorkflowRunBody };
 
       const executeResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/execute`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const awaiting = (await executeResponse.json()) as { run: WorkflowRunBody };
       assert.equal(awaiting.run.status, 'awaiting_approval');
@@ -332,15 +339,18 @@ test('a Tier 3 gated step pauses at awaiting_approval, then resume completes it 
 
       const resumeBeforeApproval = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/resume`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(resumeBeforeApproval.status, 409);
 
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${pendingApprovalId}/approve`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/approvals/${pendingApprovalId}/approve`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
 
       const resumeResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/resume`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const afterResume = (await resumeResponse.json()) as { run: WorkflowRunBody };
       assert.equal(afterResume.run.status, 'running');
@@ -357,28 +367,28 @@ test('pause then cancel a run', async () => {
     try {
       const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/workflow-runs`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ workflowKey: 'daily_workspace_briefing', input: {} }),
       });
       const created = (await createResponse.json()) as { run: WorkflowRunBody };
 
       const pauseResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/pause`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const paused = (await pauseResponse.json()) as { run: WorkflowRunBody };
       assert.equal(paused.run.status, 'paused');
 
       const cancelResponse = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/cancel`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       const cancelled = (await cancelResponse.json()) as { run: WorkflowRunBody };
       assert.equal(cancelled.run.status, 'cancelled');
 
       const secondCancel = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/${created.run.id}/cancel`,
-        { method: 'POST' },
+        { method: 'POST', headers: authHeader(userId) },
       );
       assert.equal(secondCancel.status, 409);
     } finally {
@@ -393,6 +403,7 @@ test('GET .../workflow-runs/:id 404s for an unknown run', async () => {
     try {
       const response = await fetch(
         `${baseUrl}/api/workspaces/${workspaceId}/workflow-runs/00000000-0000-0000-0000-000000000000`,
+        { headers: authHeader(userId) },
       );
       assert.equal(response.status, 404);
     } finally {

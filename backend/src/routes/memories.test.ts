@@ -6,6 +6,8 @@ import type { Server } from 'node:http';
 import { Pool } from 'pg';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -151,6 +153,7 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -217,7 +220,7 @@ test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, an
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ scope: 'workspace', content: 'Client Acme wants a full redesign.' }),
       });
 
@@ -238,13 +241,52 @@ test('POST /api/workspaces/:id/memories creates a memory, evaluates its tier, an
 });
 
 test('POST /api/workspaces/:id/memories rejects a well-formed but unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/memories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ scope: 'workspace', content: 'x' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST /api/workspaces/:id/memories rejects a request with no Authorization header with 401', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scope: 'workspace', content: 'x' }),
+      });
+      assert.equal(response.status, 401);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST /api/workspaces/:id/memories rejects a caller who does not own the workspace with 404', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const owner = await seedWorkspace(pool);
+    const intruder = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${owner.workspaceId}/memories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(intruder.userId) },
+        body: JSON.stringify({ scope: 'workspace', content: 'x' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, owner.userId);
+      await cleanupWorkspace(pool, intruder.userId);
+    }
   });
 });
 
@@ -254,7 +296,7 @@ test('POST .../memories rejects scope="conversation" without a conversationId', 
     try {
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ scope: 'conversation', content: 'missing id' }),
       });
 
@@ -269,13 +311,18 @@ test('POST .../memories rejects scope="conversation" without a conversationId', 
 });
 
 test('POST .../memories rejects a malformed workspaceId', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/memories`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: 'workspace', content: 'x' }),
-    });
-    assert.equal(response.status, 400);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/memories`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ scope: 'workspace', content: 'x' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -286,17 +333,18 @@ test('GET .../memories/search returns ranked results scoped to the requesting wo
     try {
       await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(a.userId) },
         body: JSON.stringify({ scope: 'workspace', content: 'Acme wants a website redesign.' }),
       });
       await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ scope: 'workspace', content: 'Kestrel character backstory notes.' }),
       });
 
       const response = await fetch(
         `${baseUrl}/api/workspaces/${a.workspaceId}/memories/search?q=${encodeURIComponent('Acme redesign')}`,
+        { headers: authHeader(a.userId) },
       );
       assert.equal(response.status, 200);
 
@@ -314,7 +362,9 @@ test('GET .../memories/search requires a non-empty "q" parameter', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/search`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/search`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 400);
     } finally {
       await cleanupWorkspace(pool, userId);
@@ -322,10 +372,10 @@ test('GET .../memories/search requires a non-empty "q" parameter', async () => {
   });
 });
 
-async function createMemory(baseUrl: string, workspaceId: string, content: string): Promise<{ id: string }> {
+async function createMemory(baseUrl: string, workspaceId: string, userId: string, content: string): Promise<{ id: string }> {
   const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
     body: JSON.stringify({ scope: 'workspace', content }),
   });
   const body = (await response.json()) as { memory: { id: string } };
@@ -336,11 +386,16 @@ test('GET .../memories lists newest-first and excludes archived by default', asy
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const first = await createMemory(baseUrl, workspaceId, 'First memory.');
-      const second = await createMemory(baseUrl, workspaceId, 'Second memory.');
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${first.id}/archive`, { method: 'POST' });
+      const first = await createMemory(baseUrl, workspaceId, userId, 'First memory.');
+      const second = await createMemory(baseUrl, workspaceId, userId, 'Second memory.');
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${first.id}/archive`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { memories: Array<{ id: string }> };
       assert.deepEqual(
@@ -348,7 +403,9 @@ test('GET .../memories lists newest-first and excludes archived by default', asy
         [second.id],
       );
 
-      const withArchived = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories?includeArchived=true`);
+      const withArchived = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories?includeArchived=true`, {
+        headers: authHeader(userId),
+      });
       const withArchivedBody = (await withArchived.json()) as { memories: unknown[] };
       assert.equal(withArchivedBody.memories.length, 2);
     } finally {
@@ -362,10 +419,12 @@ test('GET .../memories does not leak another workspace\'s memories', async () =>
     const a = await seedWorkspace(pool);
     const b = await seedWorkspace(pool);
     try {
-      await createMemory(baseUrl, a.workspaceId, 'Workspace A memory.');
-      await createMemory(baseUrl, b.workspaceId, 'Workspace B memory.');
+      await createMemory(baseUrl, a.workspaceId, a.userId, 'Workspace A memory.');
+      await createMemory(baseUrl, b.workspaceId, b.userId, 'Workspace B memory.');
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${a.workspaceId}/memories`, {
+        headers: authHeader(a.userId),
+      });
       const body = (await response.json()) as { memories: Array<{ workspaceId: string }> };
       assert.equal(body.memories.length, 1);
       assert.equal(body.memories[0].workspaceId, a.workspaceId);
@@ -380,11 +439,11 @@ test('PATCH .../memories/:id updates content and scores', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const memory = await createMemory(baseUrl, workspaceId, 'Original content.');
+      const memory = await createMemory(baseUrl, workspaceId, userId, 'Original content.');
 
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ content: 'Updated content.', importanceScore: 0.9 }),
       });
 
@@ -402,18 +461,18 @@ test('PATCH .../memories/:id rejects an out-of-range score and an empty body', a
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const memory = await createMemory(baseUrl, workspaceId, 'Some content.');
+      const memory = await createMemory(baseUrl, workspaceId, userId, 'Some content.');
 
       const badScore = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ confidenceScore: 2 }),
       });
       assert.equal(badScore.status, 400);
 
       const empty = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({}),
       });
       assert.equal(empty.status, 400);
@@ -431,7 +490,7 @@ test('PATCH .../memories/:id returns 404 for an unknown memory id', async () => 
         `${baseUrl}/api/workspaces/${workspaceId}/memories/00000000-0000-0000-0000-000000000000`,
         {
           method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
           body: JSON.stringify({ content: 'x' }),
         },
       );
@@ -446,10 +505,11 @@ test('POST .../memories/:id/archive archives a memory and excludes it from listi
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const memory = await createMemory(baseUrl, workspaceId, 'Archive candidate.');
+      const memory = await createMemory(baseUrl, workspaceId, userId, 'Archive candidate.');
 
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}/archive`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { memory: { archivedAt: string | null } };
@@ -464,15 +524,17 @@ test('DELETE .../memories/:id permanently removes a memory, then 404s on a secon
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const memory = await createMemory(baseUrl, workspaceId, 'Delete candidate.');
+      const memory = await createMemory(baseUrl, workspaceId, userId, 'Delete candidate.');
 
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
         method: 'DELETE',
+        headers: authHeader(userId),
       });
       assert.equal(response.status, 200);
 
       const second = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/memories/${memory.id}`, {
         method: 'DELETE',
+        headers: authHeader(userId),
       });
       assert.equal(second.status, 404);
     } finally {
@@ -486,22 +548,24 @@ test('PATCH/archive/DELETE reject a memory id belonging to another workspace wit
     const a = await seedWorkspace(pool);
     const b = await seedWorkspace(pool);
     try {
-      const memory = await createMemory(baseUrl, a.workspaceId, 'A only.');
+      const memory = await createMemory(baseUrl, a.workspaceId, a.userId, 'A only.');
 
       const patch = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories/${memory.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(b.userId) },
         body: JSON.stringify({ content: 'hijack attempt' }),
       });
       assert.equal(patch.status, 404);
 
       const archive = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories/${memory.id}/archive`, {
         method: 'POST',
+        headers: authHeader(b.userId),
       });
       assert.equal(archive.status, 404);
 
       const del = await fetch(`${baseUrl}/api/workspaces/${b.workspaceId}/memories/${memory.id}`, {
         method: 'DELETE',
+        headers: authHeader(b.userId),
       });
       assert.equal(del.status, 404);
     } finally {

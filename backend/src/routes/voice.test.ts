@@ -7,6 +7,8 @@ import { Pool } from 'pg';
 import type { SpeechToTextProvider, TextToSpeechProvider } from '@aima/ai-engine';
 import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
 import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
 import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
@@ -160,6 +162,7 @@ async function withTestServer(
   const app = createApp({
     pool,
     registry,
+    authProvider: new MockAuthProvider(),
     permissionEngine,
     actionLogger,
     integrationService,
@@ -223,7 +226,10 @@ test('POST /api/workspaces/:id/voice/sessions starts an active session', async (
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 201);
       const body = (await response.json()) as { session: { status: string; workspaceId: string } };
       assert.equal(body.session.status, 'active');
@@ -235,11 +241,17 @@ test('POST /api/workspaces/:id/voice/sessions starts an active session', async (
 });
 
 test('POST .../voice/sessions rejects an unknown workspaceId with 404, not 500', async () => {
-  await withTestServer(async (baseUrl) => {
-    const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/voice/sessions`, {
-      method: 'POST',
-    });
-    assert.equal(response.status, 404);
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
   });
 });
 
@@ -247,11 +259,15 @@ test('POST .../voice/sessions/:id/end ends an active session', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const { session } = (await start.json()) as { session: { id: string } };
 
       const end = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
       assert.equal(end.status, 200);
       const body = (await end.json()) as { session: { status: string } };
@@ -266,12 +282,19 @@ test('POST .../voice/sessions/:id/end twice returns 409 the second time', async 
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const { session } = (await start.json()) as { session: { id: string } };
 
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const second = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/end`, {
         method: 'POST',
+        headers: authHeader(userId),
       });
       assert.equal(second.status, 409);
     } finally {
@@ -284,10 +307,18 @@ test('GET .../voice/sessions lists sessions for the workspace', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
-      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { sessions: unknown[] };
       assert.equal(body.sessions.length, 2);
@@ -301,13 +332,16 @@ test('POST .../voice/sessions/:id/turns transcribes, replies, and synthesizes au
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const { session } = (await start.json()) as { session: { id: string } };
 
       const audioBase64 = Buffer.from('What meetings do I have today?', 'utf-8').toString('base64');
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ audioBase64, audioMimeType: 'audio/wav' }),
       });
 
@@ -330,12 +364,15 @@ test('POST .../voice/sessions/:id/turns rejects a missing audioBase64 with 400',
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const { session } = (await start.json()) as { session: { id: string } };
 
       const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
         body: JSON.stringify({ audioMimeType: 'audio/wav' }),
       });
       assert.equal(response.status, 400);
@@ -349,19 +386,24 @@ test('GET .../voice/sessions/:id/turns lists submitted turns oldest-first', asyn
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);
     try {
-      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
       const { session } = (await start.json()) as { session: { id: string } };
 
       const submit = (text: string) =>
         fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
           body: JSON.stringify({ audioBase64: Buffer.from(text, 'utf-8').toString('base64'), audioMimeType: 'audio/wav' }),
         });
       await submit('first');
       await submit('second');
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
+        headers: authHeader(userId),
+      });
       assert.equal(response.status, 200);
       const body = (await response.json()) as { turns: Array<{ transcript: { text: string } }> };
       assert.equal(body.turns.length, 2);
@@ -385,12 +427,15 @@ test('POST .../voice/sessions/:id/turns returns 502 with a safe message when the
     async (baseUrl, pool) => {
       const { userId, workspaceId } = await seedWorkspace(pool);
       try {
-        const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, { method: 'POST' });
+        const start = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions`, {
+          method: 'POST',
+          headers: authHeader(userId),
+        });
         const { session } = (await start.json()) as { session: { id: string } };
 
         const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/voice/sessions/${session.id}/turns`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
           body: JSON.stringify({ audioBase64: Buffer.from('hi', 'utf-8').toString('base64'), audioMimeType: 'audio/wav' }),
         });
 
@@ -410,10 +455,15 @@ test('voice session routes 404 across workspace isolation', async () => {
     const { userId: userA, workspaceId: workspaceA } = await seedWorkspace(pool);
     const { userId: userB, workspaceId: workspaceB } = await seedWorkspace(pool);
     try {
-      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceA}/voice/sessions`, { method: 'POST' });
+      const start = await fetch(`${baseUrl}/api/workspaces/${workspaceA}/voice/sessions`, {
+        method: 'POST',
+        headers: authHeader(userA),
+      });
       const { session } = (await start.json()) as { session: { id: string } };
 
-      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceB}/voice/sessions/${session.id}`);
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceB}/voice/sessions/${session.id}`, {
+        headers: authHeader(userB),
+      });
       assert.equal(response.status, 404);
     } finally {
       await cleanupWorkspace(pool, userA);
