@@ -45,3 +45,12 @@ test('.env.production.example sets NODE_ENV=production', () => {
   const content = readFileSync(path.join(__dirname, '../../.env.production.example'), 'utf-8');
   assert.match(content, /^NODE_ENV=production$/m);
 });
+
+test('.env.production.example sets AUTH_PROVIDER=supabase, not the mock default', () => {
+  // AUTH_PROVIDER isn't in REQUIRED_ENV_VARS above (loadConfig() only requires
+  // it conditionally, in production — see env.ts/env.test.ts), but the
+  // production *template* specifically must model the one value that's
+  // actually safe to ship, not the mock default every other example carries.
+  const content = readFileSync(path.join(__dirname, '../../.env.production.example'), 'utf-8');
+  assert.match(content, /^AUTH_PROVIDER=supabase$/m);
+});

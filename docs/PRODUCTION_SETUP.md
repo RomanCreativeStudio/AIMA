@@ -29,6 +29,7 @@ The backend behaves identically in every environment except for a small set of c
 | Concern | Development / test | Production (`NODE_ENV=production`) |
 |---|---|---|
 | `PUBLIC_BACKEND_URL` | Any URL, including `http://` | Must start with `https://` — `loadConfig()` throws otherwise |
+| `AUTH_PROVIDER` | Defaults to `mock` (no credentials needed) | Must be `supabase` — `loadConfig()` throws if unset or `mock` (EPIC-005 Sprint 5.3; see §2 and §8) |
 | Log format | Human-readable text (`[LEVEL] message fields`) | Single-line JSON per entry, parseable by a log platform |
 | Database TLS | Off by default | Set `DATABASE_SSL=true` for managed Postgres providers |
 | Everything else (routes, permission enforcement, workspace isolation, approval gating) | Identical | Identical — there is no separate "production code path" |
@@ -56,7 +57,10 @@ All variables `backend/.env.example` documents are required in every environment
 | `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` | Yes | From a real Google Cloud OAuth app (see `docs/DEVELOPMENT_SETUP.md` §5) — registering one is outside this environment's scope, so these remain placeholders until you do. |
 | `GITHUB_OAUTH_CLIENT_ID` / `GITHUB_OAUTH_CLIENT_SECRET` | Yes | From a real GitHub OAuth app, same caveat. |
 | `AI_PROVIDER`, `AI_PROVIDER_API_KEY`, `AI_PROVIDER_MODEL` | No (defaults to `mock`) | Set `AI_PROVIDER=claude` and a real key for a live deployment; `mock` never calls out. |
+| `EMBEDDING_PROVIDER`, `EMBEDDING_PROVIDER_API_KEY`, `EMBEDDING_PROVIDER_MODEL` | No (defaults to `mock`) | Set `EMBEDDING_PROVIDER=openai` and a real key for real memory/knowledge/semantic retrieval; `mock` never calls out. Read directly by this backend process (`backend/src/index.ts`), not only by `ai-engine`'s own package use. |
 | `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` (+`_API_KEY`/`_MODEL`/`_TIMEOUT_MS`) | No (defaults to `mock`) | Set both to `openai` and an OpenAI API key for real voice transcription/synthesis (Phase 3.3); `mock` never calls out. |
+| `AUTH_PROVIDER`, `AUTH_PROVIDER_URL`, `AUTH_PROVIDER_API_KEY` | **Yes in production** (defaults to `mock`, which `loadConfig()` refuses to accept when `NODE_ENV=production`) | Set `AUTH_PROVIDER=supabase` plus your Supabase project's URL and anon/publishable key (`ADR-0022`). Unlike the mock AI/voice providers above, the mock auth provider is a security hole, not just degraded functionality — see §8. |
+| `AUTH_LOGIN_RATE_LIMIT_MAX`/`_WINDOW_MS`, `AUTH_LOGIN_IP_RATE_LIMIT_MAX`/`_WINDOW_MS`, `AUTH_REFRESH_RATE_LIMIT_MAX`/`_WINDOW_MS` | No (safe built-in defaults, `ADR-0023`) | Override only if you have a specific reason to; the defaults (5/15min per-email login, 20/15min per-IP login and refresh) are production-safe as-is. |
 
 `loadConfig()` (`backend/src/config/env.ts`) is the single source of truth for every one of these checks — it fails fast at process startup with a descriptive error rather than letting a missing or malformed variable surface as a confusing runtime error later, the same philosophy the Foundation Sprint established.
 
@@ -129,6 +133,7 @@ A review pass over the areas most likely to matter once this backend is internet
 - **Permission enforcement** — every action-producing route continues to call `PermissionEngine` before executing, and every executed action is written to `action_log`; unchanged this phase, re-verified.
 - **Approval enforcement** — every Tier 3 capability continues to require an `approved` `pending_approvals` row before `ExecutionService` will execute it; unchanged this phase, re-verified.
 - **Transport security** — the only new enforcement this phase: `PUBLIC_BACKEND_URL` must be `https://` in production, since OAuth providers redirect real users (with authorization codes in the query string) to this URL.
+- **Auth provider, not just database, security** (EPIC-005 Sprint 5.3) — `docs/decisions/0024-database-security-boundary.md` (`ADR-0024`) closed the database-level exposure; this pass found and closed the equivalent gap one layer up. `AUTH_PROVIDER` (EPIC-004) defaults to `mock` exactly like `AI_PROVIDER`/`EMBEDDING_PROVIDER`/the voice providers, but unlike those, `MockAuthProvider`'s "password" (`mockPasswordFor`) is a deterministic, publicly computable function of the email address alone — a mock AI provider running in production returns obviously-fake content, but a mock auth provider running in production would let anyone authenticate as anyone, silently. `loadConfig()` (`backend/src/config/env.ts`) now refuses to start when `NODE_ENV=production` and `AUTH_PROVIDER` is unset or `mock`, closing the gap structurally rather than relying on an operator remembering to set it (§1, §2).
 
 No new vulnerability class was introduced or found; this section documents what was checked, not a remediation list.
 

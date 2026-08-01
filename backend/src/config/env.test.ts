@@ -37,7 +37,9 @@ test('loadConfig() rejects an unrecognized NODE_ENV', () => {
 test('loadConfig() accepts "test" and "production" as valid NODE_ENV values', () => {
   assert.equal(loadConfig(validEnv({ NODE_ENV: 'test' })).nodeEnv, 'test');
   assert.equal(
-    loadConfig(validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com' })).nodeEnv,
+    loadConfig(
+      validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com', AUTH_PROVIDER: 'supabase' }),
+    ).nodeEnv,
     'production',
   );
 });
@@ -69,7 +71,10 @@ test('loadConfig() throws when PUBLIC_BACKEND_URL is missing', () => {
 
 test('loadConfig() requires an https:// PUBLIC_BACKEND_URL in production', () => {
   assert.throws(
-    () => loadConfig(validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'http://api.example.com' })),
+    () =>
+      loadConfig(
+        validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'http://api.example.com', AUTH_PROVIDER: 'supabase' }),
+      ),
     /must be an https:\/\/ URL in production/,
   );
 });
@@ -80,8 +85,38 @@ test('loadConfig() allows an http:// PUBLIC_BACKEND_URL outside production', () 
 });
 
 test('loadConfig() accepts an https:// PUBLIC_BACKEND_URL in production', () => {
-  const config = loadConfig(validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com' }));
+  const config = loadConfig(
+    validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com', AUTH_PROVIDER: 'supabase' }),
+  );
   assert.equal(config.publicBackendUrl, 'https://api.example.com');
+});
+
+test('loadConfig() throws when AUTH_PROVIDER is unset in production (defaults to mock)', () => {
+  const env = validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com' });
+  delete env.AUTH_PROVIDER;
+  assert.throws(() => loadConfig(env), /AUTH_PROVIDER must not be "mock" in production/);
+});
+
+test('loadConfig() throws when AUTH_PROVIDER is explicitly "mock" in production', () => {
+  assert.throws(
+    () =>
+      loadConfig(
+        validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com', AUTH_PROVIDER: 'mock' }),
+      ),
+    /AUTH_PROVIDER must not be "mock" in production/,
+  );
+});
+
+test('loadConfig() allows AUTH_PROVIDER=supabase in production', () => {
+  const config = loadConfig(
+    validEnv({ NODE_ENV: 'production', PUBLIC_BACKEND_URL: 'https://api.example.com', AUTH_PROVIDER: 'supabase' }),
+  );
+  assert.equal(config.nodeEnv, 'production');
+});
+
+test('loadConfig() allows AUTH_PROVIDER unset (mock) outside production', () => {
+  const config = loadConfig(validEnv());
+  assert.equal(config.nodeEnv, 'development');
 });
 
 test('loadConfig() throws when Google OAuth credentials are missing', () => {

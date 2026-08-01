@@ -34,6 +34,26 @@ export interface AppConfig {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const nodeEnv = validateNodeEnv(env.NODE_ENV);
 
+  // AUTH_PROVIDER isn't part of AppConfig's own shape (backend/src/auth/registry.ts's
+  // createAuthProviderFromEnv() reads it directly, the same convention AI_PROVIDER/
+  // EMBEDDING_PROVIDER/SPEECH_TO_TEXT_PROVIDER/TEXT_TO_SPEECH_PROVIDER already follow) —
+  // this check only guards against the one default among them that's a security hole,
+  // not a functional one. MockAuthProvider's "password" (mockPasswordFor) is a publicly
+  // computable function of the email address alone; unlike a mock AI/voice provider
+  // returning fake content, a mock auth provider running in production would let anyone
+  // authenticate as anyone. AUTH_PROVIDER defaults to "mock" (registry.ts) exactly like
+  // every other provider here, so an operator who simply forgets to set it would get
+  // real-looking login/session behavior with no authentication at all, silently.
+  const authProvider = env.AUTH_PROVIDER ?? 'mock';
+  if (nodeEnv === 'production' && authProvider === 'mock') {
+    throw new Error(
+      'AUTH_PROVIDER must not be "mock" in production (it is unset, which defaults to "mock"). ' +
+        'The mock provider accepts a password derivable from the email address alone and must never ' +
+        'run against real users. Set AUTH_PROVIDER=supabase and configure AUTH_PROVIDER_URL/' +
+        'AUTH_PROVIDER_API_KEY (see docs/decisions/0022-authentication-architecture.md).',
+    );
+  }
+
   const databaseUrl = env.DATABASE_URL;
   if (!databaseUrl) {
     throw new Error(
