@@ -24,6 +24,8 @@ No automated detection exists today — there's nothing to authenticate, so ther
 
 Implement `REQ-001` (Authentication), per `ARCH-001`'s existing design and `ADR-0022`'s decided provider (Supabase Auth), token model (JWT access + rotating opaque refresh), and workspace authorization enforcement. Until then: this risk is accepted for local/single-developer use (per `ARCH-001`'s explicit framing of authentication as protecting one account, not multi-tenant isolation), and any deployment beyond a trusted local network should not occur before `REQ-001` is implemented.
 
+**Status as of EPIC-004 Sprint 4.4:** the mechanism this mitigation depends on now exists — `AuthProvider` verification/refresh/revocation, local session storage, and `requireAuth`/`requireWorkspaceOwnership` middleware (see `REQ-001`'s Related Implementation) — but none of it is wired into `backend/src/app.ts` or any existing route yet. Every endpoint described above remains reachable without authentication exactly as before; this risk's real-world exposure is unchanged. Wiring the middleware into the actual route stack is the next step toward closing this risk, not yet taken.
+
 ## Contingency Plan
 
 If a deployed instance is found to have been accessed without authorization: rotate `CREDENTIAL_ENCRYPTION_KEY` and all OAuth provider secrets (`backend/src/config/env.ts`), audit the `action_log` table for any Tier 3/4 actions taken during the exposure window, and treat every stored integration credential (`integration_credentials`) as potentially compromised.
@@ -48,5 +50,6 @@ If a deployed instance is found to have been accessed without authorization: rot
 
 | Version | Date | Reviewer | Change |
 | --- | --- | --- | --- |
+| 1.2 | 2026-08-01 | Product owner | Noted EPIC-004 Sprint 4.4's foundation-layer implementation (`AuthProvider`, session handling, `requireAuth`/`requireWorkspaceOwnership` middleware) in Mitigation Strategy. Status remains `Confirmed`: nothing is wired into `app.ts`/any route yet, so real-world exposure is unchanged. |
 | 1.1 | 2026-08-01 | Product owner | Added `ADR-0022` reference (Sprint 4.3) as the decision enabling mitigation. Status remains `Confirmed` — not resolved until implemented. |
 | 1.0 | 2026-08-01 | Product owner | Initial identification, during `REQ-001` implementation planning (EPIC-004 Sprint 4.2). |

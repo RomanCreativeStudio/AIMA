@@ -24,7 +24,7 @@ The backend must authenticate every request before it reaches a workspace-scoped
 4. Per-device session tracking is supported, with a user-visible "signed in devices" list and one-tap revocation (`ARCH-001` §"Authentication", §9).
 5. All authentication endpoints are rate-limited to mitigate credential-stuffing/brute-force attempts (`ARCH-001` §9).
 
-None of the above is met today (see repository audit finding above); each is a target condition for this requirement to be considered implemented.
+None of the above is met today. EPIC-004 Sprint 4.4 built the foundation modules acceptance criteria 2–4 will eventually rest on (`AuthProvider` abstraction with a Supabase Auth implementation, JWT+refresh-token session handling, per-device session storage/revocation) — see Related Implementation — but none is yet wired into a real endpoint, so every criterion below remains unmet in production terms. Criterion 5 (rate limiting) has no implementation yet at all.
 
 ## Dependencies
 
@@ -40,11 +40,27 @@ None registered yet. `REQ-002` (User Management) and `REQ-003` (Workspace Manage
 
 ## Related Tests
 
-Not yet implemented. A testing strategy (no live provider calls, regression risk for existing unauthenticated route tests, workspace-ownership rejection tests) is documented in [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md).
+Foundation layer only (EPIC-004 Sprint 4.4) — none of these are yet exercised against a real endpoint, since no route wires the middleware in:
+
+- `backend/src/auth/jwt.test.ts`, `backend/src/auth/mockAuthProvider.test.ts`, `backend/src/auth/supabaseAuthProvider.test.ts` — token verification/refresh/revocation, valid/invalid/expired tokens.
+- `backend/src/auth/sessionService.test.ts` — session creation, refresh-token rotation, revocation (including reuse-of-a-revoked-token), per-user listing/isolation.
+- `backend/src/middleware/auth.test.ts` — `requireAuth` over real HTTP: valid token, missing header, invalid token, expired token.
+- `backend/src/middleware/workspaceOwnership.test.ts` — `requireWorkspaceOwnership` over real HTTP: owner allowed, cross-user access rejected (404), unknown workspace (404), unauthenticated (401).
+
+The remaining testing strategy (retrofitting existing route test suites once middleware is wired in) is still documented in [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) and remains future work.
 
 ## Related Implementation
 
-Not yet implemented. Implementation planning (current-state audit, session lifecycle, identity flow, API/database placeholders) is documented in [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`).
+Foundation layer only (EPIC-004 Sprint 4.4), implementing `ADR-0022` exactly — not yet wired into `app.ts` or any existing route:
+
+- `database/migrations/0020_auth_sessions.sql` — local session/device storage.
+- `backend/src/auth/types.ts`, `errors.ts`, `jwt.ts` — the `AuthProvider` abstraction and standards-based RS256/JWKS verification.
+- `backend/src/auth/mockAuthProvider.ts`, `supabaseAuthProvider.ts`, `registry.ts` — the mock and Supabase Auth implementations, selected via `AUTH_PROVIDER`.
+- `backend/src/auth/sessionService.ts` — local session lifecycle (create/refresh-with-rotation/revoke/list) over `auth_sessions`.
+- `backend/src/middleware/auth.ts` — `requireAuth`, access-token validation and identity injection.
+- `backend/src/middleware/workspaceOwnership.ts` — `requireWorkspaceOwnership`, uniform 404 for both "workspace doesn't exist" and "belongs to another user".
+
+Wiring this into `app.ts`/existing routers, and building the login/refresh/logout HTTP endpoints themselves, remain future work — see [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`)'s API/database placeholders.
 
 ## Related Governance Records
 
@@ -54,6 +70,7 @@ Not yet implemented. Implementation planning (current-state audit, session lifec
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.3 | 2026-08-01 | EPIC-004 Sprint 4.4 (Authentication Implementation Foundation): built the `AuthProvider` abstraction (mock + Supabase), JWT/JWKS verification, session lifecycle (`SessionService`, `auth_sessions` migration), and `requireAuth`/`requireWorkspaceOwnership` middleware — all implementing `ADR-0022` exactly. Updated Related Tests/Related Implementation with real paths. Status stays `Approved`, not `Implemented`: nothing is yet wired into `app.ts` or an existing route, so no acceptance criterion is met in production terms yet. |
 | 1.2 | 2026-08-01 | Added `ADR-0022` (Authentication Architecture) reference following EPIC-004 Sprint 4.3. No change to Status, Acceptance Criteria, or scope — the ADR decides *how* this requirement will be implemented, not whether it's required. |
 | 1.1 | 2026-08-01 | Added planning cross-references (`REQ-001-PLAN`, `ECIA-001`, `RISK-001`) following EPIC-004 Sprint 4.2 (Authentication Foundation Planning). No change to Status, Acceptance Criteria, or scope — planning only, no code written. |
 | 1.0 | 2026-08-01 | Initial requirement, formalizing `ARCH-001`'s existing, not-yet-built authentication design. |

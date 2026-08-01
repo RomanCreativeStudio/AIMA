@@ -26,6 +26,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0013_action_log_sequence.sql` | Adds a monotonic `sequence` column (and supporting index) to `action_log`, so `ActionLogger.list` (Phase 2.5's "recent activity") has a stable newest-first order independent of `created_at` collisions — the same fix as `0003_message_sequence.sql`/`0006_approval_lifecycle.sql`/`0010_conversation_sequence.sql`/`0012_workflows.sql`, now applied to a fifth table. |
 | `0014_executions.sql` | Adds an `execution_status` enum (`pending`/`awaiting_approval`/`succeeded`/`failed`) and the `executions` table (request payload, response summary, error details, a nullable `pending_approval_id` FK, started/completed timestamps, and a monotonic `sequence` column from the start — the sixth table needing that fix, after `messages`/`pending_approvals`/`conversations`/`workflow_runs`/`action_log`) — the Action Execution Foundation's storage layer (docs/decisions/0014-action-execution-foundation.md). |
 | `0015_oauth_token_expiry.sql` | Adds a non-secret `token_expires_at` column to `workspace_integrations` — the OAuth Framework's expiry-visibility layer (docs/decisions/0015-live-integration-providers.md): lets a client see when a connected integration's token expires without ever decrypting `integration_credentials`, which continues to hold the actual token material. |
+| `0020_auth_sessions.sql` | Adds the `auth_sessions` table — local session/device storage (`user_id` FK, `device_label`, unique `refresh_token_hash`, `created_at`/`last_seen_at`/`revoked_at`) per the Authentication Architecture (docs/decisions/0022-authentication-architecture.md, Decision 3): device/session state is owned by AIMA's own database, not the managed auth provider. Purely additive; rollback is `DROP TABLE IF EXISTS auth_sessions;`. |
 
 ## Entities
 
@@ -50,6 +51,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `workflow_step_runs` | One row per step attempt within a `workflow_runs` row — `step_index`, `step_key`, `status`, a denormalized `capability_id` FK, and `pending_approval_id` (nullable, `ON DELETE SET NULL` — see `0012_workflows.sql`'s own comment on why not the default `RESTRICT`), plus the step's `output` once it runs. |
 | `action_log` | Audit trail for every Tier 3/4 execution. Ordered by a monotonic `sequence` column (`0013_action_log_sequence.sql`) for `ActionLogger.list`'s stable newest-first "recent activity" feed (Phase 2.5). |
 | `executions` | One row per requested external action — `provider`, `action_type`, `status`, `request_payload`/`response_summary` (JSONB), `error_details`, a nullable `pending_approval_id` FK, `started_at`/`completed_at`, ordered by a monotonic `sequence` column (`0014_executions.sql`). Created/read by `backend/src/execution/executionService.ts`. |
+| `auth_sessions` | One row per issued session/device — `user_id` FK, `device_label`, a unique `refresh_token_hash` (never the raw token), `created_at`/`last_seen_at`/`revoked_at` (`0020_auth_sessions.sql`). The authoritative local record of "which devices are signed in" and "is this session still valid," independent of the auth provider's own state (docs/decisions/0022-authentication-architecture.md, Decision 3). Created/read by `backend/src/auth/sessionService.ts`. |
 
 ## Running migrations locally
 
@@ -70,6 +72,7 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0012_workflows.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0013_action_log_sequence.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0014_executions.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0015_oauth_token_expiry.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0020_auth_sessions.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -95,6 +98,7 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0012_workflows.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0013_action_log_sequence.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0014_executions.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0015_oauth_token_expiry.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0020_auth_sessions.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.
