@@ -27,6 +27,18 @@ export interface IssuedTokens {
  */
 export interface AuthProvider {
   /**
+   * Exchanges an email/password credential pair for a fresh token pair
+   * (EPIC-004 Sprint 4.6) — the direct-credential-exchange login flow
+   * `REQ-001-PLAN`'s API placeholders named as one of the two options,
+   * "depends on the chosen provider." ADR-0022 already chose Supabase
+   * Auth, whose GoTrue API exposes exactly this grant type — this is not
+   * a new provider or an invented OAuth flow, just implementing the login
+   * mechanics the already-decided provider supports. Throws
+   * `AuthLoginFailedError` if the provider rejects the credentials.
+   */
+  signInWithPassword(email: string, password: string): Promise<IssuedTokens>;
+
+  /**
    * Verifies an access token's signature and expiry, returning the
    * identity it resolves to. Self-contained/local (ADR-0022 Decision 2) —
    * implementations must not make a network call for this on the ordinary

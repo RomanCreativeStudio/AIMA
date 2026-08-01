@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
 import type { AuthProvider } from './auth/types';
+import type { SessionService } from './auth/sessionService';
 import type { ActionLogger } from './actionLog/logger';
 import type { ApprovalEngine } from './approval/approvalEngine';
 import type { ConversationService } from './conversation/conversationService';
@@ -51,6 +52,7 @@ import { executionsRouter } from './routes/executions';
 import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
 import { oauthRouter, oauthCallbackRouter } from './routes/oauth';
+import { authPublicRouter, authRouter } from './routes/auth';
 import { preferencesRouter } from './routes/preferences';
 import { proactiveRouter } from './routes/proactive';
 import { retrievalRouter } from './routes/retrieval';
@@ -99,6 +101,8 @@ export interface AppDependencies {
   proactiveIntelligenceService?: ProactiveIntelligenceService;
   /** Phase 3.6: optional so every pre-existing call site keeps compiling — the `/retrieval/*` routes are simply not mounted when this is omitted. */
   retrievalService?: RetrievalService;
+  /** EPIC-004 Sprint 4.6: optional so every pre-existing call site (tests included) keeps compiling — the `/api/auth/*` routes are simply not mounted when this is omitted. `index.ts`, the one real production call site, always supplies a real one. */
+  sessionService?: SessionService;
 }
 
 /**
@@ -124,6 +128,20 @@ export function createApp(deps: AppDependencies): Application {
   // ahead of the authentication gate below (see backend/src/routes/oauth.ts
   // for why it can't require requireAuth or be workspace-scoped).
   app.use('/api', oauthCallbackRouter({ oauthService: deps.oauthService }));
+
+  // Login/refresh (EPIC-004 Sprint 4.6) must stay reachable ahead of the
+  // authentication gate below — a caller cannot present a valid access
+  // token to obtain one in the first place, or to refresh an expired one.
+  if (deps.sessionService) {
+    app.use(
+      '/api',
+      authPublicRouter({
+        authProvider: deps.authProvider,
+        sessionService: deps.sessionService,
+        userService: deps.userService,
+      }),
+    );
+  }
 
   // Authentication gate (ADR-0022 Decision 2/5, REQ-001, EPIC-004 Sprint
   // 4.5): every other /api route requires a verified caller identity.
@@ -218,6 +236,16 @@ export function createApp(deps: AppDependencies): Application {
         retrievalService: deps.retrievalService,
         permissionEngine: deps.permissionEngine,
         actionLogger: deps.actionLogger,
+      }),
+    );
+  }
+  if (deps.sessionService) {
+    app.use(
+      '/api',
+      authRouter({
+        authProvider: deps.authProvider,
+        sessionService: deps.sessionService,
+        userService: deps.userService,
       }),
     );
   }

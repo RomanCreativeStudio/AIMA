@@ -1,8 +1,32 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MockAuthProvider, issueMockTokens } from './mockAuthProvider';
-import { AuthRefreshFailedError } from './errors';
+import { MockAuthProvider, issueMockTokens, mockPasswordFor, mockSubjectIdFor } from './mockAuthProvider';
+import { AuthLoginFailedError, AuthRefreshFailedError } from './errors';
 import type { AuthProvider } from './types';
+
+test('signInWithPassword issues tokens for the deterministic correct password', async () => {
+  const provider = new MockAuthProvider();
+  const email = 'user@example.com';
+
+  const tokens = await provider.signInWithPassword(email, mockPasswordFor(email));
+
+  const verified = await provider.verifyAccessToken(tokens.accessToken);
+  assert.equal(verified?.subjectId, mockSubjectIdFor(email));
+});
+
+test('signInWithPassword throws AuthLoginFailedError for a wrong password', async () => {
+  const provider = new MockAuthProvider();
+  await assert.rejects(() => provider.signInWithPassword('user@example.com', 'wrong'), AuthLoginFailedError);
+});
+
+test('signInWithPassword throws AuthLoginFailedError for an empty email', async () => {
+  const provider = new MockAuthProvider();
+  await assert.rejects(() => provider.signInWithPassword('', 'irrelevant'), AuthLoginFailedError);
+});
+
+test('mockSubjectIdFor is deterministic and case/whitespace-insensitive', () => {
+  assert.equal(mockSubjectIdFor('User@Example.com'), mockSubjectIdFor(' user@example.com '));
+});
 
 test('verifyAccessToken accepts a freshly issued token', async () => {
   const provider = new MockAuthProvider();

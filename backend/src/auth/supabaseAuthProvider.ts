@@ -1,4 +1,4 @@
-import { AuthRefreshFailedError } from './errors';
+import { AuthLoginFailedError, AuthRefreshFailedError } from './errors';
 import { verifyJwtRs256, type Jwks } from './jwt';
 import type { AuthProvider, IssuedTokens, VerifiedAccessToken } from './types';
 
@@ -36,6 +36,32 @@ export class SupabaseAuthProvider implements AuthProvider {
     private readonly apiKey: string,
     private readonly fetchFn: typeof fetch = fetch,
   ) {}
+
+  async signInWithPassword(email: string, password: string): Promise<IssuedTokens> {
+    const response = await this.fetchFn(`${this.tokenUrl()}?grant_type=password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: this.apiKey },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const payload = (await response.json()) as SupabaseTokenResponse;
+    if (!response.ok || !payload.access_token || !payload.refresh_token) {
+      throw new AuthLoginFailedError(
+        'supabase',
+        payload.error_description ?? payload.msg ?? payload.error ?? `HTTP ${response.status}`,
+      );
+    }
+
+    const accessTokenExpiresAt = payload.expires_in
+      ? new Date(Date.now() + payload.expires_in * 1000).toISOString()
+      : new Date(Date.now() + DEFAULT_ACCESS_TOKEN_TTL_MS).toISOString();
+
+    return {
+      accessToken: payload.access_token,
+      refreshToken: payload.refresh_token,
+      accessTokenExpiresAt,
+    };
+  }
 
   async verifyAccessToken(accessToken: string): Promise<VerifiedAccessToken | null> {
     let jwks: Jwks;

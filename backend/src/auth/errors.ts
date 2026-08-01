@@ -13,3 +13,11 @@ export class AuthRefreshFailedError extends Error {
     this.name = 'AuthRefreshFailedError';
   }
 }
+
+/** Thrown when the auth provider rejects an email/password sign-in attempt (EPIC-004 Sprint 4.6) — mirrors `AuthRefreshFailedError`'s shape. The message is deliberately generic ("invalid email or password") regardless of whether the email is unknown or the password is wrong, so a login route can't be used to enumerate registered emails. */
+export class AuthLoginFailedError extends Error {
+  constructor(provider: string, detail: string) {
+    super(`Login failed for "${provider}": ${detail}`);
+    this.name = 'AuthLoginFailedError';
+  }
+}

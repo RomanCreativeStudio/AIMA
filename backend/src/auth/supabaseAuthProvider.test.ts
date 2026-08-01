@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createPrivateKey, generateKeyPairSync, sign as cryptoSign } from 'node:crypto';
 import { createFakeFetch } from '../testUtils/fakeFetch';
-import { AuthRefreshFailedError } from './errors';
+import { AuthLoginFailedError, AuthRefreshFailedError } from './errors';
 import { SupabaseAuthProvider } from './supabaseAuthProvider';
 
 function base64UrlEncode(input: Buffer | string): string {
@@ -26,6 +26,31 @@ function signJwt(privateKeyPem: string, kid: string, claims: Record<string, unkn
   const signature = cryptoSign('RSA-SHA256', Buffer.from(signedData), createPrivateKey(privateKeyPem));
   return `${signedData}.${base64UrlEncode(signature)}`;
 }
+
+test('signInWithPassword returns a token pair on success', async () => {
+  const { fetchFn, calls } = createFakeFetch([
+    { status: 200, body: { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 } },
+  ]);
+  const provider = new SupabaseAuthProvider('https://project.supabase.co', 'anon-key', fetchFn);
+
+  const tokens = await provider.signInWithPassword('user@example.com', 'correct-password');
+
+  assert.equal(tokens.accessToken, 'new-access');
+  assert.equal(tokens.refreshToken, 'new-refresh');
+  assert.match(calls[0].url, /\/auth\/v1\/token\?grant_type=password$/);
+});
+
+test('signInWithPassword throws AuthLoginFailedError when Supabase rejects the credentials', async () => {
+  const { fetchFn } = createFakeFetch([
+    { status: 400, body: { error: 'invalid_grant', error_description: 'Invalid login credentials' } },
+  ]);
+  const provider = new SupabaseAuthProvider('https://project.supabase.co', 'anon-key', fetchFn);
+
+  await assert.rejects(
+    () => provider.signInWithPassword('user@example.com', 'wrong-password'),
+    AuthLoginFailedError,
+  );
+});
 
 test('verifyAccessToken accepts a validly signed, unexpired token', async () => {
   const { privateKeyPem, jwks } = generateRsaKeyPairWithJwk('key-1');

@@ -24,15 +24,15 @@ The backend must authenticate every request before it reaches a workspace-scoped
 4. Per-device session tracking is supported, with a user-visible "signed in devices" list and one-tap revocation (`ARCH-001` §"Authentication", §9).
 5. All authentication endpoints are rate-limited to mitigate credential-stuffing/brute-force attempts (`ARCH-001` §9).
 
-**Status as of EPIC-004 Sprint 4.5 (Authentication Integration):**
+**Status as of EPIC-004 Sprint 4.6 (Authentication API Surface):**
 
-1. **Met.** Every `/api` route except the OAuth provider callback (which cannot carry an AIMA-issued token — see `backend/src/routes/oauth.ts`) now sits behind `requireAuth`; every workspace-scoped route additionally sits behind `requireWorkspaceOwnership`, and every user-scoped route behind `requireUserOwnership` (`backend/src/app.ts`). Cross-user access and unknown-resource access both return the same 404, and unauthenticated requests return 401. `GET /health` remains intentionally public (infrastructure/monitoring convention, not an API business endpoint).
+1. **Met.** Every `/api` route except the OAuth provider callback and the new `POST /api/auth/login`/`POST /api/auth/refresh` pair (which cannot require a pre-existing token — see `backend/src/routes/auth.ts`) now sits behind `requireAuth`; every workspace-scoped route additionally sits behind `requireWorkspaceOwnership`, and every user-scoped route behind `requireUserOwnership` (`backend/src/app.ts`). Cross-user access and unknown-resource access both return the same 404, and unauthenticated requests return 401. `GET /health` remains intentionally public (infrastructure/monitoring convention, not an API business endpoint).
 2. **Met** at the mechanism level — `AuthProvider` abstraction with a Supabase Auth implementation, selected via `AUTH_PROVIDER`. No self-built credential store exists or is planned.
-3. **Partially met.** The JWT-access/rotating-refresh-token mechanism exists and is enforced end-to-end (`SessionService`, `requireAuth`), but there is still no `POST /api/auth/login` or `/api/auth/refresh` HTTP endpoint for a client to actually obtain a token pair through this API — see "Related Implementation" below and `REQ-001-PLAN`'s API placeholders, still unresolved.
-4. **Partially met.** `SessionService.listSessions`/`revokeSession` exist and are tested, but are not yet exposed as HTTP routes (`GET /api/auth/devices`, `DELETE /api/auth/devices/:id` remain placeholders) — no user-visible "signed in devices" UI is possible yet.
+3. **Met.** `POST /api/auth/login` and `POST /api/auth/refresh` now exist as real HTTP endpoints — a client can obtain and rotate a token pair through this API. Login authenticates through `AuthProvider.signInWithPassword` (the direct-credential-exchange flow `REQ-001-PLAN`'s API placeholders already named as an option, matching Supabase GoTrue's real password grant), then creates a local `auth_sessions` row before returning tokens.
+4. **Met.** `GET /api/auth/sessions` (list the caller's own sessions) and `DELETE /api/auth/sessions/:sessionId` (revoke one, 404 if it belongs to someone else) are now real HTTP endpoints over `SessionService.listSessions`/`getSession`/`revokeSession`. `POST /api/auth/logout` revokes the current session (identified by the refresh token in the request body) by default, or every session for the caller when `allSessions: true` is explicitly sent. A dedicated "signed in devices" UI screen is still unbuilt (client-app work, out of this requirement's backend scope), but the API it would call now exists and is tested.
 5. **Not met.** No rate limiting exists on any endpoint, auth or otherwise.
 
-Status stays `Approved`, not `Implemented`: criteria 3–5 are not fully satisfied. This is a substantial, verified improvement over Sprint 4.4's state (where nothing was wired in and every criterion was unmet) — not the requirement's completion.
+Status stays `Approved`, not `Implemented`: criterion 5 is not yet satisfied. This is a substantial, verified improvement over Sprint 4.5's state (where the enforcement mechanism was wired in but no client could obtain a token at all) — not the requirement's completion.
 
 ## Dependencies
 
@@ -57,6 +57,12 @@ Foundation-layer unit/integration tests (EPIC-004 Sprint 4.4):
 
 Live-wiring tests, added against the real `app.ts` middleware stack (EPIC-004 Sprint 4.5) — every one of the 17 existing route-suite files under `backend/src/routes/*.test.ts` now attaches a real `Authorization` header via `backend/src/testUtils/auth.ts`'s `authHeader()`, and `backend/src/routes/workspaces.test.ts`, `tasks.test.ts`, `memories.test.ts`, and `users.test.ts` carry explicit new coverage for: authenticated success, missing token (401), invalid token (401), expired token (401), cross-user workspace/user access (404), and unknown workspace (404). Every existing positive-path test across all 17 files was adapted, not bypassed, to keep testing real request/response behavior end to end.
 
+Authentication API surface tests (EPIC-004 Sprint 4.6):
+
+- `backend/src/auth/mockAuthProvider.test.ts`, `backend/src/auth/supabaseAuthProvider.test.ts` — new `signInWithPassword` coverage: correct credentials issue a valid token pair, wrong password/rejected credentials throw `AuthLoginFailedError`.
+- `backend/src/auth/sessionService.test.ts` — new `getSession`/`findByRefreshToken` coverage: found and not-found cases for both.
+- `backend/src/routes/auth.test.ts` (new) — real HTTP coverage over `backend/src/app.ts`'s full middleware stack: successful login (creates a session, returns tokens), invalid email/wrong password/malformed email (401/400), refresh success and rotation, refresh reuse detection (401), logout (revokes the named session only, unless `allSessions: true`), session listing scoped to the caller, and unauthorized session access (deleting another user's session returns 404).
+
 ## Related Implementation
 
 Foundation layer (EPIC-004 Sprint 4.4) plus live integration (EPIC-004 Sprint 4.5), implementing `ADR-0022` exactly:
@@ -73,7 +79,18 @@ Foundation layer (EPIC-004 Sprint 4.4) plus live integration (EPIC-004 Sprint 4.
 - `backend/src/routes/workspaces.ts` (Sprint 4.5) — `POST /workspaces` now derives the owning `userId` from the authenticated caller's resolved identity (`req.identity`), never from a client-supplied request body field, per `REQ-001-PLAN`'s "User Identity Flow."
 - `backend/src/index.ts` (Sprint 4.5) — constructs the real `AuthProvider` via `createAuthProviderFromEnv()` for the composition root.
 
-Still not built: `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/devices`, `DELETE /api/auth/devices/:deviceId` — see [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`)'s API placeholders, still open. Rate limiting on auth endpoints is also not built.
+Authentication API surface (EPIC-004 Sprint 4.6), resolving `REQ-001-PLAN`'s remaining API placeholders:
+
+- `backend/src/auth/types.ts` — added `signInWithPassword(email, password)` to the `AuthProvider` interface: the direct-credential-exchange login flow `REQ-001-PLAN` already named as an option, matching Supabase GoTrue's real password grant. Not a new provider and not an invented OAuth flow — `ADR-0022`'s already-chosen provider supports this mechanism natively.
+- `backend/src/auth/mockAuthProvider.ts` — implements `signInWithPassword` plus two deterministic helpers, `mockSubjectIdFor`/`mockPasswordFor`, standing in for a real credential store so tests can exercise genuine right/wrong-password paths without a database.
+- `backend/src/auth/supabaseAuthProvider.ts` — implements `signInWithPassword` against Supabase's `POST /auth/v1/token?grant_type=password`, mirroring `refreshSession`'s existing structure.
+- `backend/src/auth/errors.ts` — added `AuthLoginFailedError`, with a deliberately generic message so the login endpoint can't be used to enumerate registered emails.
+- `backend/src/auth/sessionService.ts` — added `getSession(sessionId)` and `findByRefreshToken(refreshToken)`, read-only lookups the new session-management and logout routes need (distinct from `refresh()`, which also rotates).
+- `backend/src/routes/auth.ts` (new) — the client-accessible HTTP surface: `POST /api/auth/login`, `POST /api/auth/refresh` (`authPublicRouter`, mounted ahead of the `requireAuth` gate — the same public/protected split Sprint 4.5 established for the OAuth callback), and `POST /api/auth/logout`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:sessionId` (`authRouter`, mounted behind the gate). Login resolves the FK target (`auth_sessions.user_id` → `users.id`) via `UserService.getUser` before creating a session, translating an unknown user to the same generic 401 as a wrong password.
+- `backend/src/app.ts` — added `sessionService` as an optional `AppDependencies` field (mirrors the `proactiveIntelligenceService`/`retrievalService` precedent, not the required `authProvider` one, since the new routes are purely additive); mounts `authPublicRouter`/`authRouter` only when it's supplied.
+- `backend/src/index.ts` — constructs a real `SessionService` from the pool and the already-constructed `authProvider`, and passes it into `createApp`.
+
+Still not built: rate limiting on auth endpoints (acceptance criterion 5) — see [`REQ-001-implementation-plan.md`](REQ-001-implementation-plan.md) (`REQ-001-PLAN`).
 
 ## Related Governance Records
 
@@ -83,6 +100,7 @@ Still not built: `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/au
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 1.5 | 2026-08-01 | EPIC-004 Sprint 4.6 (Authentication API Surface): built the client-accessible HTTP layer — `POST /api/auth/login`, `POST /api/auth/refresh`, `POST /api/auth/logout`, `GET /api/auth/sessions`, `DELETE /api/auth/sessions/:sessionId`. Extended `AuthProvider` with `signInWithPassword` (both `MockAuthProvider` and `SupabaseAuthProvider`), extended `SessionService` with `getSession`/`findByRefreshToken`, added `AuthLoginFailedError`. Wired `sessionService` into `app.ts` (optional dependency, mirroring the `proactiveIntelligenceService` pattern) and `index.ts`. Acceptance criteria 1–4 are now met; criterion 5 (rate limiting) remains unmet. Status stays `Approved`, not `Implemented`. No `ADR-0022` change, no new provider, no invented OAuth flow — this sprint implements login mechanics the already-decided provider (Supabase Auth) natively supports. |
 | 1.4 | 2026-08-01 | EPIC-004 Sprint 4.5 (Authentication Integration): wired `requireAuth`/`requireWorkspaceOwnership` into every `/api` route in `backend/src/app.ts` (except the public OAuth callback), added `requireUserOwnership` for `/users/:userId`-shaped routes, fixed a malformed-workspace-id 500 the wiring would otherwise have introduced, and changed `POST /workspaces` to derive the owner from the authenticated caller instead of a client-supplied body field. Adapted all 17 existing route test suites to attach real tokens; added explicit new coverage for missing/invalid/expired tokens and cross-user access. Acceptance criterion 1 is now met; criteria 3–4 are partially met (mechanism wired, no login/refresh/devices HTTP endpoints yet); criterion 5 remains unmet. Status stays `Approved`, not `Implemented`. No `ADR-0022` change — this sprint implements the already-decided design, it does not revise it. |
 | 1.3 | 2026-08-01 | EPIC-004 Sprint 4.4 (Authentication Implementation Foundation): built the `AuthProvider` abstraction (mock + Supabase), JWT/JWKS verification, session lifecycle (`SessionService`, `auth_sessions` migration), and `requireAuth`/`requireWorkspaceOwnership` middleware — all implementing `ADR-0022` exactly. Updated Related Tests/Related Implementation with real paths. Status stays `Approved`, not `Implemented`: nothing is yet wired into `app.ts` or an existing route, so no acceptance criterion is met in production terms yet. |
 | 1.2 | 2026-08-01 | Added `ADR-0022` (Authentication Architecture) reference following EPIC-004 Sprint 4.3. No change to Status, Acceptance Criteria, or scope — the ADR decides *how* this requirement will be implemented, not whether it's required. |

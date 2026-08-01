@@ -1,10 +1,33 @@
-import { randomUUID } from 'node:crypto';
-import { AuthRefreshFailedError } from './errors';
+import { createHash, randomUUID } from 'node:crypto';
+import { AuthLoginFailedError, AuthRefreshFailedError } from './errors';
 import type { AuthProvider, IssuedTokens, VerifiedAccessToken } from './types';
 
 const DEFAULT_ACCESS_TOKEN_TTL_MS = 15 * 60 * 1000;
 const MOCK_ACCESS_PREFIX = 'mock-access';
 const MOCK_REFRESH_PREFIX = 'mock-refresh';
+
+/**
+ * Deterministic subject id for `email` under the mock provider, formatted
+ * as a UUID so it satisfies `auth_sessions.user_id`'s FK into `users(id)`
+ * once a matching row is seeded with this same id — the mock-context
+ * equivalent of ADR-0022 Decision 4's "provider subject id reconciled
+ * with users.id" rollout step.
+ */
+export function mockSubjectIdFor(email: string): string {
+  const hash = createHash('sha256').update(email.trim().toLowerCase()).digest('hex');
+  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-${hash.slice(12, 16)}-${hash.slice(16, 20)}-${hash.slice(20, 32)}`;
+}
+
+/**
+ * The deterministic "correct password" for `email` under the mock
+ * provider. The mock has no real credential store to check a password
+ * against, so this hash-of-email stands in for one — it lets tests
+ * exercise a genuine right/wrong-password path through `signInWithPassword`
+ * without a database. Never a real security mechanism; mock/test use only.
+ */
+export function mockPasswordFor(email: string): string {
+  return createHash('sha256').update(email.trim().toLowerCase()).digest('hex').slice(0, 16);
+}
 
 /**
  * Issues a deterministic-shape mock token pair with no crypto and no
@@ -33,6 +56,13 @@ export function issueMockTokens(subjectId: string, ttlMs: number = DEFAULT_ACCES
  * uses this, never a live Supabase project.
  */
 export class MockAuthProvider implements AuthProvider {
+  async signInWithPassword(email: string, password: string): Promise<IssuedTokens> {
+    if (!email || password !== mockPasswordFor(email)) {
+      throw new AuthLoginFailedError('mock', 'invalid email or password');
+    }
+    return issueMockTokens(mockSubjectIdFor(email));
+  }
+
   async verifyAccessToken(accessToken: string): Promise<VerifiedAccessToken | null> {
     const parts = accessToken.split(':');
     if (parts.length !== 3 || parts[0] !== MOCK_ACCESS_PREFIX) return null;

@@ -8,6 +8,7 @@ import {
 } from '@aima/ai-engine';
 import { createApp } from './app';
 import { createAuthProviderFromEnv } from './auth/registry';
+import { SessionService } from './auth/sessionService';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
 import { ActionLogger } from './actionLog/logger';
@@ -138,6 +139,7 @@ async function main(): Promise<void> {
   const oauthService = new OAuthService(pool, oauthProviders, integrationService);
   const userService = new UserService(pool);
   const workspaceService = new WorkspaceService(pool);
+  const sessionService = new SessionService(pool, authProvider);
   const integrationReadiness: IntegrationReadiness = {
     gmail: Boolean(oauthProviders.gmail),
     github: Boolean(oauthProviders.github),
@@ -273,6 +275,7 @@ async function main(): Promise<void> {
     executionService,
     voiceService,
     retrievalService,
+    sessionService,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,
     logger,

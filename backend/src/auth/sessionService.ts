@@ -94,6 +94,28 @@ export class SessionService {
 
     return result.rows.map(mapSessionRow);
   }
+
+  /** Reads a single session by id (EPIC-004 Sprint 4.6) — a local read, no provider call. Used by the session-delete route to check ownership before revoking. Returns `null` if no such session exists. */
+  async getSession(sessionId: string): Promise<AuthSession | null> {
+    const result = await this.db.query<AuthSessionRow>(
+      `SELECT id, user_id, device_label, created_at, last_seen_at, revoked_at
+       FROM auth_sessions WHERE id = $1`,
+      [sessionId],
+    );
+
+    return result.rows.length > 0 ? mapSessionRow(result.rows[0]) : null;
+  }
+
+  /** Reads a single session by its current refresh token (EPIC-004 Sprint 4.6) — a read-only lookup, distinct from `refresh()` which also rotates. Used by the logout route to identify "the current session" from the refresh token the client presents. Returns `null` if no session matches. */
+  async findByRefreshToken(refreshToken: string): Promise<AuthSession | null> {
+    const result = await this.db.query<AuthSessionRow>(
+      `SELECT id, user_id, device_label, created_at, last_seen_at, revoked_at
+       FROM auth_sessions WHERE refresh_token_hash = $1`,
+      [hashRefreshToken(refreshToken)],
+    );
+
+    return result.rows.length > 0 ? mapSessionRow(result.rows[0]) : null;
+  }
 }
 
 interface AuthSessionRow {

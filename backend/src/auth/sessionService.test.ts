@@ -74,6 +74,44 @@ test('revokeSession is idempotent', async () => {
   });
 });
 
+test('getSession returns the matching session', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client);
+    const service = new SessionService(client, new MockAuthProvider());
+    const tokens = issueMockTokens(userId);
+    const session = await service.createSession(userId, tokens.refreshToken);
+
+    const found = await service.getSession(session.id);
+    assert.deepEqual(found, session);
+  });
+});
+
+test('getSession returns null for an unknown session id', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new SessionService(client, new MockAuthProvider());
+    assert.equal(await service.getSession('00000000-0000-0000-0000-000000000000'), null);
+  });
+});
+
+test('findByRefreshToken returns the session matching that refresh token', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client);
+    const service = new SessionService(client, new MockAuthProvider());
+    const tokens = issueMockTokens(userId);
+    const session = await service.createSession(userId, tokens.refreshToken);
+
+    const found = await service.findByRefreshToken(tokens.refreshToken);
+    assert.deepEqual(found, session);
+  });
+});
+
+test('findByRefreshToken returns null for an unrecognized refresh token', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new SessionService(client, new MockAuthProvider());
+    assert.equal(await service.findByRefreshToken('mock-refresh:never-issued:x'), null);
+  });
+});
+
 test('listSessions only returns sessions for the given user', async () => {
   await withTestTransaction(async (client) => {
     const a = await seedWorkspace(client, 'rcs');
