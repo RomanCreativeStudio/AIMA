@@ -9,7 +9,7 @@
 **Dependencies:** `CONST-001`, `HB-001`
 **Dependents:** Contributors, sprint plans, PR reviews
 **Review Frequency:** Every sprint close
-**Last Updated:** 2026-07-31
+**Last Updated:** 2026-08-01
 **Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md)
 
 ## Start Here
@@ -17,8 +17,8 @@
 1. [`CONSTITUTION.md`](CONSTITUTION.md) — `CONST-001`, the highest-authority governance document.
 2. [`PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md) — `HB-001`, AIMA Engineering Handbook v2.0 and preserved Product Bible content.
 3. [`TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) — `ARCH-001`, engineering blueprint.
-4. [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) — local development and workflow guide.
-5. [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — production deployment and operations guide.
+4. [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) — `DEV-001`, local development and workflow guide.
+5. [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — `DEPLOY-001`, production deployment and operations guide.
 6. [`decisions/`](decisions/) — Architecture Decision Records (`ADR-*`).
 
 ## Documentation Map
@@ -29,6 +29,8 @@
 | Engineering Handbook | [`PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md) | `HB-*` |
 | Architecture | [`TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) | `ARCH-*` |
 | ADRs | [`decisions/`](decisions/) | `ADR-*` |
+| Development Setup | [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | `DEV-*` |
+| Production Setup | [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) | `DEPLOY-*` |
 | Requirements | Future `requirements/` | `REQ-*` |
 | APIs | Future `api/` | `API-*` |
 | Database | [`../database/README.md`](../database/README.md), future `database/` | `DB-*` |

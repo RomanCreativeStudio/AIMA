@@ -2,14 +2,14 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.0.0
+**Version:** 2.0.1
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
 **Dependencies:** `CONST-001`, ADR index, Technical Architecture, Development Setup, Production Setup
 **Dependents:** Architecture documents, ADRs, requirements, API/database/testing/deployment documentation, sprint plans
 **Review Frequency:** Every sprint close and before every major release
-**Last Updated:** 2026-07-31
+**Last Updated:** 2026-08-01
 **Related Documents:** [`docs/CONSTITUTION.md`](CONSTITUTION.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md), [`docs/README.md`](README.md)
 
 ---
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.0.1 | 2026-08-01 | Reconciliation patch: imported the authoritative Constitution text into `CONST-001` (replacing its placeholder), cleared now-stale "placeholder" language pointing at it, and registered `DEV-001`/`DEPLOY-001`/`DOC-INDEX-001` in the Permanent Numbering Standard, Documentation Ownership, and Master Documentation Index tables — those documents already declared these IDs in their own ADS headers but were never added to the registries. |
 | 2.0.0 | 2026-07-31 | Reorganized the Product Bible into the AIMA Engineering Handbook v2.0, added ADS v1.0, stable IDs, volume structure, traceability, ECIA, and governance. |
 | 0.1 | 2026-07-27 | Founding Product Bible draft. |
 
@@ -82,6 +83,9 @@ Update this handbook when any of the following occurs:
 | Risks | `RISK-*` | Engineering Council | Future `docs/governance/risk-register.md` |
 | Technical debt | `TD-*` | Engineering Council | Future `docs/governance/technical-debt-register.md` |
 | Sprints | `SPR-*` | Sprint owner | Future `docs/sprints/` |
+| Development Setup | `DEV-*` | Lead Software Architect | `docs/DEVELOPMENT_SETUP.md` |
+| Production Setup | `DEPLOY-*` | Lead Software Architect | `docs/PRODUCTION_SETUP.md` |
+| Documentation Index | `DOC-INDEX-*` | Lead Product Architect / Lead Software Architect | `docs/README.md` |
 
 ### Documentation Review Workflow
 
@@ -127,6 +131,9 @@ Stable identifiers must never be reused after publication.
 | `RISK-*` | Risks | `RISK-001` |
 | `TD-*` | Technical debt items | `TD-001` |
 | `SPR-*` | Sprints | `SPR-001` |
+| `DEV-*` | Development setup/workflow documents | `DEV-001` |
+| `DEPLOY-*` | Production/deployment documents | `DEPLOY-001` |
+| `DOC-INDEX-*` | Documentation index documents | `DOC-INDEX-001` |
 
 ### Universal Chapter Template
 
@@ -172,8 +179,10 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | Database Documentation | `DB-*` | [`database/README.md`](../database/README.md), future `docs/database/` | Partial. |
 | Risk Register | `RISK-*` | Future `docs/governance/risk-register.md` | Placeholder. |
 | Technical Debt Register | `TD-*` | Future `docs/governance/technical-debt-register.md` | Placeholder. |
-| Testing Documentation | `TEST-*` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | Partial. |
-| Deployment Documentation | `DEPLOY-*` | [`docs/PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) | Active. |
+| Development Setup | `DEV-001` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) | Active. |
+| Documentation Index | `DOC-INDEX-001` | [`docs/README.md`](README.md) | Active. |
+| Testing Documentation | `TEST-*` | [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) §7 | Partial — testing standards currently live as a section of `DEV-001`; a dedicated `TEST-*` document is future scope. |
+| Deployment Documentation | `DEPLOY-001` | [`docs/PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) | Active. |
 
 ### ADR Index
 
