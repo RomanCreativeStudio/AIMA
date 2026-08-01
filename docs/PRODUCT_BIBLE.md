@@ -2,7 +2,7 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.0.1
+**Version:** 2.1.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.1.0 | 2026-08-01 | Established the ADR framework: added `docs/decisions/ADR-TEMPLATE.md` and `docs/decisions/ADR-INDEX.md`, registered `ADR-INDEX`/`ADR-TEMPLATE` in the Master Documentation Index, and replaced this handbook's inline ADR list with a pointer to the new canonical index (per this handbook's own Documentation Review Workflow: preserve existing useful content, move it rather than delete it). |
 | 2.0.1 | 2026-08-01 | Reconciliation patch: imported the authoritative Constitution text into `CONST-001` (replacing its placeholder), cleared now-stale "placeholder" language pointing at it, and registered `DEV-001`/`DEPLOY-001`/`DOC-INDEX-001` in the Permanent Numbering Standard, Documentation Ownership, and Master Documentation Index tables — those documents already declared these IDs in their own ADS headers but were never added to the registries. |
 | 2.0.0 | 2026-07-31 | Reorganized the Product Bible into the AIMA Engineering Handbook v2.0, added ADS v1.0, stable IDs, volume structure, traceability, ECIA, and governance. |
 | 0.1 | 2026-07-27 | Founding Product Bible draft. |
@@ -172,6 +173,8 @@ Every new major chapter should include these headings, using **Placeholder** whe
 | Engineering Handbook | `HB-001` | [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md) | Active. |
 | Technical Architecture | `ARCH-001` | [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) | Active companion architecture document. |
 | ADRs | `ADR-0001+` | [`docs/decisions/`](decisions/) | Active decision log. |
+| ADR Index | `ADR-INDEX` | [`docs/decisions/ADR-INDEX.md`](decisions/ADR-INDEX.md) | Active. Canonical index of every ADR's status, date, and file. |
+| ADR Template | `ADR-TEMPLATE` | [`docs/decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) | Active. Governs `ADR-0022` onward. |
 | Roadmap | `HB-ROADMAP` | Volume I and Volume XI below; [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) §10 | Active. |
 | Sprint Documentation | `SPR-*` | Future `docs/sprints/` | Placeholder. |
 | Requirements | `REQ-*` | Future `docs/requirements/` | Placeholder. |
@@ -186,27 +189,7 @@ Every new major chapter should include these headings, using **Placeholder** whe
 
 ### ADR Index
 
-- [ADR 0001](decisions/0001-backend-stack.md) — ADR 0001: Backend Stack for the Foundation Sprint
-- [ADR 0002](decisions/0002-memory-and-embeddings.md) — ADR 0002: Memory Scope Model and Embedding Provider
-- [ADR 0003](decisions/0003-conversation-pipeline.md) — ADR 0003: Conversation Pipeline Design
-- [ADR 0004](decisions/0004-intent-and-approval-engine.md) — ADR 0004: Intent & Approval Engine Design
-- [ADR 0005](decisions/0005-knowledge-ingestion.md) — ADR 0005: Knowledge Ingestion Foundation
-- [ADR 0006](decisions/0006-assistant-core-orchestration.md) — ADR 0006: Assistant Core Orchestration Layer
-- [ADR 0007](decisions/0007-intent-and-approval-workflows.md) — ADR 0007: Intent & Approval Workflows
-- [ADR 0008](decisions/0008-user-identity-and-workspace-intelligence.md) — ADR 0008: User Identity & Workspace Intelligence Layer
-- [ADR 0009](decisions/0009-macos-experience-foundation.md) — ADR 0009: macOS Experience Foundation
-- [ADR 0010](decisions/0010-daily-assistant-interface.md) — ADR 0010: Daily Assistant Interface
-- [ADR 0011](decisions/0011-external-integrations-foundation.md) — ADR 0011: External Integrations Foundation
-- [ADR 0012](decisions/0012-workflow-orchestration-foundation.md) — ADR 0012: Workflow Orchestration Foundation
-- [ADR 0013](decisions/0013-productivity-intelligence.md) — ADR 0013: Productivity Intelligence
-- [ADR 0014](decisions/0014-action-execution-foundation.md) — ADR 0014: Action Execution Foundation
-- [ADR 0015](decisions/0015-live-integration-providers.md) — ADR 0015: Live Integration Providers
-- [ADR 0016](decisions/0016-production-deployment-foundation.md) — ADR 0016: Production Deployment Foundation
-- [ADR 0017](decisions/0017-voice-assistant-foundation.md) — ADR 0017: Voice Assistant Foundation
-- [ADR 0018](decisions/0018-real-voice-provider-integration.md) — ADR 0018: Real Voice Provider Integration
-- [ADR 0019](decisions/0019-advanced-memory-system.md) — ADR 0019: Advanced Memory System
-- [ADR 0020](decisions/0020-proactive-intelligence.md) — ADR 0020: Proactive Intelligence
-- [ADR 0021](decisions/0021-semantic-search-and-context-retrieval.md) — ADR 0021: Semantic Search & Context Retrieval
+The canonical, actively-maintained ADR index is [`decisions/ADR-INDEX.md`](decisions/ADR-INDEX.md) (`ADR-INDEX`) — it lists every ADR's status, date, and file, and is the single place to update when a new ADR is added. New ADRs are authored from [`decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) (`ADR-TEMPLATE`), which adds Alternatives Considered/Trade-offs/Risks/Revision History fields on top of the lighter format ADR-0001 through ADR-0021 used. This section previously duplicated the full list inline; per this handbook's own Documentation Review Workflow ("Preserve existing useful content; move it rather than delete it"), that content was moved to the canonical index above rather than kept as a second, driftable copy.
 
 ---
 

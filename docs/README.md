@@ -19,7 +19,7 @@
 3. [`TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md) — `ARCH-001`, engineering blueprint.
 4. [`DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md) — `DEV-001`, local development and workflow guide.
 5. [`PRODUCTION_SETUP.md`](PRODUCTION_SETUP.md) — `DEPLOY-001`, production deployment and operations guide.
-6. [`decisions/`](decisions/) — Architecture Decision Records (`ADR-*`).
+6. [`decisions/`](decisions/) — Architecture Decision Records (`ADR-*`). Start at [`decisions/ADR-INDEX.md`](decisions/ADR-INDEX.md) (canonical index) and [`decisions/ADR-TEMPLATE.md`](decisions/ADR-TEMPLATE.md) (template for new ADRs).
 
 ## Documentation Map
 
