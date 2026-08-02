@@ -121,7 +121,7 @@ The build stage installs full dependencies and runs `npm run build` (compiling b
 
 The production stage (EPIC-005 Sprint 5.4) runs as the non-root `node` user `node:22-slim` already ships, rather than root, and declares a `HEALTHCHECK` that polls the same `GET /health` §6 describes (via Node's built-in `fetch`, so no `curl`/`wget` needs installing). The backend process itself also handles `SIGTERM`/`SIGINT` (`backend/src/index.ts`) — the signals `docker stop` and an orchestrator's rolling deploy both send — by stopping new connections, letting in-flight requests finish, and closing the database pool before exiting, rather than being killed mid-request.
 
-This `Dockerfile` has been reviewed for correctness but not executed end-to-end in this environment (no Docker daemon available here) — verify a real `docker build .` succeeds in your own environment before relying on it.
+This `Dockerfile`, unmodified, was built and run end-to-end in a real Docker daemon during EPIC-005 Sprint 5.5: `docker build .` succeeded, the container started as the non-root `node` user, `GET /health` returned `200` with every check passing, the `HEALTHCHECK` transitioned to `healthy`, and `docker stop` (SIGTERM) triggered the graceful-shutdown log line and a clean exit. The one environment-specific wrinkle: this development sandbox routes outbound HTTPS through a TLS-intercepting proxy that the container doesn't trust by default, so `npm ci` couldn't reach the registry until a throwaway build (extra CA cert, `--network host`) worked around it for verification purposes only — that workaround was never added to this `Dockerfile`, since a real host or CI runner has ordinary internet access and doesn't need it.
 
 ---
 
