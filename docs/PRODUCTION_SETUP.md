@@ -9,8 +9,8 @@
 **Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`
 **Dependents:** Release process, incident response, monitoring documentation
 **Review Frequency:** Every deployment or infrastructure change
-**Last Updated:** 2026-07-31
-**Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/README.md`](README.md)
+**Last Updated:** 2026-08-02
+**Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/README.md`](README.md), [`docs/decisions/0025-first-production-hosting.md`](decisions/0025-first-production-hosting.md)
 
 ---
 
@@ -154,3 +154,85 @@ Per the explicit Phase 3.1 scope:
 - Does not change any existing route's request/response shape.
 
 Registering real OAuth apps and deploying to a reachable host remains Integration Sprint scope (`docs/TECHNICAL_ARCHITECTURE.md` §10) — this phase makes that step configuration-ready, not complete.
+
+---
+
+## 10. First Deployment Checklist (EPIC-006)
+
+Everything above describes a backend that is *ready* to deploy; nothing has been deployed yet. This is the ordered, actionable checklist for actually doing that — hosting platform and database host are decided in `docs/decisions/0025-first-production-hosting.md` (`ADR-0025`); this section is the execution plan for that decision. Nothing here has been executed — every item is a prerequisite to complete before the first real deploy, not a record of one that happened.
+
+### 1. Hosting platform
+
+- [ ] Create a Render account, connect the GitHub repository.
+- [ ] Create a new Render **Web Service** pointed at the repo root `Dockerfile` (no code change needed — verified building and running correctly against a real Docker daemon in `EPIC-005` Sprint 5.5).
+- [ ] Set the service's health check path to `/health` (the same endpoint the Docker `HEALTHCHECK` already polls) so Render gates deploys on it.
+- [ ] Confirm the service's port matches `PORT` (default `4000`) or let Render's port-detection handle it.
+
+### 2. Domain / TLS
+
+- [ ] Launch on Render's free `*.onrender.com` HTTPS subdomain — no DNS setup required, and it already satisfies `PUBLIC_BACKEND_URL`'s `https://` requirement (§2 above).
+- [ ] Custom domain (optional, can be added later without any code change): add it in Render's dashboard, point a CNAME at Render, let Render issue the certificate automatically.
+
+### 3. Production environment variables
+
+Set every variable in `backend/.env.production.example` (§2 above) through Render's environment-variable dashboard — never commit a filled-in `.env`:
+
+- [ ] `NODE_ENV=production`, `PORT`, `CORS_ORIGINS` (real client origin(s), never `*`).
+- [ ] `DATABASE_URL` + `DATABASE_SSL=true` (from the new Supabase project — see §4).
+- [ ] `CREDENTIAL_ENCRYPTION_KEY` — generate fresh with `openssl rand -base64 32`; never reuse the dev/test key.
+- [ ] `PUBLIC_BACKEND_URL` — the real `https://` Render URL.
+- [ ] `AUTH_PROVIDER=supabase` + `AUTH_PROVIDER_URL`/`AUTH_PROVIDER_API_KEY` (from the new Supabase project — see §5).
+- [ ] `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`, `GITHUB_OAUTH_CLIENT_ID`/`_SECRET` (see §6).
+- [ ] `AI_PROVIDER`/`AI_PROVIDER_API_KEY`, `EMBEDDING_PROVIDER`/`_API_KEY`, `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` (+ their `_API_KEY`s) — decide per-provider whether to go live (`claude`/`openai`) or stay `mock` for launch; each is independently switchable later with no code change.
+- [ ] Leave `AUTH_LOGIN_RATE_LIMIT_*`/`AUTH_REFRESH_RATE_LIMIT_*` at their defaults unless there's a specific reason to change them (`ADR-0023`).
+
+### 4. Database setup
+
+- [ ] Create the new, dedicated production Supabase project decided in `ADR-0025` — **do not reuse** the existing dev/test project (`cjdkijgwvirbbdkbtgjy`).
+- [ ] Copy its Postgres connection string into `DATABASE_URL` (§3); confirm `pgvector`/`pgcrypto` are available (Supabase ships both by default).
+- [ ] Run `npm run db:migrate -- <production DATABASE_URL>` once, from a trusted machine, against the empty new database — applies all 19 migrations atomically (`EPIC-005` Sprint 5.6's `--single-transaction` hardening).
+- [ ] Revoke PostgREST's `anon`/`authenticated` grants on this new project exactly as `RISK-002`/`ADR-0024` did for the dev/test project — this is a *new* project, so the mitigation has not been applied to it yet and must be redone, not assumed:
+  ```sql
+  REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
+  REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
+  REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
+  ```
+- [ ] Verify the revocation: an unauthenticated `curl` against `https://<project>.supabase.co/rest/v1/users` with only the anon key should return `401`/`403`, never `200` (the exact check `RISK-002`'s Contingency Plan documents).
+
+### 5. Supabase Auth production configuration
+
+- [ ] In the new project's Auth settings, set the Site URL / redirect allow-list to the real `PUBLIC_BACKEND_URL` (and any client app URL once one exists).
+- [ ] Decide and configure sign-up policy (open sign-up vs. invite-only) — this app has no self-serve sign-up UI yet (`AuthProvider` has no `signUp` method; users are provisioned directly), so initial user(s) must be created via Supabase's own dashboard/API, then given a matching row in this app's `users` table (`users.id` = the Supabase subject id, `ADR-0022` Decision 4).
+- [ ] Confirm the project issues ES256 or RS256 JWTs (both supported, `backend/src/auth/jwt.ts`) — check via the project's JWKS endpoint if unsure.
+- [ ] Do **not** set `AUTH_PROVIDER=mock` in this environment under any circumstance — `loadConfig()` already refuses to start that way in production (§1, §8), but the checklist calls it out because the consequence (anyone can authenticate as anyone) is severe enough to double-check by hand.
+
+### 6. OAuth provider setup
+
+- [ ] Register a real Google Cloud OAuth app (console.cloud.google.com/apis/credentials) with authorized redirect URIs `{PUBLIC_BACKEND_URL}/api/oauth/gmail/callback` and `{PUBLIC_BACKEND_URL}/api/oauth/calendar/callback`.
+- [ ] Register a real GitHub OAuth app (github.com/settings/developers) with callback URL `{PUBLIC_BACKEND_URL}/api/oauth/github/callback`.
+- [ ] Set the resulting client ID/secret pairs in Render's environment variables (§3).
+- [ ] This is the one prerequisite `docs/PRODUCTION_SETUP.md` has explicitly deferred since Phase 3.1 (§9 above) as outside what this development environment can do — it requires a real account with each provider.
+
+### 7. Migration process
+
+- [ ] Already covered mechanically in §4 above (`npm run db:migrate`, one atomic run against the fresh database).
+- [ ] For any *future* schema change after this first deployment: there is no incremental-migration tracking (`database/apply-migrations.sh` is documented as fresh-database-only, `database/README.md`) — apply new migration files by hand against the already-migrated production database (`psql -v ON_ERROR_STOP=1 -f <new-migration>.sql`), the same way local development always has.
+
+### 8. Backup schedule
+
+- [ ] Decide, deliberately (this is a real cost trade-off, not a default — `ADR-0025` Trade-offs): either (a) enable Supabase's built-in automated backups on the new project, which requires at least the Pro plan, or (b) stay on Supabase's free tier and self-schedule `npm run db:backup` (`database/backup.sh`, `EPIC-005` Sprint 5.6) via an external scheduler (e.g. a scheduled GitHub Action), storing the resulting dump somewhere durable (an S3-compatible bucket — this project does not yet have one wired up for this purpose).
+- [ ] Whichever is chosen, confirm a restore actually works against this specific schema before relying on it — `database/restore.sh` was live-verified against a local database with pgvector data in `EPIC-005` Sprint 5.6; re-verify once against the real production project after the first backup exists.
+- [ ] Until one of these is actually configured, there is no standing backup of production data — `RISK-003`'s mitigation built the tooling and verified it works, but scheduling it against a real deployment is this checklist's job, not something already done.
+
+### 9. Monitoring
+
+- [ ] Render's own health-check-gated deploys already cover "is the container healthy at deploy time" — no setup needed, uses the existing `/health`/`HEALTHCHECK` (§6, §7 above).
+- [ ] Add an external uptime monitor (e.g. UptimeRobot, Better Stack — either has a usable free tier) polling the public `/health` endpoint, so a crash or outage between deploys pages someone instead of going unnoticed. Pure external configuration, no code change.
+- [ ] Real error tracking (Sentry, Bugsnag, or similar) remains explicitly optional for first launch — `ErrorReporter` (§5 above) already logs every exception through the structured, redacted logger; wiring a hosted service is a drop-in `ErrorReporter` implementation whenever it's worth doing, not a blocker.
+
+### What this checklist deliberately does not do
+
+Per `ADR-0025` and the explicit instruction this checklist was written under: it does not itself create any account, provision any infrastructure, or deploy anything. Every box above is unchecked by design — this is the plan, not a record of execution.

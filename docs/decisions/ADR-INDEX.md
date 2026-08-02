@@ -9,7 +9,7 @@
 **Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`
 **Dependents:** Contributors, future ADRs, `HB-001`'s Master Documentation Index
 **Review Frequency:** Every new or superseded ADR
-**Last Updated:** 2026-08-01
+**Last Updated:** 2026-08-02
 **Related Documents:** [`ADR-TEMPLATE.md`](ADR-TEMPLATE.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md), [`../TECHNICAL_ARCHITECTURE.md`](../TECHNICAL_ARCHITECTURE.md)
 
 ---
@@ -53,13 +53,14 @@ This is the single, canonical index of every Architecture Decision Record in AIM
 | ADR-0022 | Authentication Architecture | Decided | 2026-08-01 | [`0022-authentication-architecture.md`](0022-authentication-architecture.md) |
 | ADR-0023 | Authentication Rate Limiting | Decided | 2026-08-01 | [`0023-authentication-rate-limiting.md`](0023-authentication-rate-limiting.md) |
 | ADR-0024 | Database Security Boundary (RLS Decision) | Decided | 2026-08-01 | [`0024-database-security-boundary.md`](0024-database-security-boundary.md) |
+| ADR-0025 | First Production Hosting Platform & Database Host | Decided | 2026-08-02 | [`0025-first-production-hosting.md`](0025-first-production-hosting.md) |
 
-**Next available ID:** `ADR-0025`.
+**Next available ID:** `ADR-0026`.
 
 ## Status Legend
 
 - **Proposed** — drafted, not yet reviewed/adopted.
-- **Decided** — adopted and in effect. All 23 entries above are `Decided`; none have been superseded to date.
+- **Decided** — adopted and in effect. All 24 entries above are `Decided`; none have been superseded to date.
 - **Deprecated** — no longer recommended, but not replaced by a specific later ADR.
 - **Superseded by ADR-00NN** — replaced by a specific later decision; the original text is preserved, not deleted (`CONST-001` Article X).
 
