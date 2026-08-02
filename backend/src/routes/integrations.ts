@@ -1,4 +1,5 @@
 import { Router, type Response } from 'express';
+import type { ActionLogger } from '../actionLog/logger';
 import { WorkspaceNotFoundError } from '../types/errors';
 import {
   IntegrationConnectionFailedError,
@@ -15,7 +16,23 @@ export interface IntegrationsRouterDependencies {
   integrationService: IntegrationService;
   integrationRegistry: IntegrationRegistry;
   permissionEngine: PermissionEngine;
+  actionLogger: ActionLogger;
 }
+
+/**
+ * Connecting, rotating, or disconnecting an integration establishes or
+ * removes AIMA's access to a real external account — a security-relevant
+ * event `IntegrationService` itself never logged (EPIC-007 Sprint 7.1
+ * audit finding: the only trace previously left behind was the current,
+ * mutable `workspace_integrations` row, overwritten on every reconnect).
+ * No dedicated capability is registered for this — connect/disconnect are
+ * infrastructure/setup operations, the same "ungated but still logged"
+ * treatment `conversationService.ts` gives `generate_ai_response` (Tier 1,
+ * logged without requiring approval) — so this logs a plain `'prepare'`
+ * tier entry rather than inventing a new gated capability for what remains
+ * a deliberately ungated action.
+ */
+const INTEGRATION_LOG_TIER = 'prepare' as const;
 
 /** What the Integrations screen (Phase 2.3, item 5) actually needs to render one provider's card: status, its capability display, and which credential fields a connect/rotate form should collect. */
 interface IntegrationSummary extends WorkspaceIntegration {
@@ -68,7 +85,30 @@ export function integrationsRouter(deps: IntegrationsRouterDependencies): Router
         return;
       }
 
-      const integration = await deps.integrationService.connect({ workspaceId, provider, credentials });
+      let integration;
+      try {
+        integration = await deps.integrationService.connect({ workspaceId, provider, credentials });
+      } catch (error) {
+        if (error instanceof IntegrationConnectionFailedError || error instanceof InvalidCredentialsError) {
+          await deps.actionLogger.log({
+            workspaceId,
+            tier: INTEGRATION_LOG_TIER,
+            summary: `Failed to connect ${provider}`,
+            payload: { provider, error: (error as Error).message },
+            outcome: 'failure',
+          });
+        }
+        throw error;
+      }
+
+      await deps.actionLogger.log({
+        workspaceId,
+        tier: INTEGRATION_LOG_TIER,
+        summary: `Connected ${provider}`,
+        payload: { provider },
+        outcome: 'success',
+      });
+
       res.status(200).json({ integration: summarize(integration, deps) });
     } catch (error) {
       handleKnownErrors(error, res, next);
@@ -84,6 +124,15 @@ export function integrationsRouter(deps: IntegrationsRouterDependencies): Router
       }
 
       const integration = await deps.integrationService.disconnect(workspaceId, provider);
+
+      await deps.actionLogger.log({
+        workspaceId,
+        tier: INTEGRATION_LOG_TIER,
+        summary: `Disconnected ${provider}`,
+        payload: { provider },
+        outcome: 'success',
+      });
+
       res.status(200).json({ integration: summarize(integration, deps) });
     } catch (error) {
       handleKnownErrors(error, res, next);
@@ -104,7 +153,30 @@ export function integrationsRouter(deps: IntegrationsRouterDependencies): Router
         return;
       }
 
-      const integration = await deps.integrationService.rotate({ workspaceId, provider, credentials });
+      let integration;
+      try {
+        integration = await deps.integrationService.rotate({ workspaceId, provider, credentials });
+      } catch (error) {
+        if (error instanceof IntegrationConnectionFailedError || error instanceof InvalidCredentialsError) {
+          await deps.actionLogger.log({
+            workspaceId,
+            tier: INTEGRATION_LOG_TIER,
+            summary: `Failed to rotate ${provider} credentials`,
+            payload: { provider, error: (error as Error).message },
+            outcome: 'failure',
+          });
+        }
+        throw error;
+      }
+
+      await deps.actionLogger.log({
+        workspaceId,
+        tier: INTEGRATION_LOG_TIER,
+        summary: `Rotated ${provider} credentials`,
+        payload: { provider },
+        outcome: 'success',
+      });
+
       res.status(200).json({ integration: summarize(integration, deps) });
     } catch (error) {
       handleKnownErrors(error, res, next);

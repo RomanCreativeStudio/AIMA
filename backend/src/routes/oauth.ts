@@ -1,4 +1,5 @@
 import { Router, type Response } from 'express';
+import type { ActionLogger } from '../actionLog/logger';
 import { OAuthStateInvalidError } from '../oauth/errors';
 import type { OAuthService } from '../oauth/oauthService';
 import { isIntegrationProvider } from '../integrations/types';
@@ -7,6 +8,10 @@ import { isUuid } from '../util/uuid';
 
 export interface OAuthRouterDependencies {
   oauthService: OAuthService;
+}
+
+export interface OAuthCallbackRouterDependencies extends OAuthRouterDependencies {
+  actionLogger: ActionLogger;
 }
 
 /**
@@ -55,7 +60,7 @@ export function oauthRouter(deps: OAuthRouterDependencies): Router {
 }
 
 /** The public half of the OAuth Framework's API — see `oauthRouter`'s doc comment for why this must stay separate and unauthenticated. */
-export function oauthCallbackRouter(deps: OAuthRouterDependencies): Router {
+export function oauthCallbackRouter(deps: OAuthCallbackRouterDependencies): Router {
   const router = Router();
 
   router.get('/oauth/:provider/callback', async (req, res) => {
@@ -76,7 +81,20 @@ export function oauthCallbackRouter(deps: OAuthRouterDependencies): Router {
     }
 
     try {
-      await deps.oauthService.completeAuthorization(provider, code, state);
+      const integration = await deps.oauthService.completeAuthorization(provider, code, state);
+      // The one real "credential established" event this flow produces —
+      // the security-relevant moment worth an audit trail (EPIC-007 Sprint
+      // 7.1). `state`'s own validity check inside `completeAuthorization`
+      // is this route's authorization mechanism (see doc comment above), so
+      // by the time this succeeds, `integration.workspaceId` is a real,
+      // verified workspace, safe to log against.
+      await deps.actionLogger.log({
+        workspaceId: integration.workspaceId,
+        tier: 'prepare',
+        summary: `Connected ${provider} via OAuth`,
+        payload: { provider },
+        outcome: 'success',
+      });
       renderResult(res, 200, true, `${displayName(provider)} is now connected. You can close this window and return to AIMA.`);
     } catch (error) {
       if (error instanceof OAuthStateInvalidError) {

@@ -272,6 +272,93 @@ test('POST .../integrations/:provider/connect connects with valid credentials', 
   });
 });
 
+test('POST .../integrations/:provider/connect logs a success entry to the action log', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ credentials: { accessToken: 'gh-token' } }),
+      });
+      assert.equal(response.status, 200);
+
+      const log = await pool.query('SELECT summary, tier, outcome FROM action_log WHERE workspace_id = $1', [
+        workspaceId,
+      ]);
+      assert.equal(log.rows.length, 1);
+      assert.equal(log.rows[0].summary, 'Connected github');
+      assert.equal(log.rows[0].tier, 'prepare');
+      assert.equal(log.rows[0].outcome, 'success');
+
+      // Never leaked into the audit trail either.
+      const rawText = JSON.stringify(log.rows);
+      assert.equal(rawText.includes('gh-token'), false);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../integrations/:provider/disconnect logs a success entry to the action log', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ credentials: { accessToken: 'gh-token' } }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/disconnect`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 200);
+
+      const log = await pool.query(
+        "SELECT summary, outcome FROM action_log WHERE workspace_id = $1 AND summary LIKE 'Disconnected%'",
+        [workspaceId],
+      );
+      assert.equal(log.rows.length, 1);
+      assert.equal(log.rows[0].summary, 'Disconnected github');
+      assert.equal(log.rows[0].outcome, 'success');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../integrations/:provider/rotate logs a success entry to the action log', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/connect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ credentials: { accessToken: 'first' } }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/github/rotate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ credentials: { accessToken: 'second' } }),
+      });
+      assert.equal(response.status, 200);
+
+      const log = await pool.query(
+        "SELECT summary, outcome FROM action_log WHERE workspace_id = $1 AND summary LIKE 'Rotated%'",
+        [workspaceId],
+      );
+      assert.equal(log.rows.length, 1);
+      assert.equal(log.rows[0].summary, 'Rotated github credentials');
+      assert.equal(log.rows[0].outcome, 'success');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
 test('POST .../integrations/:provider/connect rejects missing credential fields', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);

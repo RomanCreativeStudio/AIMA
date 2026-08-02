@@ -2,7 +2,7 @@
 
 **Document ID:** TD-INDEX
 **Document Name:** AIMA Technical Debt Register Index
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Status:** Active
 **Authority Level:** Operational index; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
 **Owner:** Engineering Council (per `HB-001`'s Documentation Ownership table)
@@ -30,8 +30,9 @@ This is the single, canonical index of every Technical Debt Register entry in AI
 | Debt ID | Title | Status | Priority | Category | Owner | File |
 | --- | --- | --- | --- | --- | --- | --- |
 | TD-001 | Production Deploys From a Long-Lived Feature Branch, Not `main` | Identified | Medium | Infrastructure | Lead Software Architect | [`TD-001-production-deploys-from-feature-branch.md`](TD-001-production-deploys-from-feature-branch.md) |
+| TD-002 | Production OAuth Credentials Are Placeholder Values — No Real Google or GitHub App Registered | Identified | High | Infrastructure | Product owner | [`TD-002-google-github-oauth-apps-not-registered.md`](TD-002-google-github-oauth-apps-not-registered.md) |
 
-**Next available ID:** `TD-002`.
+**Next available ID:** `TD-003`.
 
 ## Status Legend
 

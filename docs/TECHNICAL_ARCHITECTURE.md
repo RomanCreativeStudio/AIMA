@@ -2,14 +2,14 @@
 
 **Document ID:** ARCH-001
 **Document Name:** AIMA Technical Architecture
-**Version:** 0.1.0
+**Version:** 0.1.1
 **Status:** Active
 **Authority Level:** Architecture; subordinate to `CONST-001` and `HB-001`
 **Owner:** Lead Software Architect
 **Dependencies:** `CONST-001`, `HB-001`
 **Dependents:** ADRs, API docs, database docs, implementation plans
 **Review Frequency:** Every architecture-impacting sprint
-**Last Updated:** 2026-08-01
+**Last Updated:** 2026-08-02
 **Related Documents:** [`docs/PRODUCT_BIBLE.md`](PRODUCT_BIBLE.md), [`docs/README.md`](README.md)
 
 ---
@@ -420,6 +420,8 @@ Added semantic retrieval so AIMA can find relevant memories, conversations, task
 - Add push notifications (iPhone) for pending approvals.
 - Ship the web dashboard as a secondary client against the now-stable API.
 - **Exit criteria:** AIMA can prepare and, upon explicit approval, execute at least one real external action against a live provider (not a stub), fully logged and visible to the user.
+
+**EPIC-007 Sprint 7.1 (Real Google Integration Foundation) progress:** the deployment prerequisite is now met (`EPIC-006`); this sprint audited the entire Google/Gmail integration path (`backend/src/oauth/`, `backend/src/integrations/`) against `ADR-0022`, this document, and every requirement, and found **no architectural problems** — the OAuth framework, encrypted credential storage, transparent token refresh, capability/tier gating, and `GoogleGmailConnector`'s real Gmail REST API calls are all already complete and correctly wired, confirmed by a live call against production (`POST /api/workspaces/:id/integrations/gmail/oauth/start` returns a correctly-formed Google authorization URL — redirect URI, scopes, and CSRF `state` all correct). One real, concrete gap was found and closed: connecting/disconnecting/rotating an integration wrote no `action_log` entry (`IntegrationService`/`OAuthService` never called `ActionLogger`) — only the current, mutable `workspace_integrations` row survived a reconnect. `routes/integrations.ts` and `routes/oauth.ts`'s callback now log a `'prepare'`-tier entry on connect/disconnect/rotate/OAuth-completion, mirroring the same "logged without a gating capability" treatment `generate_ai_response` already established. The one remaining blocker to this sprint's "Exit criteria" — a live external action against a real provider — is external to this codebase: production's `GOOGLE_OAUTH_CLIENT_ID` is confirmed (live) to be the placeholder value `not-yet-registered`, tracked as `TD-002`. Registering a real Google Cloud OAuth application (and GitHub's) is a human action outside what this environment can perform, not a code gap.
 
 ### Testing Sprint
 - Security review pass: verify workspace isolation cannot be bypassed via API, confirm no secrets are reachable from client code, validate rate limiting and auth revocation.

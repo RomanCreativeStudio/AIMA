@@ -2,7 +2,7 @@
 
 **Document ID:** DEPLOY-001
 **Document Name:** AIMA Production Setup
-**Version:** 0.1.2
+**Version:** 0.1.3
 **Status:** Active
 **Authority Level:** Operational; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
 **Owner:** Lead Software Architect
@@ -215,6 +215,7 @@ Per `ADR-0025` v1.1: the existing `cjdkijgwvirbbdkbtgjy` ("AIMA") Supabase proje
 - [ ] Register a real GitHub OAuth app (github.com/settings/developers) with callback URL `{PUBLIC_BACKEND_URL}/api/oauth/github/callback`.
 - [ ] Set the resulting client ID/secret pairs in Render's environment variables (§3).
 - [ ] This is the one prerequisite `docs/PRODUCTION_SETUP.md` has explicitly deferred since Phase 3.1 (§9 above) as outside what this development environment can do — it requires a real account with each provider.
+- [x] **Confirmed still outstanding, live, EPIC-007 Sprint 7.1**: `POST /api/workspaces/:id/integrations/gmail/oauth/start` against the real production deployment returns an `authorizationUrl` with `client_id=not-yet-registered` — production's `GOOGLE_OAUTH_CLIENT_ID` is a placeholder, not a real Google Cloud OAuth app's credentials (same pattern presumed for the GitHub/`_SECRET` variables). Everything else in that URL — redirect URI, scopes, CSRF `state` — is correct; only the OAuth app registration itself (the three boxes above) is missing. Tracked as `TD-002`. This is the single blocker between the fully-built, fully-tested integration framework and Gmail actually working for a real account — not a code gap.
 
 ### 7. Migration process
 

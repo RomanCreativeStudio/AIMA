@@ -304,6 +304,33 @@ test('GET /api/oauth/:provider/callback completes the connection and renders a s
   });
 });
 
+test('GET /api/oauth/:provider/callback logs a success entry to the action log against the connecting workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const startResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/integrations/gmail/oauth/start`, {
+        method: 'POST',
+        headers: authHeader(userId),
+      });
+      const { authorizationUrl } = (await startResponse.json()) as { authorizationUrl: string };
+      const state = new URL(authorizationUrl).searchParams.get('state')!;
+
+      const callbackResponse = await fetch(`${baseUrl}/api/oauth/gmail/callback?code=the-code&state=${state}`);
+      assert.equal(callbackResponse.status, 200);
+
+      const log = await pool.query('SELECT summary, tier, outcome FROM action_log WHERE workspace_id = $1', [
+        workspaceId,
+      ]);
+      assert.equal(log.rows.length, 1);
+      assert.equal(log.rows[0].summary, 'Connected gmail via OAuth');
+      assert.equal(log.rows[0].tier, 'prepare');
+      assert.equal(log.rows[0].outcome, 'success');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
 test('GET .../oauth/:provider/callback renders an error page for an invalid/expired state', async () => {
   await withTestServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/oauth/gmail/callback?code=x&state=not-a-real-state`);

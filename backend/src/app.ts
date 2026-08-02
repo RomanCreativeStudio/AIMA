@@ -137,7 +137,7 @@ export function createApp(deps: AppDependencies): Application {
   // which carries no AIMA Authorization header — it must stay reachable
   // ahead of the authentication gate below (see backend/src/routes/oauth.ts
   // for why it can't require requireAuth or be workspace-scoped).
-  app.use('/api', oauthCallbackRouter({ oauthService: deps.oauthService }));
+  app.use('/api', oauthCallbackRouter({ oauthService: deps.oauthService, actionLogger: deps.actionLogger }));
 
   // Login/refresh (EPIC-004 Sprint 4.6) must stay reachable ahead of the
   // authentication gate below — a caller cannot present a valid access
@@ -218,6 +218,7 @@ export function createApp(deps: AppDependencies): Application {
       integrationService: deps.integrationService,
       integrationRegistry: deps.integrationRegistry,
       permissionEngine: deps.permissionEngine,
+      actionLogger: deps.actionLogger,
     }),
   );
   app.use('/api', oauthRouter({ oauthService: deps.oauthService }));
