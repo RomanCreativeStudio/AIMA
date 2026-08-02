@@ -229,6 +229,11 @@ Per `ADR-0025` v1.1: the existing `cjdkijgwvirbbdkbtgjy` ("AIMA") Supabase proje
 - [ ] Add an external uptime monitor (e.g. UptimeRobot, Better Stack — either has a usable free tier) polling the public `/health` endpoint, so a crash or outage between deploys pages someone instead of going unnoticed. Pure external configuration, no code change.
 - [ ] Real error tracking (Sentry, Bugsnag, or similar) remains explicitly optional for first launch — `ErrorReporter` (§5 above) already logs every exception through the structured, redacted logger; wiring a hosted service is a drop-in `ErrorReporter` implementation whenever it's worth doing, not a blocker.
 
+### 10. Production smoke test
+
+- [ ] Once deployed, run `npm run smoke-test -- <deployed base URL> <email> <password>` (`scripts/smoke-test.js`, `EPIC-006` Sprint 6.1) against a real, already-provisioned user (§5 — this app has no self-serve sign-up, so the account must exist first). It exercises the deployed instance's real HTTP surface end to end: `GET /health`, login, an authenticated request (plus confirming the same request is rejected with no token), workspace creation (idempotent — reuses an existing workspace on re-run), permission enforcement (a write returns a `PermissionEngine` tier decision; an unknown/cross-tenant workspace is rejected with a uniform 404), refresh-token rotation (and that a rotated-out token is rejected), logout/revocation (and that the revoked refresh token is rejected afterward), and rate limiting (a throwaway email, never the real account, hammered until `429`). Exits non-zero if anything fails, printing which check.
+- [ ] Live-verified locally during this sprint against a real running instance (mock auth, a seeded test user): all 12 checks passed on a clean run, the workspace-creation step correctly fell back to reuse on a second run, and a deliberate wrong-password run correctly failed fast with a non-zero exit — the script's logic is proven, not just its syntax.
+
 ### What this checklist deliberately does not do
 
 Per `ADR-0025` and the explicit instruction this checklist was written under: it does not itself create any account, provision any infrastructure, or deploy anything. Every box above is unchecked by design — this is the plan, not a record of execution.

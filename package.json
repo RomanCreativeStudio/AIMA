@@ -17,6 +17,7 @@
     "docs:validate": "node scripts/validate-docs.js",
     "db:migrate": "bash database/apply-migrations.sh",
     "db:backup": "bash database/backup.sh",
-    "db:restore": "bash database/restore.sh"
+    "db:restore": "bash database/restore.sh",
+    "smoke-test": "node scripts/smoke-test.js"
   }
 }
