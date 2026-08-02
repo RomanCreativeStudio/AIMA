@@ -14,6 +14,15 @@
 # (a real `CREATE TABLE`/`CREATE TYPE` collision, not a bug in this script)
 # — that is intentional, not a gap this script tries to paper over.
 #
+# All migrations run as one `--single-transaction` psql invocation (EPIC-005
+# Sprint 5.6), not one `psql` call per file: a failure partway through used
+# to leave every migration before the failing one committed, so a retry hit
+# an immediate `already exists` collision on those instead of the real
+# failure — a half-migrated database a human then had to untangle by hand.
+# Verified live: a deliberately-failing run now rolls back to zero tables,
+# so fixing the bad migration and re-running lands on a clean database
+# again, with nothing to unwind first.
+#
 # Usage:
 #   ./database/apply-migrations.sh postgresql://user:pass@host:5432/dbname
 #   DATABASE_URL=postgresql://... ./database/apply-migrations.sh
@@ -43,9 +52,12 @@ fi
 IFS=$'\n' sorted=($(printf '%s\n' "${migrations[@]}" | sort))
 unset IFS
 
+file_args=()
 for migration in "${sorted[@]}"; do
   echo "Applying $(basename "$migration")..."
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$migration"
+  file_args+=(-f "$migration")
 done
+
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction "${file_args[@]}"
 
 echo "Applied ${#sorted[@]} migration(s) successfully."

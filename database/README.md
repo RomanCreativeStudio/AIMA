@@ -64,6 +64,17 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 
 Row Level Security is deliberately **not** used on any table. The application backend (`backend/src/db/pool.ts`) is the sole database access path — a direct `pg` connection over `DATABASE_URL`, distinct from the Supabase `anon`/`authenticated` roles PostgREST serves requests as — and all authorization (`requireAuth`, `requireWorkspaceOwnership`/`requireUserOwnership`, `PermissionEngine`) happens in application code in front of every query, per `docs/TECHNICAL_ARCHITECTURE.md` §3 ("the API layer is the only component allowed to talk to the database"). On the live Supabase project, `anon`/`authenticated` PostgREST access to every `public` table is revoked (including `ALTER DEFAULT PRIVILEGES` so future tables stay closed automatically) rather than gated with row policies — see [`docs/decisions/0024-database-security-boundary.md`](../docs/decisions/0024-database-security-boundary.md) (`ADR-0024`) for the investigation and full reasoning. A Supabase security advisor scan will still report `rls_disabled_in_public` for every table; that finding is a known, accepted false positive for this architecture (ADR-0024's Trade-offs section explains why), not an unaddressed gap.
 
+## Backup & restore
+
+`database/backup.sh` / `database/restore.sh` (EPIC-005 Sprint 5.6), also wired up as `npm run db:backup` / `npm run db:restore`, wrap `pg_dump -Fc` / `pg_restore` — the standard Postgres logical backup/restore path, verified live this sprint against the real schema (schema, row counts, and a pgvector column's data all matched exactly after a round-trip, with `CREATE EXTENSION` for `pgcrypto`/`vector` recreated automatically by `pg_restore`, no manual extension setup needed on the target).
+
+```bash
+npm run db:backup -- postgresql://localhost:5432/aima_dev            # writes aima-backup-<timestamp>.dump
+npm run db:restore -- postgresql://localhost:5432/aima_dev_restored aima-backup-20260101T000000Z.dump
+```
+
+Neither script is a scheduling or retention system — `backup.sh` takes one backup when run; deciding how often to run it, where to store the result, and how long to keep it is the operator's or hosting platform's job (a cron entry calling `backup.sh`, or — preferred once a production host is chosen — that platform's own managed Postgres automated-backup feature). No such schedule exists yet for this project; until one is configured, there is no standing backup of any real deployment's data. `restore.sh` is for a fresh/empty target database, the same posture as `apply-migrations.sh`: it doesn't merge into existing data, so it fails on the first colliding object if the target isn't empty.
+
 ## Running migrations locally
 
 The fastest, least error-prone way to apply every migration to a fresh database is `database/apply-migrations.sh` (EPIC-005 Sprint 5.4), also wired up as `npm run db:migrate` from the repo root:
@@ -74,7 +85,7 @@ npm run db:migrate -- postgresql://localhost:5432/aima_dev
 # or: DATABASE_URL=postgresql://localhost:5432/aima_dev ./database/apply-migrations.sh
 ```
 
-It globs `database/migrations/*.sql` and applies them in numeric order — since it reads the directory instead of a hardcoded list, it can never go stale the way the manual command sequence below once did (a real drift `database/README.md` shipped with for a while, caught in EPIC-005 Sprint 5.2). It is not a migration framework: it doesn't track which migrations a target database has already applied, so it's for a fresh database only — re-running it against an already-migrated one fails loudly on the first collision, by design, the same as running any of the commands below a second time would.
+It globs `database/migrations/*.sql` and applies them in numeric order — since it reads the directory instead of a hardcoded list, it can never go stale the way the manual command sequence below once did (a real drift `database/README.md` shipped with for a while, caught in EPIC-005 Sprint 5.2). It is not a migration framework: it doesn't track which migrations a target database has already applied, so it's for a fresh database only — re-running it against an already-migrated one fails loudly on the first collision, by design, the same as running any of the commands below a second time would. All migrations run inside one `psql --single-transaction` (EPIC-005 Sprint 5.6): if any migration fails, every migration in the run rolls back together, so a fresh database left over from a failed run is still empty rather than half-migrated — fix the bad migration and re-run cleanly, no manual cleanup first. (The manual per-file commands below don't get this for free, since each is its own `psql` invocation/transaction.)
 
 The equivalent manual commands, useful for applying one migration at a time or understanding exactly what the script does:
 

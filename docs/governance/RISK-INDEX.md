@@ -9,7 +9,7 @@
 **Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`, `ADR-INDEX`, `REQ-INDEX`, `ECIA-INDEX`
 **Dependents:** Contributors, future risk entries
 **Review Frequency:** Every new or changed risk entry
-**Last Updated:** 2026-08-01
+**Last Updated:** 2026-08-02
 **Related Documents:** [`RISK-TEMPLATE.md`](RISK-TEMPLATE.md), [`ECIA-INDEX.md`](ECIA-INDEX.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md), [`../requirements/REQ-INDEX.md`](../requirements/REQ-INDEX.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md)
 
 ---
@@ -31,8 +31,9 @@ This is the single, canonical index of every risk entry in AIMA's Risk Register.
 | --- | --- | --- | --- | --- | --- | --- |
 | RISK-001 | Every Backend Endpoint Is Reachable Without Authentication | Closed | Critical | High | Lead Software Architect | [`RISK-001-unauthenticated-endpoints.md`](RISK-001-unauthenticated-endpoints.md) |
 | RISK-002 | Live Supabase Project Exposed the Public Schema via PostgREST | Closed | Critical | High | Lead Software Architect | [`RISK-002-postgrest-public-schema-exposure.md`](RISK-002-postgrest-public-schema-exposure.md) |
+| RISK-003 | No Documented or Tested Backup/Restore Capability | Closed | High | High | Lead Software Architect | [`RISK-003-no-backup-restore-capability.md`](RISK-003-no-backup-restore-capability.md) |
 
-**Next available ID:** `RISK-003`.
+**Next available ID:** `RISK-004`.
 
 ## Status Legend
 
