@@ -12,6 +12,7 @@ import { SessionService } from './auth/sessionService';
 import { authRateLimitConfigFromEnv, RateLimiter, type AuthRateLimiters } from './middleware/rateLimit';
 import { loadConfig } from './config/env';
 import { createPool } from './db/pool';
+import { createGracefulShutdown } from './shutdown';
 import { ActionLogger } from './actionLog/logger';
 import { ApprovalEngine } from './approval/approvalEngine';
 import { AimaCoreService } from './core/aimaCoreService';
@@ -290,12 +291,17 @@ async function main(): Promise<void> {
     errorReporter,
   });
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(
       `AIMA backend listening on port ${config.port} ` +
         `(env: ${config.nodeEnv}, ai provider: ${aiProvider.name}, embedding provider: ${embeddingProvider.name})`,
     );
   });
+
+  // Graceful shutdown (EPIC-005 Sprint 5.4) — see shutdown.ts for why.
+  const shutdown = createGracefulShutdown({ server, pool, logger });
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((error) => {

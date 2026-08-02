@@ -66,6 +66,18 @@ Row Level Security is deliberately **not** used on any table. The application ba
 
 ## Running migrations locally
 
+The fastest, least error-prone way to apply every migration to a fresh database is `database/apply-migrations.sh` (EPIC-005 Sprint 5.4), also wired up as `npm run db:migrate` from the repo root:
+
+```bash
+createdb aima_dev
+npm run db:migrate -- postgresql://localhost:5432/aima_dev
+# or: DATABASE_URL=postgresql://localhost:5432/aima_dev ./database/apply-migrations.sh
+```
+
+It globs `database/migrations/*.sql` and applies them in numeric order — since it reads the directory instead of a hardcoded list, it can never go stale the way the manual command sequence below once did (a real drift `database/README.md` shipped with for a while, caught in EPIC-005 Sprint 5.2). It is not a migration framework: it doesn't track which migrations a target database has already applied, so it's for a fresh database only — re-running it against an already-migrated one fails loudly on the first collision, by design, the same as running any of the commands below a second time would.
+
+The equivalent manual commands, useful for applying one migration at a time or understanding exactly what the script does:
+
 ```bash
 createdb aima_dev
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0001_init.sql

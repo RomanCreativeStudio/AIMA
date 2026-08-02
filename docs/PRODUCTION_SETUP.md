@@ -73,7 +73,7 @@ All variables `backend/.env.example` documents are required in every environment
 - **`DATABASE_SSL=true`** negotiates TLS with `rejectUnauthorized: false`. Most managed Postgres providers (Supabase, Render, Fly Postgres) present a certificate that isn't chained to a public CA even though the connection itself is fully encrypted — this is a deliberate, documented tradeoff, not a security gap: the connection is encrypted, just not identity-verified against a public root.
 - **`DATABASE_POOL_MAX`** bounds simultaneous connections so a traffic spike can't exhaust the database's own connection limit (many managed Postgres plans cap total connections in the tens, not hundreds).
 
-Run the migrations in `database/migrations/` against your production database exactly as you would locally (`database/README.md`) — there is no separate production migration path.
+Run the migrations in `database/migrations/` against your production database exactly as you would locally (`database/README.md`) — there is no separate production migration path. `npm run db:migrate -- <production DATABASE_URL>` (`database/apply-migrations.sh`, EPIC-005 Sprint 5.4) applies every migration in order against a fresh database in one command; it is not a migration-tracking framework, so it's for the initial production setup, not incremental deploys against an already-migrated database.
 
 ---
 
@@ -118,6 +118,8 @@ docker run -p 4000:4000 --env-file backend/.env aima-backend
 ```
 
 The build stage installs full dependencies and runs `npm run build` (compiling both `ai-engine` and `backend`); the production stage installs only production dependencies (`npm ci --omit=dev`) and copies in the compiled `dist/` output plus `database/` migrations — no TypeScript, dev tooling, or source ships in the final image. `.dockerignore` excludes `node_modules`, `dist` (rebuilt inside the image), `.git`, `.env*` (except the `.example` templates), and the Swift `apps/` client code, which is irrelevant to the backend image.
+
+The production stage (EPIC-005 Sprint 5.4) runs as the non-root `node` user `node:22-slim` already ships, rather than root, and declares a `HEALTHCHECK` that polls the same `GET /health` §6 describes (via Node's built-in `fetch`, so no `curl`/`wget` needs installing). The backend process itself also handles `SIGTERM`/`SIGINT` (`backend/src/index.ts`) — the signals `docker stop` and an orchestrator's rolling deploy both send — by stopping new connections, letting in-flight requests finish, and closing the database pool before exiting, rather than being killed mid-request.
 
 This `Dockerfile` has been reviewed for correctness but not executed end-to-end in this environment (no Docker daemon available here) — verify a real `docker build .` succeeds in your own environment before relying on it.
 
