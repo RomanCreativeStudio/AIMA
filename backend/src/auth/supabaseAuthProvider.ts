@@ -80,10 +80,18 @@ export class SupabaseAuthProvider implements AuthProvider {
 
     const exp = claims.exp;
     const sub = claims.sub;
-    if (typeof exp !== 'number' || typeof sub !== 'string' || !sub) return null;
+    const email = claims.email;
+    // Supabase always includes `email` on a password-grant token (the only
+    // grant this provider issues); requiring it here — rather than letting
+    // it through as optional — keeps `VerifiedAccessToken.email` a real
+    // guarantee for the login route's auto-provisioning step (ADR-0022 v1.1)
+    // instead of a value callers must re-check.
+    if (typeof exp !== 'number' || typeof sub !== 'string' || !sub || typeof email !== 'string' || !email) {
+      return null;
+    }
     if (exp * 1000 <= Date.now()) return null;
 
-    return { subjectId: sub, expiresAt: new Date(exp * 1000).toISOString() };
+    return { subjectId: sub, email, expiresAt: new Date(exp * 1000).toISOString() };
   }
 
   async refreshSession(refreshToken: string): Promise<IssuedTokens> {

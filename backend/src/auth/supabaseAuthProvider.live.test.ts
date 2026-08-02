@@ -39,6 +39,7 @@ test('SupabaseAuthProvider: login, verify, refresh, and revoke against a real pr
   const verified = await provider.verifyAccessToken(tokens.accessToken);
   assert.ok(verified, 'a freshly issued access token must verify against the project\'s own published JWKS');
   assert.ok(verified!.subjectId.length > 0);
+  assert.equal(verified!.email, LIVE_EMAIL);
   assert.ok(new Date(verified!.expiresAt).getTime() > Date.now());
 
   const refreshed = await provider.refreshSession(tokens.refreshToken);

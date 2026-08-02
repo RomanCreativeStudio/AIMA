@@ -2,14 +2,14 @@
 
 **Document ID:** HB-001
 **Document Name:** AIMA Engineering Handbook
-**Version:** 2.9.0
+**Version:** 2.10.0
 **Status:** Active living source of truth
 **Authority Level:** Binding engineering handbook; subordinate to the AIMA Constitution (`CONST-001`)
 **Owner:** Lead Product Architect / Lead Software Architect
 **Dependencies:** `CONST-001`, ADR index, Technical Architecture, Development Setup, Production Setup
 **Dependents:** Architecture documents, ADRs, requirements, API/database/testing/deployment documentation, sprint plans
 **Review Frequency:** Every sprint close and before every major release
-**Last Updated:** 2026-08-01
+**Last Updated:** 2026-08-02
 **Related Documents:** [`docs/CONSTITUTION.md`](CONSTITUTION.md), [`docs/TECHNICAL_ARCHITECTURE.md`](TECHNICAL_ARCHITECTURE.md), [`docs/DEVELOPMENT_SETUP.md`](DEVELOPMENT_SETUP.md), [`docs/README.md`](README.md)
 
 ---
@@ -66,6 +66,7 @@ Update this handbook when any of the following occurs:
 
 | Version | Date | Change |
 | --- | --- | --- |
+| 2.10.0 | 2026-08-02 | EPIC-006 Sprint 6.4 (Automatic User Provisioning): amended `ADR-0022` to v1.1, closing the "identity-mapping migration risk" it flagged at v1.0 and left as a manual, implementation-time step — that gap materialized in production (a correctly-authenticated Supabase Auth user with no matching `public.users` row was rejected with a generic 401 on `POST /api/auth/login`). Fixed with `UserService.getOrProvisionFromAuth` (idempotent, race-safe first-login provisioning) and `VerifiedAccessToken.email`; no schema change, no new migration. Updated `REQ-001` (v1.8), `RTM.md`'s `REQ-001` row, and `docs/PRODUCTION_SETUP.md` (v0.1.1) to remove now-stale "create the user, then manually give it a matching row" language. No new governance framework, no new capability, no new permission tier — an operational bug fix and its documentation. |
 | 2.9.0 | 2026-08-01 | Authentication Foundation planning (EPIC-004 Sprint 4.2): added `docs/requirements/REQ-001-implementation-plan.md` (`REQ-001-PLAN`, current-state audit, session lifecycle, identity flow, API/database placeholders, testing/migration strategy — no code, schema, or provider decided), the first real ECIA record (`docs/governance/ECIA-001-authentication-foundation.md`), and the first real Risk Register entry (`docs/governance/RISK-001-unauthenticated-endpoints.md`, Critical/High, documenting that every backend endpoint is currently reachable without authentication). Updated `REQ-001` and `RTM.md`'s `REQ-001` row with cross-references. No new ADR was created — no auth provider or specific decision was made, only planning against `ARCH-001`'s existing design. Registered `REQ-001-PLAN` in the Master Documentation Index and corrected now-stale "currently empty" status text for `REQ-INDEX`, `ECIA-INDEX`, `RISK-INDEX`, and the Risk Register row. No application code, architecture decisions, database changes, or APIs were introduced. |
 | 2.8.1 | 2026-08-01 | First five real requirements authored: `REQ-001` (Authentication, `ARCH-001`'s existing but not-yet-built design), `REQ-002` (User Management), `REQ-003` (Workspace Management), `REQ-004` (Permission Engine), `REQ-005` (Configuration Management) — the latter four documenting existing, implemented Core Platform systems, grounded in real source paths, ADRs, and tests. Registered in `REQ-INDEX.md` and given real rows in `RTM.md` (whose prior placeholder row was renumbered `REQ-001`→`REQ-000` to remove the ID collision). Corrected this handbook's now-stale "no requirements registered yet" / "one illustrative placeholder row" status text in the Master Documentation Index (patch-level clarification, not new governance). No application code, architecture decisions, database changes, or APIs were introduced. |
 | 2.8.0 | 2026-08-01 | Added automated documentation validation: `scripts/validate-docs.js` (zero-dependency Node script) and `docs/governance/DOC-VALIDATION.md` (`DOC-VALIDATION-001`), checking broken internal links, missing ADS metadata, stable IDs unregistered in this handbook's Master Documentation Index, documentation index drift against `docs/README.md`, and invalid cross-references between governance documents. Registered `DOC-VALIDATION-*` in the Permanent Numbering Standard and `DOC-VALIDATION-001` in the Documentation Ownership and Master Documentation Index tables. Updated `AI-GUIDE-001`'s Validation Requirements to reference the new tool. Verified clean against the current repository (0 issues across all five checks). No application code, architecture, or fictional documentation entries were introduced. |

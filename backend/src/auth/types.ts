@@ -2,10 +2,14 @@
  * What `AuthProvider.verifyAccessToken` resolves a valid token to — the
  * identity downstream code (`requireAuth` middleware) attaches to the
  * request. `subjectId` maps directly onto `users.id` (ADR-0022 Decision 4:
- * no separate mapping column).
+ * no separate mapping column). `email` comes from the same verified token
+ * (never a second provider round-trip) and exists so the login route can
+ * auto-provision a `public.users` profile on first login (ADR-0022 v1.1,
+ * EPIC-006 Sprint 6.4) without a separate lookup.
  */
 export interface VerifiedAccessToken {
   subjectId: string;
+  email: string;
   /** ISO 8601 — when this specific access token expires. */
   expiresAt: string;
 }

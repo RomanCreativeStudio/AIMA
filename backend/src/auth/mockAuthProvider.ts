@@ -30,19 +30,37 @@ export function mockPasswordFor(email: string): string {
 }
 
 /**
+ * The placeholder email a mock token carries when no real one is supplied
+ * (e.g. `authHeader(userId)`-style tokens minted directly for a route test
+ * that never goes through `signInWithPassword`). Deterministic so repeated
+ * calls for the same subject stay consistent; never seen by real
+ * provisioning logic, since only tokens `signInWithPassword` issues (which
+ * always pass the real email) flow through the login route.
+ */
+function mockEmailFor(subjectId: string): string {
+  return `${subjectId}@mock.aima.local`;
+}
+
+/**
  * Issues a deterministic-shape mock token pair with no crypto and no
  * network call — the same "encode plain text as the payload" approach
  * `MockSpeechToTextProvider` uses. The access token encodes expiry as an
  * epoch-millisecond integer (not an ISO string) because the token format
- * itself is colon-delimited and an ISO timestamp contains colons. The
- * refresh token includes a random component so each issuance/rotation
- * produces a distinct value, matching ADR-0022 Decision 2's refresh-token
- * rotation contract.
+ * itself is colon-delimited and an ISO timestamp contains colons; `email`
+ * is appended as the final segment (ADR-0022 v1.1) so `verifyAccessToken`
+ * can return it without a second lookup, mirroring what a real Supabase JWT
+ * already carries in its own claims. The refresh token includes a random
+ * component so each issuance/rotation produces a distinct value, matching
+ * ADR-0022 Decision 2's refresh-token rotation contract.
  */
-export function issueMockTokens(subjectId: string, ttlMs: number = DEFAULT_ACCESS_TOKEN_TTL_MS): IssuedTokens {
+export function issueMockTokens(
+  subjectId: string,
+  ttlMs: number = DEFAULT_ACCESS_TOKEN_TTL_MS,
+  email: string = mockEmailFor(subjectId),
+): IssuedTokens {
   const expiresAtMs = Date.now() + ttlMs;
   return {
-    accessToken: `${MOCK_ACCESS_PREFIX}:${subjectId}:${expiresAtMs}`,
+    accessToken: `${MOCK_ACCESS_PREFIX}:${subjectId}:${expiresAtMs}:${email}`,
     refreshToken: `${MOCK_REFRESH_PREFIX}:${subjectId}:${randomUUID()}`,
     accessTokenExpiresAt: new Date(expiresAtMs).toISOString(),
   };
@@ -60,19 +78,20 @@ export class MockAuthProvider implements AuthProvider {
     if (!email || password !== mockPasswordFor(email)) {
       throw new AuthLoginFailedError('mock', 'invalid email or password');
     }
-    return issueMockTokens(mockSubjectIdFor(email));
+    return issueMockTokens(mockSubjectIdFor(email), undefined, email);
   }
 
   async verifyAccessToken(accessToken: string): Promise<VerifiedAccessToken | null> {
     const parts = accessToken.split(':');
-    if (parts.length !== 3 || parts[0] !== MOCK_ACCESS_PREFIX) return null;
+    if (parts.length < 4 || parts[0] !== MOCK_ACCESS_PREFIX) return null;
 
-    const [, subjectId, expiresAtMsRaw] = parts;
+    const [, subjectId, expiresAtMsRaw, ...emailParts] = parts;
+    const email = emailParts.join(':');
     const expiresAtMs = Number(expiresAtMsRaw);
-    if (!subjectId || Number.isNaN(expiresAtMs)) return null;
+    if (!subjectId || !email || Number.isNaN(expiresAtMs)) return null;
     if (expiresAtMs <= Date.now()) return null;
 
-    return { subjectId, expiresAt: new Date(expiresAtMs).toISOString() };
+    return { subjectId, email, expiresAt: new Date(expiresAtMs).toISOString() };
   }
 
   async refreshSession(refreshToken: string): Promise<IssuedTokens> {

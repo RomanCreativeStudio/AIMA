@@ -8,6 +8,7 @@ import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, Mock
 import { createApp } from '../app';
 import { MockAuthProvider, mockPasswordFor, mockSubjectIdFor } from '../auth/mockAuthProvider';
 import { SessionService } from '../auth/sessionService';
+import type { AuthProvider } from '../auth/types';
 import { authRateLimitConfigFromEnv, RateLimiter, type AuthRateLimiters } from '../middleware/rateLimit';
 import { authHeader } from '../testUtils/auth';
 import { ActionLogger } from '../actionLog/logger';
@@ -73,6 +74,7 @@ function defaultAuthRateLimiters(): AuthRateLimiters {
 async function withTestServer(
   fn: (baseUrl: string, pool: Pool) => Promise<void>,
   authRateLimiters: AuthRateLimiters = defaultAuthRateLimiters(),
+  authProviderOverride?: AuthProvider,
 ): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
@@ -99,7 +101,7 @@ async function withTestServer(
   const preferenceService = new PreferenceService(pool);
   const workspaceService = new WorkspaceService(pool);
   const userService = new UserService(pool);
-  const authProvider = new MockAuthProvider();
+  const authProvider = authProviderOverride ?? new MockAuthProvider();
   const sessionService = new SessionService(pool, authProvider);
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
   const approvalEngine = new ApprovalEngine(pool, permissionEngine);
@@ -279,6 +281,162 @@ test('POST /api/auth/login rejects a malformed email with 400', async () => {
       body: JSON.stringify({ email: 'not-an-email', password: 'x' }),
     });
     assert.equal(response.status, 400);
+  });
+});
+
+// Auto-provisioning (ADR-0022 v1.1, EPIC-006 Sprint 6.4): a verified
+// Supabase Auth identity with no matching public.users row yet — the real
+// production gap this sprint fixes — gets a profile created transparently
+// on first login instead of a misleading 401. These tests deliberately do
+// NOT call seedLoginableUser(); the whole point is that no pre-existing
+// row is required.
+
+test('POST /api/auth/login auto-provisions a public.users profile on first login', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `auto-provision-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      const before = await pool.query('SELECT 1 FROM users WHERE id = $1', [userId]);
+      assert.equal(before.rows.length, 0, 'precondition: no profile exists yet');
+
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session: { userId: string } };
+      assert.equal(body.session.userId, userId);
+
+      const after = await pool.query('SELECT id, email, display_name FROM users WHERE id = $1', [userId]);
+      assert.equal(after.rows.length, 1);
+      assert.equal(after.rows[0].email, email);
+      assert.equal(after.rows[0].display_name, null);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login existing-user login continues exactly as today (no re-provisioning, no email overwrite)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 1);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login auto-provisioning is idempotent across repeated logins by the same first-time user', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `auto-provision-repeat-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      for (let i = 0; i < 3; i++) {
+        const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        assert.equal(response.status, 201);
+      }
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 1);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login auto-provisioning is race-safe under concurrent first logins for the same new user', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `auto-provision-race-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+      const responses = await Promise.all([attempt(), attempt(), attempt()]);
+      for (const response of responses) {
+        assert.equal(response.status, 201);
+      }
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 1, 'exactly one profile row must exist despite the concurrent race');
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login rejects with 401 when the freshly issued token fails verification (invalid JWT)', async () => {
+  const mock = new MockAuthProvider();
+  const signsButNeverVerifies: AuthProvider = {
+    signInWithPassword: (email, password) => mock.signInWithPassword(email, password),
+    verifyAccessToken: async () => null,
+    refreshSession: (refreshToken) => mock.refreshSession(refreshToken),
+    revokeSession: () => mock.revokeSession(),
+  };
+
+  await withTestServer(
+    async (baseUrl, pool) => {
+      const { email, password, userId } = await seedLoginableUser(pool);
+      try {
+        const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        assert.equal(response.status, 401);
+
+        // Confirms this 401 is genuinely the verification failure, not a
+        // side effect that also auto-provisioned/duplicated a profile.
+        const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+        assert.equal(rows.rows[0].count, 1);
+      } finally {
+        await cleanupUser(pool, userId);
+      }
+    },
+    undefined,
+    signsButNeverVerifies,
+  );
+});
+
+test('POST /api/auth/login still rejects invalid credentials with 401 and does not create a profile', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `invalid-credentials-${randomUUID()}@example.com`;
+    const userId = mockSubjectIdFor(email);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'definitely-wrong' }),
+      });
+      assert.equal(response.status, 401);
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 0, 'a rejected login must never provision a profile');
+    } finally {
+      await cleanupUser(pool, userId);
+    }
   });
 });
 

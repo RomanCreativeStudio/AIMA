@@ -6,9 +6,12 @@ import type { CreateUserInput, UpdateUserProfileInput, UserProfile } from './typ
 /**
  * The User Profile System (Phase 1.8): a single account's identity and
  * preferences. This is a single-user MVP (docs/PRODUCT_BIBLE.md) — there is
- * no signup/auth flow, so `createUser` exists for seeding/tests, not as a
- * public capability; only reading and updating an existing profile is
- * exposed over HTTP (backend/src/routes/users.ts).
+ * no self-serve signup, so `createUser` (a client-supplied `id`-less insert,
+ * relying on `gen_random_uuid()`) exists for seeding/tests, not as a public
+ * capability. The real production path for a brand-new account is
+ * `getOrProvisionFromAuth`, called from the login route (ADR-0022 v1.1,
+ * EPIC-006 Sprint 6.4): only reading and updating an existing profile is
+ * otherwise exposed over HTTP (backend/src/routes/users.ts).
  */
 export class UserService {
   constructor(private readonly db: Queryable) {}
@@ -22,6 +25,50 @@ export class UserService {
     );
 
     return mapUserRow(result.rows[0]);
+  }
+
+  /**
+   * Returns the profile for `id` if one already exists; otherwise creates
+   * it — `id = id` (the verified JWT subject, never a freshly generated
+   * UUID — ADR-0022 Decision 4), `email = email`, `display_name = null` —
+   * and returns that. This is the auto-provisioning path the login route
+   * calls on every successful authentication (ADR-0022 v1.1, EPIC-006
+   * Sprint 6.4): a Supabase Auth user with no matching `public.users` row
+   * yet (first login) gets one created transparently instead of failing
+   * with `UserNotFoundError`.
+   *
+   * Idempotent and race-safe: `ON CONFLICT (id) DO NOTHING` means two
+   * concurrent first logins for the same brand-new subject can't both
+   * insert a row (one wins, the other affects zero rows); the loser then
+   * reads back the winner's row via `getUser` rather than erroring, so
+   * every caller — first or racing-second — gets the same profile back.
+   * An already-existing profile is never modified here (its `email`/
+   * `display_name` are left exactly as they are), matching "if found,
+   * continue exactly as today."
+   */
+  async getOrProvisionFromAuth(id: string, email: string): Promise<UserProfile> {
+    try {
+      return await this.getUser(id);
+    } catch (error) {
+      if (!(error instanceof UserNotFoundError)) throw error;
+    }
+
+    const inserted = await this.db.query(
+      `INSERT INTO users (id, email, display_name)
+       VALUES ($1, $2, NULL)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING id, email, display_name, preferences, communication_style, default_workspace_id, created_at, updated_at`,
+      [id, email],
+    );
+
+    if (inserted.rows.length > 0) {
+      return mapUserRow(inserted.rows[0]);
+    }
+
+    // Lost the race — a concurrent call already inserted this id between
+    // our getUser() check and this insert. Its row is now the true state;
+    // read it back instead of treating the conflict as an error.
+    return this.getUser(id);
   }
 
   async getUser(userId: string): Promise<UserProfile> {

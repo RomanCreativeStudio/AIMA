@@ -54,20 +54,38 @@ test('signInWithPassword throws AuthLoginFailedError when Supabase rejects the c
 
 test('verifyAccessToken accepts a validly signed, unexpired token', async () => {
   const { privateKeyPem, jwks } = generateRsaKeyPairWithJwk('key-1');
-  const token = signJwt(privateKeyPem, 'key-1', { sub: 'user-123', exp: Math.floor(Date.now() / 1000) + 3600 });
+  const token = signJwt(privateKeyPem, 'key-1', {
+    sub: 'user-123',
+    email: 'user-123@example.com',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
   const { fetchFn, calls } = createFakeFetch([{ status: 200, body: jwks }]);
   const provider = new SupabaseAuthProvider('https://project.supabase.co', 'anon-key', fetchFn);
 
   const verified = await provider.verifyAccessToken(token);
 
   assert.equal(verified?.subjectId, 'user-123');
+  assert.equal(verified?.email, 'user-123@example.com');
   assert.equal(calls[0].url, 'https://project.supabase.co/auth/v1/.well-known/jwks.json');
+});
+
+test('verifyAccessToken rejects a token with no email claim', async () => {
+  const { privateKeyPem, jwks } = generateRsaKeyPairWithJwk('key-1');
+  const token = signJwt(privateKeyPem, 'key-1', { sub: 'user-123', exp: Math.floor(Date.now() / 1000) + 3600 });
+  const { fetchFn } = createFakeFetch([{ status: 200, body: jwks }]);
+  const provider = new SupabaseAuthProvider('https://project.supabase.co', 'anon-key', fetchFn);
+
+  assert.equal(await provider.verifyAccessToken(token), null);
 });
 
 test('verifyAccessToken rejects an invalid signature', async () => {
   const { jwks } = generateRsaKeyPairWithJwk('key-1');
   const other = generateRsaKeyPairWithJwk('key-1');
-  const token = signJwt(other.privateKeyPem, 'key-1', { sub: 'user-123', exp: Math.floor(Date.now() / 1000) + 3600 });
+  const token = signJwt(other.privateKeyPem, 'key-1', {
+    sub: 'user-123',
+    email: 'user-123@example.com',
+    exp: Math.floor(Date.now() / 1000) + 3600,
+  });
   const { fetchFn } = createFakeFetch([{ status: 200, body: jwks }]);
   const provider = new SupabaseAuthProvider('https://project.supabase.co', 'anon-key', fetchFn);
 
@@ -76,7 +94,11 @@ test('verifyAccessToken rejects an invalid signature', async () => {
 
 test('verifyAccessToken rejects an expired token', async () => {
   const { privateKeyPem, jwks } = generateRsaKeyPairWithJwk('key-1');
-  const token = signJwt(privateKeyPem, 'key-1', { sub: 'user-123', exp: Math.floor(Date.now() / 1000) - 60 });
+  const token = signJwt(privateKeyPem, 'key-1', {
+    sub: 'user-123',
+    email: 'user-123@example.com',
+    exp: Math.floor(Date.now() / 1000) - 60,
+  });
   const { fetchFn } = createFakeFetch([{ status: 200, body: jwks }]);
   const provider = new SupabaseAuthProvider('https://project.supabase.co', 'anon-key', fetchFn);
 

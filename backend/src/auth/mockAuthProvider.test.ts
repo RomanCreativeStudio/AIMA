@@ -12,6 +12,7 @@ test('signInWithPassword issues tokens for the deterministic correct password', 
 
   const verified = await provider.verifyAccessToken(tokens.accessToken);
   assert.equal(verified?.subjectId, mockSubjectIdFor(email));
+  assert.equal(verified?.email, email);
 });
 
 test('signInWithPassword throws AuthLoginFailedError for a wrong password', async () => {
@@ -33,7 +34,11 @@ test('verifyAccessToken accepts a freshly issued token', async () => {
   const tokens = issueMockTokens('user-123');
 
   const verified = await provider.verifyAccessToken(tokens.accessToken);
-  assert.deepEqual(verified, { subjectId: 'user-123', expiresAt: tokens.accessTokenExpiresAt });
+  assert.deepEqual(verified, {
+    subjectId: 'user-123',
+    email: 'user-123@mock.aima.local',
+    expiresAt: tokens.accessTokenExpiresAt,
+  });
 });
 
 test('verifyAccessToken rejects an invalid token', async () => {

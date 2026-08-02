@@ -4,7 +4,6 @@ import { ipKey, normalizeEmail, rateLimitMiddleware, respondRateLimited, type Ra
 import type { AuthProvider } from '../auth/types';
 import { AuthLoginFailedError, AuthRefreshFailedError, SessionRevokedError } from '../auth/errors';
 import type { SessionService } from '../auth/sessionService';
-import { UserNotFoundError } from '../users/errors';
 import type { UserService } from '../users/userService';
 import { isUuid } from '../util/uuid';
 
@@ -89,16 +88,12 @@ export function authPublicRouter(deps: AuthPublicRouterDependencies): Router {
         return;
       }
 
-      let user;
-      try {
-        user = await deps.userService.getUser(verified.subjectId);
-      } catch (error) {
-        if (error instanceof UserNotFoundError) {
-          res.status(401).json({ error: 'Invalid email or password' });
-          return;
-        }
-        throw error;
-      }
+      // Auto-provisions the public.users profile on first login (ADR-0022
+      // v1.1, EPIC-006 Sprint 6.4): a verified Supabase Auth identity with
+      // no matching local row yet — the exact gap that caused a real
+      // production login failure before this sprint — gets one created
+      // here instead of failing with a misleading "invalid credentials."
+      const user = await deps.userService.getOrProvisionFromAuth(verified.subjectId, verified.email);
 
       const session = await deps.sessionService.createSession(
         user.id,

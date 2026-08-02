@@ -36,6 +36,55 @@ test('getUser throws UserNotFoundError for an unknown id', async () => {
   });
 });
 
+// getOrProvisionFromAuth (ADR-0022 v1.1, EPIC-006 Sprint 6.4) — the login
+// route's auto-provisioning path for a verified Supabase Auth identity with
+// no matching public.users row yet.
+
+test('getOrProvisionFromAuth creates a profile using the given id/email, leaving displayName null', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new UserService(client);
+    const id = randomUUID();
+    const email = `${randomUUID()}@example.com`;
+
+    const user = await service.getOrProvisionFromAuth(id, email);
+
+    assert.equal(user.id, id);
+    assert.equal(user.email, email);
+    assert.equal(user.displayName, null);
+    assert.deepEqual(user.preferences, {});
+  });
+});
+
+test('getOrProvisionFromAuth is idempotent — a second call for the same id returns the same row, not a duplicate', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new UserService(client);
+    const id = randomUUID();
+    const email = `${randomUUID()}@example.com`;
+
+    const first = await service.getOrProvisionFromAuth(id, email);
+    const second = await service.getOrProvisionFromAuth(id, email);
+
+    assert.equal(second.id, first.id);
+    assert.equal(second.createdAt, first.createdAt);
+
+    const rows = await client.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [id]);
+    assert.equal(rows.rows[0].count, 1);
+  });
+});
+
+test('getOrProvisionFromAuth returns an already-existing profile untouched — never overwrites it', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client, 'personal');
+    const service = new UserService(client);
+    const existing = await service.getUser(userId);
+
+    const result = await service.getOrProvisionFromAuth(userId, 'different-email-should-be-ignored@example.com');
+
+    assert.equal(result.id, existing.id);
+    assert.equal(result.email, existing.email);
+  });
+});
+
 test('updateProfile updates only the provided fields', async () => {
   await withTestTransaction(async (client) => {
     const { userId } = await seedWorkspace(client, 'rcs');

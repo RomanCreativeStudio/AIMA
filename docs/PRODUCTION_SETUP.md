@@ -2,7 +2,7 @@
 
 **Document ID:** DEPLOY-001
 **Document Name:** AIMA Production Setup
-**Version:** 0.1.0
+**Version:** 0.1.1
 **Status:** Active
 **Authority Level:** Operational; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
 **Owner:** Lead Software Architect
@@ -195,12 +195,12 @@ Per `ADR-0025` v1.1: the existing `cjdkijgwvirbbdkbtgjy` ("AIMA") Supabase proje
 - [x] **`RISK-002`/`ADR-0024`'s PostgREST revocation already in effect** — confirmed via `information_schema.role_table_grants`: `anon`/`authenticated` hold zero grants on any `public` table. (Supabase's own security advisor still flags `rls_disabled_in_public` for all 24 tables — this is the known, accepted false positive `ADR-0024`'s Trade-offs section documents; RLS is deliberately not the mitigation here, the revocation above is, and it's confirmed still holding. Do not apply the advisor's suggested `ENABLE ROW LEVEL SECURITY` remediation — it would block all access without policies and contradicts the already-decided architecture.)
 - [ ] Copy this project's Postgres connection string into `DATABASE_URL` (§3) — the same value local dev/test already uses.
 - [ ] **Minor, non-blocking finding**: the advisor also flags the `vector` extension as installed in the `public` schema rather than a dedicated `extensions` schema (Supabase's general best-practice recommendation, not a security hole given the revocation above). Optional cleanup, not required for launch.
-- [ ] **Pre-launch data hygiene**: this project's `auth.users` currently has 1 real Supabase Auth user (from prior sprint live-verification work) and its local `users`/`workspaces` tables are empty as of this check — decide whether to delete that leftover Auth user before real users sign up, or accept it as a known, harmless artifact. This wasn't a concern for a dev-only project; it's a real one now that this project also serves Version 1.
+- [x] **Pre-launch data hygiene — superseded, EPIC-006 Sprint 6.4**: this originally flagged a leftover Supabase Auth user with no matching local `users` row as a decision to make before launch. It stopped being a decision and became a real incident: that exact gap caused a production login failure (a correctly-authenticated user rejected with a generic 401) shortly after this checklist's first pass. Fixed structurally, not by cleanup — `POST /api/auth/login` now auto-provisions the matching `public.users` row on first successful login (`ADR-0022` v1.1, `UserService.getOrProvisionFromAuth`), so no leftover-Auth-user state can cause this again; deleting a stale Auth user (if any) is now purely optional tidiness, not a launch decision.
 
 ### 5. Supabase Auth production configuration
 
 - [ ] In the project's Auth settings, set/confirm the Site URL / redirect allow-list includes the real `PUBLIC_BACKEND_URL` (and any client app URL once one exists) — it currently only needs to cover local dev's callback.
-- [ ] Decide and configure sign-up policy (open sign-up vs. invite-only) — this app has no self-serve sign-up UI yet (`AuthProvider` has no `signUp` method; users are provisioned directly), so initial user(s) must be created via Supabase's own dashboard/API, then given a matching row in this app's `users` table (`users.id` = the Supabase subject id, `ADR-0022` Decision 4).
+- [ ] Decide and configure sign-up policy (open sign-up vs. invite-only) — this app has no self-serve sign-up UI yet (`AuthProvider` has no `signUp` method; new accounts are created directly in Supabase's own dashboard/API). **No manual step is needed after that**, as of `ADR-0022` v1.1 (EPIC-006 Sprint 6.4): `POST /api/auth/login` auto-provisions the matching `public.users` row (`users.id` = the Supabase subject id) on that account's first successful login.
 - [ ] **Enable "Leaked Password Protection"** (Supabase Auth setting, currently confirmed **disabled** on this project via its security advisor) — checks new passwords against HaveIBeenPwned; free, no cost, dashboard-only toggle, not something this session can set via SQL.
 - [ ] Confirm the project issues ES256 or RS256 JWTs (both supported, `backend/src/auth/jwt.ts`) — check via the project's JWKS endpoint if unsure.
 - [ ] Do **not** set `AUTH_PROVIDER=mock` in this environment under any circumstance — `loadConfig()` already refuses to start that way in production (§1, §8), but the checklist calls it out because the consequence (anyone can authenticate as anyone) is severe enough to double-check by hand.
