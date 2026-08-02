@@ -2,14 +2,14 @@
 
 **Document ID:** TD-INDEX
 **Document Name:** AIMA Technical Debt Register Index
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Status:** Active
 **Authority Level:** Operational index; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
 **Owner:** Engineering Council (per `HB-001`'s Documentation Ownership table)
 **Dependencies:** `CONST-001`, `HB-001`, `ARCH-001`, `ADR-INDEX`, `REQ-INDEX`, `ECIA-INDEX`, `RISK-INDEX`
 **Dependents:** Contributors, future technical debt entries
 **Review Frequency:** Every new or changed technical debt entry
-**Last Updated:** 2026-08-01
+**Last Updated:** 2026-08-02
 **Related Documents:** [`TD-TEMPLATE.md`](TD-TEMPLATE.md), [`RISK-INDEX.md`](RISK-INDEX.md), [`ECIA-INDEX.md`](ECIA-INDEX.md), [`../decisions/ADR-INDEX.md`](../decisions/ADR-INDEX.md), [`../requirements/REQ-INDEX.md`](../requirements/REQ-INDEX.md), [`../PRODUCT_BIBLE.md`](../PRODUCT_BIBLE.md)
 
 ---
@@ -29,11 +29,9 @@ This is the single, canonical index of every Technical Debt Register entry in AI
 
 | Debt ID | Title | Status | Priority | Category | Owner | File |
 | --- | --- | --- | --- | --- | --- | --- |
-| _(none yet)_ | | | | | | |
+| TD-001 | Production Deploys From a Long-Lived Feature Branch, Not `main` | Identified | Medium | Infrastructure | Lead Software Architect | [`TD-001-production-deploys-from-feature-branch.md`](TD-001-production-deploys-from-feature-branch.md) |
 
-No technical debt has been formally recorded in AIMA yet. This table will be populated as `TD-00NN` entries are created from [`TD-TEMPLATE.md`](TD-TEMPLATE.md).
-
-**Next available ID:** `TD-001`.
+**Next available ID:** `TD-002`.
 
 ## Status Legend
 

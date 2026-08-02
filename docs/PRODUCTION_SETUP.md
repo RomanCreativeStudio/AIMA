@@ -2,7 +2,7 @@
 
 **Document ID:** DEPLOY-001
 **Document Name:** AIMA Production Setup
-**Version:** 0.1.1
+**Version:** 0.1.2
 **Status:** Active
 **Authority Level:** Operational; subordinate to `CONST-001`, `HB-001`, and `ARCH-001`
 **Owner:** Lead Software Architect
@@ -159,29 +159,33 @@ Registering real OAuth apps and deploying to a reachable host remains Integratio
 
 ## 10. First Deployment Checklist (EPIC-006)
 
-Everything above describes a backend that is *ready* to deploy; nothing has been deployed yet. This is the ordered, actionable checklist for actually doing that — hosting platform and database host are decided in `docs/decisions/0025-first-production-hosting.md` (`ADR-0025`, **amended v1.1**: the database host is the existing `cjdkijgwvirbbdkbtgjy` project, not a new dedicated one — read the amendment before assuming §4/§5 below describe a from-scratch setup). Most items are still unchecked prerequisites; a few in §4/§7 are already satisfied, marked `[x]` with what was verified and how, not just asserted.
+Everything above describes a backend that is *ready* to deploy. **As of EPIC-006 Sprint 6.5, it has been deployed and live-validated** at `https://aima-u7c0.onrender.com` — this checklist's boxes below were never updated after deployment actually happened, so most still read `[ ]` even where the underlying step is demonstrably done; hosting platform and database host are decided in `docs/decisions/0025-first-production-hosting.md` (`ADR-0025`, **amended v1.1**: the database host is the existing `cjdkijgwvirbbdkbtgjy` project, not a new dedicated one — read the amendment before assuming §4/§5 below describe a from-scratch setup).
+
+**Sprint 6.5 live validation (2026-08-02):** re-ran the full production smoke test twice against the live deployment (12/12 passing both times, including immediately after `2615aa4`'s auto-provisioning fix); confirmed via the returned JWT's `iss` claim and matching database rows that `AUTH_PROVIDER_URL`/`DATABASE_URL` both correctly point at `cjdkijgwvirbbdkbtgjy`; confirmed CORS correctly rejects an untrusted `Origin` (no `Access-Control-Allow-Origin` returned for `https://example.com`); confirmed security headers (Helmet: CSP, HSTS, `X-Content-Type-Options`, etc.) present on every response; confirmed `/health` stable across 5 consecutive calls; reviewed Supabase's `postgres`/`auth` logs for the validation window and found only expected entries (the smoke test's own deliberate wrong-password/rate-limit-probing attempts, its idempotent-retry `duplicate key` on workspace creation, and this session's own signup-rate-limit probes — no unexplained errors). **Not verified this session** (see below): a true "first login" auto-provisioning round-trip against a brand-new Supabase Auth account (blocked by Supabase's own signup email-rate-limit after this session's own probing — see the full Sprint 6.5 report), and Render's own process-level graceful startup/shutdown behavior (no Render dashboard/API access from this environment; local Docker-level verification from `EPIC-005` Sprint 5.5 stands as the only direct evidence for that specific behavior). A real, separate finding from this sprint — unrelated to the checklist below — is tracked as `TD-001`: production is served from the `claude/aima-product-bible-48an4f` branch, not `main`, which contains only the repository's original initial commit.
+
+Most items below are still unchecked prerequisites written before deployment; a few in §4/§7 were already satisfied and marked `[x]` with what was verified and how, not just asserted. Sprint 6.5 additions follow the same convention.
 
 ### 1. Hosting platform
 
-- [ ] Create a Render account, connect the GitHub repository.
-- [ ] Create a new Render **Web Service** pointed at the repo root `Dockerfile` (no code change needed — verified building and running correctly against a real Docker daemon in `EPIC-005` Sprint 5.5).
-- [ ] Set the service's health check path to `/health` (the same endpoint the Docker `HEALTHCHECK` already polls) so Render gates deploys on it.
-- [ ] Confirm the service's port matches `PORT` (default `4000`) or let Render's port-detection handle it.
+- [x] Create a Render account, connect the GitHub repository — done; `https://aima-u7c0.onrender.com` is live and serving real traffic (Sprint 6.1, re-confirmed Sprint 6.5). Per `TD-001`, it is connected to the `claude/aima-product-bible-48an4f` branch, not `main`.
+- [x] Create a new Render **Web Service** pointed at the repo root `Dockerfile` — confirmed by response headers (`x-render-origin-server: Render`) and correct application behavior matching this exact codebase.
+- [ ] Set the service's health check path to `/health` — `/health` itself responds correctly when called directly (verified repeatedly), but Render's own dashboard *health-check-path* setting isn't independently checkable without Render dashboard/API access from this environment.
+- [ ] Confirm the service's port matches `PORT` — not independently checkable without dashboard access; the service responds correctly over HTTPS regardless of Render's internal port mapping.
 
 ### 2. Domain / TLS
 
-- [ ] Launch on Render's free `*.onrender.com` HTTPS subdomain — no DNS setup required, and it already satisfies `PUBLIC_BACKEND_URL`'s `https://` requirement (§2 above).
+- [x] Launch on Render's free `*.onrender.com` HTTPS subdomain — confirmed: `https://aima-u7c0.onrender.com` serves valid TLS with no DNS setup.
 - [ ] Custom domain (optional, can be added later without any code change): add it in Render's dashboard, point a CNAME at Render, let Render issue the certificate automatically.
 
 ### 3. Production environment variables
 
 Set every variable in `backend/.env.production.example` (§2 above) through Render's environment-variable dashboard — never commit a filled-in `.env`:
 
-- [ ] `NODE_ENV=production`, `PORT`, `CORS_ORIGINS` (real client origin(s), never `*`).
-- [ ] `DATABASE_URL` + `DATABASE_SSL=true` (from the shared `cjdkijgwvirbbdkbtgjy` project — see §4; as of `ADR-0025` v1.1 this is the *same* connection string dev/test already uses, not a new database).
+- [ ] `NODE_ENV=production`, `PORT`, `CORS_ORIGINS` (real client origin(s), never `*`). **Sprint 6.5 evidence**: a CORS preflight from an untrusted `Origin` (`https://example.com`) returns no `Access-Control-Allow-Origin` header — behaviorally consistent with a real, non-`*` `CORS_ORIGINS` value, though the exact configured origin(s) weren't read directly.
+- [ ] `DATABASE_URL` + `DATABASE_SSL=true` (from the shared `cjdkijgwvirbbdkbtgjy` project — see §4; as of `ADR-0025` v1.1 this is the *same* connection string dev/test already uses, not a new database). **Sprint 6.5 evidence**: `/health`'s `database: ok` check plus rows written via the live API being immediately visible via direct Supabase queries against `cjdkijgwvirbbdkbtgjy` confirm this points at the correct project — not read directly from Render's dashboard.
 - [ ] `CREDENTIAL_ENCRYPTION_KEY` — generate fresh with `openssl rand -base64 32`; **never reuse the dev/test key**, even though the database itself is shared — this key must be unique to Version 1 regardless of which project holds the data.
 - [ ] `PUBLIC_BACKEND_URL` — the real `https://` Render URL.
-- [ ] `AUTH_PROVIDER=supabase` + `AUTH_PROVIDER_URL`/`AUTH_PROVIDER_API_KEY` (from the shared `cjdkijgwvirbbdkbtgjy` project — see §5; `ADR-0025` v1.1 — these are the same values dev/test already uses, a direct consequence of reusing the project, documented as a trade-off there).
+- [ ] `AUTH_PROVIDER=supabase` + `AUTH_PROVIDER_URL`/`AUTH_PROVIDER_API_KEY` (from the shared `cjdkijgwvirbbdkbtgjy` project — see §5; `ADR-0025` v1.1 — these are the same values dev/test already uses, a direct consequence of reusing the project, documented as a trade-off there). **Sprint 6.5 evidence**: a live-issued access token's JWT `iss` claim reads `https://cjdkijgwvirbbdkbtgjy.supabase.co/auth/v1`, confirming the correct project and that `AUTH_PROVIDER` is not `mock` — not read directly from Render's dashboard.
 - [ ] `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`, `GITHUB_OAUTH_CLIENT_ID`/`_SECRET` (see §6).
 - [ ] `AI_PROVIDER`/`AI_PROVIDER_API_KEY`, `EMBEDDING_PROVIDER`/`_API_KEY`, `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` (+ their `_API_KEY`s) — decide per-provider whether to go live (`claude`/`openai`) or stay `mock` for launch; each is independently switchable later with no code change.
 - [ ] Leave `AUTH_LOGIN_RATE_LIMIT_*`/`AUTH_REFRESH_RATE_LIMIT_*` at their defaults unless there's a specific reason to change them (`ADR-0023`).
@@ -201,8 +205,8 @@ Per `ADR-0025` v1.1: the existing `cjdkijgwvirbbdkbtgjy` ("AIMA") Supabase proje
 
 - [ ] In the project's Auth settings, set/confirm the Site URL / redirect allow-list includes the real `PUBLIC_BACKEND_URL` (and any client app URL once one exists) — it currently only needs to cover local dev's callback.
 - [ ] Decide and configure sign-up policy (open sign-up vs. invite-only) — this app has no self-serve sign-up UI yet (`AuthProvider` has no `signUp` method; new accounts are created directly in Supabase's own dashboard/API). **No manual step is needed after that**, as of `ADR-0022` v1.1 (EPIC-006 Sprint 6.4): `POST /api/auth/login` auto-provisions the matching `public.users` row (`users.id` = the Supabase subject id) on that account's first successful login.
-- [ ] **Enable "Leaked Password Protection"** (Supabase Auth setting, currently confirmed **disabled** on this project via its security advisor) — checks new passwords against HaveIBeenPwned; free, no cost, dashboard-only toggle, not something this session can set via SQL.
-- [ ] Confirm the project issues ES256 or RS256 JWTs (both supported, `backend/src/auth/jwt.ts`) — check via the project's JWKS endpoint if unsure.
+- [ ] **Enable "Leaked Password Protection"** (Supabase Auth setting, still confirmed **disabled** on this project via its security advisor as of Sprint 6.5) — checks new passwords against HaveIBeenPwned; free, no cost, dashboard-only toggle, not something this session can set via SQL.
+- [x] Confirm the project issues ES256 or RS256 JWTs (both supported, `backend/src/auth/jwt.ts`) — confirmed ES256 via a live-issued access token's header (`{"alg":"ES256",...}`), verified successfully by the backend (Sprint 4.9; re-confirmed live Sprint 6.5).
 - [ ] Do **not** set `AUTH_PROVIDER=mock` in this environment under any circumstance — `loadConfig()` already refuses to start that way in production (§1, §8), but the checklist calls it out because the consequence (anyone can authenticate as anyone) is severe enough to double-check by hand.
 
 ### 6. OAuth provider setup
@@ -231,8 +235,13 @@ Per `ADR-0025` v1.1: the existing `cjdkijgwvirbbdkbtgjy` ("AIMA") Supabase proje
 
 ### 10. Production smoke test
 
-- [ ] Once deployed, run `npm run smoke-test -- <deployed base URL> <email> <password>` (`scripts/smoke-test.js`, `EPIC-006` Sprint 6.1) against a real, already-provisioned user (§5 — this app has no self-serve sign-up, so the account must exist first). It exercises the deployed instance's real HTTP surface end to end: `GET /health`, login, an authenticated request (plus confirming the same request is rejected with no token), workspace creation (idempotent — reuses an existing workspace on re-run), permission enforcement (a write returns a `PermissionEngine` tier decision; an unknown/cross-tenant workspace is rejected with a uniform 404), refresh-token rotation (and that a rotated-out token is rejected), logout/revocation (and that the revoked refresh token is rejected afterward), and rate limiting (a throwaway email, never the real account, hammered until `429`). Exits non-zero if anything fails, printing which check.
-- [ ] Live-verified locally during this sprint against a real running instance (mock auth, a seeded test user): all 12 checks passed on a clean run, the workspace-creation step correctly fell back to reuse on a second run, and a deliberate wrong-password run correctly failed fast with a non-zero exit — the script's logic is proven, not just its syntax.
+- [x] Once deployed, run `npm run smoke-test -- <deployed base URL> <email> <password>` (`scripts/smoke-test.js`, `EPIC-006` Sprint 6.1) against a real, already-provisioned user (§5 — this app has no self-serve sign-up, so the account must exist first). It exercises the deployed instance's real HTTP surface end to end: `GET /health`, login, an authenticated request (plus confirming the same request is rejected with no token), workspace creation (idempotent — reuses an existing workspace on re-run), permission enforcement (a write returns a `PermissionEngine` tier decision; an unknown/cross-tenant workspace is rejected with a uniform 404), refresh-token rotation (and that a rotated-out token is rejected), logout/revocation (and that the revoked refresh token is rejected afterward), and rate limiting (a throwaway email, never the real account, hammered until `429`). Exits non-zero if anything fails, printing which check. **Done — run twice against the real production deployment (`https://aima-u7c0.onrender.com`) in Sprint 6.5: 12/12 passing both times**, once immediately after `2615aa4` deployed and once during this sprint's fuller validation pass.
+- [x] Live-verified locally during Sprint 6.1 against a real running instance (mock auth, a seeded test user): all 12 checks passed on a clean run, the workspace-creation step correctly fell back to reuse on a second run, and a deliberate wrong-password run correctly failed fast with a non-zero exit — the script's logic is proven, not just its syntax. Superseded in strength, not replaced, by the real production runs above.
+
+### 11. First-login auto-provisioning (EPIC-006 Sprint 6.4/6.5)
+
+- [x] Code-level verification: 9 dedicated tests (`backend/src/routes/auth.test.ts`, `backend/src/users/userService.test.ts`) cover first-login provisioning, idempotency, concurrent-first-login race safety, invalid-JWT rejection, and invalid-credential rejection, all passing against a real transactional Postgres instance with the production schema (Sprint 6.4).
+- [ ] **Not independently re-verified live in Sprint 6.5**: a true "brand-new Supabase Auth account's first login" round-trip against the live deployment. Blocked by Supabase's own signup email-send rate limit, hit after this session's own verification attempts (2 domain-validation rejections on placeholder TLDs, then 3 `429 over_email_send_rate_limit` responses on valid domains) — confirmed via `auth.users`/`public.users` queries that none of those attempts left orphaned rows. A real, pre-existing candidate for this exact test already sits in production: `auth.users` contains a leftover Sprint 4.9 verification account (`aima.sprint49.verify@aima.local`) with no matching `public.users` row — its password was never recorded (correctly), so it cannot be logged into from this session, but its next successful login (whenever the operator can supply that password, or a fresh account once Supabase's rate limit clears) is expected to self-heal exactly as designed and would make a clean live confirmation.
 
 ### What this checklist deliberately does not do
 
