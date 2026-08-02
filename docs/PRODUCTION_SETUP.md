@@ -159,7 +159,7 @@ Registering real OAuth apps and deploying to a reachable host remains Integratio
 
 ## 10. First Deployment Checklist (EPIC-006)
 
-Everything above describes a backend that is *ready* to deploy; nothing has been deployed yet. This is the ordered, actionable checklist for actually doing that — hosting platform and database host are decided in `docs/decisions/0025-first-production-hosting.md` (`ADR-0025`); this section is the execution plan for that decision. Nothing here has been executed — every item is a prerequisite to complete before the first real deploy, not a record of one that happened.
+Everything above describes a backend that is *ready* to deploy; nothing has been deployed yet. This is the ordered, actionable checklist for actually doing that — hosting platform and database host are decided in `docs/decisions/0025-first-production-hosting.md` (`ADR-0025`, **amended v1.1**: the database host is the existing `cjdkijgwvirbbdkbtgjy` project, not a new dedicated one — read the amendment before assuming §4/§5 below describe a from-scratch setup). Most items are still unchecked prerequisites; a few in §4/§7 are already satisfied, marked `[x]` with what was verified and how, not just asserted.
 
 ### 1. Hosting platform
 
@@ -178,34 +178,30 @@ Everything above describes a backend that is *ready* to deploy; nothing has been
 Set every variable in `backend/.env.production.example` (§2 above) through Render's environment-variable dashboard — never commit a filled-in `.env`:
 
 - [ ] `NODE_ENV=production`, `PORT`, `CORS_ORIGINS` (real client origin(s), never `*`).
-- [ ] `DATABASE_URL` + `DATABASE_SSL=true` (from the new Supabase project — see §4).
-- [ ] `CREDENTIAL_ENCRYPTION_KEY` — generate fresh with `openssl rand -base64 32`; never reuse the dev/test key.
+- [ ] `DATABASE_URL` + `DATABASE_SSL=true` (from the shared `cjdkijgwvirbbdkbtgjy` project — see §4; as of `ADR-0025` v1.1 this is the *same* connection string dev/test already uses, not a new database).
+- [ ] `CREDENTIAL_ENCRYPTION_KEY` — generate fresh with `openssl rand -base64 32`; **never reuse the dev/test key**, even though the database itself is shared — this key must be unique to Version 1 regardless of which project holds the data.
 - [ ] `PUBLIC_BACKEND_URL` — the real `https://` Render URL.
-- [ ] `AUTH_PROVIDER=supabase` + `AUTH_PROVIDER_URL`/`AUTH_PROVIDER_API_KEY` (from the new Supabase project — see §5).
+- [ ] `AUTH_PROVIDER=supabase` + `AUTH_PROVIDER_URL`/`AUTH_PROVIDER_API_KEY` (from the shared `cjdkijgwvirbbdkbtgjy` project — see §5; `ADR-0025` v1.1 — these are the same values dev/test already uses, a direct consequence of reusing the project, documented as a trade-off there).
 - [ ] `GOOGLE_OAUTH_CLIENT_ID`/`_SECRET`, `GITHUB_OAUTH_CLIENT_ID`/`_SECRET` (see §6).
 - [ ] `AI_PROVIDER`/`AI_PROVIDER_API_KEY`, `EMBEDDING_PROVIDER`/`_API_KEY`, `SPEECH_TO_TEXT_PROVIDER`/`TEXT_TO_SPEECH_PROVIDER` (+ their `_API_KEY`s) — decide per-provider whether to go live (`claude`/`openai`) or stay `mock` for launch; each is independently switchable later with no code change.
 - [ ] Leave `AUTH_LOGIN_RATE_LIMIT_*`/`AUTH_REFRESH_RATE_LIMIT_*` at their defaults unless there's a specific reason to change them (`ADR-0023`).
 
 ### 4. Database setup
 
-- [ ] Create the new, dedicated production Supabase project decided in `ADR-0025` — **do not reuse** the existing dev/test project (`cjdkijgwvirbbdkbtgjy`).
-- [ ] Copy its Postgres connection string into `DATABASE_URL` (§3); confirm `pgvector`/`pgcrypto` are available (Supabase ships both by default).
-- [ ] Run `npm run db:migrate -- <production DATABASE_URL>` once, from a trusted machine, against the empty new database — applies all 19 migrations atomically (`EPIC-005` Sprint 5.6's `--single-transaction` hardening).
-- [ ] Revoke PostgREST's `anon`/`authenticated` grants on this new project exactly as `RISK-002`/`ADR-0024` did for the dev/test project — this is a *new* project, so the mitigation has not been applied to it yet and must be redone, not assumed:
-  ```sql
-  REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
-  REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
-  REVOKE ALL ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON TABLES FROM anon, authenticated;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated;
-  ALTER DEFAULT PRIVILEGES IN SCHEMA public REVOKE ALL ON FUNCTIONS FROM anon, authenticated;
-  ```
-- [ ] Verify the revocation: an unauthenticated `curl` against `https://<project>.supabase.co/rest/v1/users` with only the anon key should return `401`/`403`, never `200` (the exact check `RISK-002`'s Contingency Plan documents).
+Per `ADR-0025` v1.1: the existing `cjdkijgwvirbbdkbtgjy` ("AIMA") Supabase project is reused for Version 1 rather than creating a new dedicated one (the org's free tier caps active projects at 2, both already held). Verified directly against this project during this checklist's execution (`EPIC-006`):
+
+- [x] **Schema already migrated** — the project's `public` schema already has all 24 tables, verified matching every migration through `0020_auth_sessions.sql` (spot-checked `auth_sessions`'s exact column set against the migration file). Do **not** run `npm run db:migrate` against it — it would fail on the first already-existing table, by design (`database/README.md`), not a bug.
+- [x] **`pgcrypto`/`vector` extensions present** — confirmed via `pg_extension`.
+- [x] **`RISK-002`/`ADR-0024`'s PostgREST revocation already in effect** — confirmed via `information_schema.role_table_grants`: `anon`/`authenticated` hold zero grants on any `public` table. (Supabase's own security advisor still flags `rls_disabled_in_public` for all 24 tables — this is the known, accepted false positive `ADR-0024`'s Trade-offs section documents; RLS is deliberately not the mitigation here, the revocation above is, and it's confirmed still holding. Do not apply the advisor's suggested `ENABLE ROW LEVEL SECURITY` remediation — it would block all access without policies and contradicts the already-decided architecture.)
+- [ ] Copy this project's Postgres connection string into `DATABASE_URL` (§3) — the same value local dev/test already uses.
+- [ ] **Minor, non-blocking finding**: the advisor also flags the `vector` extension as installed in the `public` schema rather than a dedicated `extensions` schema (Supabase's general best-practice recommendation, not a security hole given the revocation above). Optional cleanup, not required for launch.
+- [ ] **Pre-launch data hygiene**: this project's `auth.users` currently has 1 real Supabase Auth user (from prior sprint live-verification work) and its local `users`/`workspaces` tables are empty as of this check — decide whether to delete that leftover Auth user before real users sign up, or accept it as a known, harmless artifact. This wasn't a concern for a dev-only project; it's a real one now that this project also serves Version 1.
 
 ### 5. Supabase Auth production configuration
 
-- [ ] In the new project's Auth settings, set the Site URL / redirect allow-list to the real `PUBLIC_BACKEND_URL` (and any client app URL once one exists).
+- [ ] In the project's Auth settings, set/confirm the Site URL / redirect allow-list includes the real `PUBLIC_BACKEND_URL` (and any client app URL once one exists) — it currently only needs to cover local dev's callback.
 - [ ] Decide and configure sign-up policy (open sign-up vs. invite-only) — this app has no self-serve sign-up UI yet (`AuthProvider` has no `signUp` method; users are provisioned directly), so initial user(s) must be created via Supabase's own dashboard/API, then given a matching row in this app's `users` table (`users.id` = the Supabase subject id, `ADR-0022` Decision 4).
+- [ ] **Enable "Leaked Password Protection"** (Supabase Auth setting, currently confirmed **disabled** on this project via its security advisor) — checks new passwords against HaveIBeenPwned; free, no cost, dashboard-only toggle, not something this session can set via SQL.
 - [ ] Confirm the project issues ES256 or RS256 JWTs (both supported, `backend/src/auth/jwt.ts`) — check via the project's JWKS endpoint if unsure.
 - [ ] Do **not** set `AUTH_PROVIDER=mock` in this environment under any circumstance — `loadConfig()` already refuses to start that way in production (§1, §8), but the checklist calls it out because the consequence (anyone can authenticate as anyone) is severe enough to double-check by hand.
 
@@ -218,14 +214,14 @@ Set every variable in `backend/.env.production.example` (§2 above) through Rend
 
 ### 7. Migration process
 
-- [ ] Already covered mechanically in §4 above (`npm run db:migrate`, one atomic run against the fresh database).
-- [ ] For any *future* schema change after this first deployment: there is no incremental-migration tracking (`database/apply-migrations.sh` is documented as fresh-database-only, `database/README.md`) — apply new migration files by hand against the already-migrated production database (`psql -v ON_ERROR_STOP=1 -f <new-migration>.sql`), the same way local development always has.
+- [x] Already satisfied — §4 confirmed the shared project's schema already matches every migration file; nothing to run.
+- [ ] For any *future* schema change: there is no incremental-migration tracking (`database/apply-migrations.sh` is documented as fresh-database-only, `database/README.md`) — apply new migration files by hand against the shared project (`psql -v ON_ERROR_STOP=1 -f <new-migration>.sql`), the same way local development always has. Because dev and Version 1 now share this database (`ADR-0025` v1.1), a schema change applied for local dev *is* applied for production too — there is no separate "apply to prod later" step, and no way to test a migration against production data without it also being live dev data.
 
 ### 8. Backup schedule
 
-- [ ] Decide, deliberately (this is a real cost trade-off, not a default — `ADR-0025` Trade-offs): either (a) enable Supabase's built-in automated backups on the new project, which requires at least the Pro plan, or (b) stay on Supabase's free tier and self-schedule `npm run db:backup` (`database/backup.sh`, `EPIC-005` Sprint 5.6) via an external scheduler (e.g. a scheduled GitHub Action), storing the resulting dump somewhere durable (an S3-compatible bucket — this project does not yet have one wired up for this purpose).
-- [ ] Whichever is chosen, confirm a restore actually works against this specific schema before relying on it — `database/restore.sh` was live-verified against a local database with pgvector data in `EPIC-005` Sprint 5.6; re-verify once against the real production project after the first backup exists.
-- [ ] Until one of these is actually configured, there is no standing backup of production data — `RISK-003`'s mitigation built the tooling and verified it works, but scheduling it against a real deployment is this checklist's job, not something already done.
+- [ ] Decide, deliberately (this is a real cost trade-off, not a default — `ADR-0025` Trade-offs): either (a) enable Supabase's built-in automated backups on this project, which requires at least the Pro plan, or (b) stay on Supabase's free tier and self-schedule `npm run db:backup` (`database/backup.sh`, `EPIC-005` Sprint 5.6) via an external scheduler (e.g. a scheduled GitHub Action), storing the resulting dump somewhere durable (an S3-compatible bucket — this project does not yet have one wired up for this purpose).
+- [ ] Whichever is chosen, confirm a restore actually works against this specific schema before relying on it — `database/restore.sh` was live-verified against a local database with pgvector data in `EPIC-005` Sprint 5.6; re-verify once against this project after the first backup exists.
+- [ ] Until one of these is actually configured, there is no standing backup of this project's data — `RISK-003`'s mitigation built the tooling and verified it works, but scheduling it against the real, now-shared-with-production database is this checklist's job, not something already done. This matters more than it would have for a dev-only project, since real user data is now at stake too.
 
 ### 9. Monitoring
 
