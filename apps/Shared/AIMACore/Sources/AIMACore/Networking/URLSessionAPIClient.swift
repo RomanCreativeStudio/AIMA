@@ -13,12 +13,18 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
     private let session: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private let tokenProvider: AccessTokenProviding?
 
-    public init(configuration: APIConfiguration, session: URLSession = .shared) {
+    /// `tokenProvider` is optional — omitting it (the default) is only correct for tests/previews that stub
+    /// every response and don't care about the request's headers. Every real call site (`DependencyContainer`)
+    /// must supply the app's `AuthClient` here, since every route this client calls other than `/health` now
+    /// requires a bearer token (`backend/src/middleware/auth.ts`'s `requireAuth`).
+    public init(configuration: APIConfiguration, session: URLSession = .shared, tokenProvider: AccessTokenProviding? = nil) {
         self.configuration = configuration
         self.session = session
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()
+        self.tokenProvider = tokenProvider
     }
 
     // MARK: - Health
@@ -539,6 +545,9 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
 
         var request = URLRequest(url: url, timeoutInterval: configuration.requestTimeout)
         request.httpMethod = method
+        if let token = await tokenProvider?.currentAccessToken() {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             do {

@@ -50,6 +50,13 @@ final class MockURLProtocol: URLProtocol {
     }
 }
 
+/// A fixed-token `AccessTokenProviding` stub — lets tests assert exactly what `URLSessionAPIClient` does with
+/// whatever an `AuthClient` reports, without depending on a real `BackendAuthClient`/`MockAuthClient` instance.
+private struct StubTokenProvider: AccessTokenProviding {
+    let token: String?
+    func currentAccessToken() async -> String? { token }
+}
+
 final class URLSessionAPIClientTests: XCTestCase {
     private var client: URLSessionAPIClient!
 
@@ -65,6 +72,55 @@ final class URLSessionAPIClientTests: XCTestCase {
     override func tearDown() {
         MockURLProtocol.reset()
         super.tearDown()
+    }
+
+    private func makeClient(tokenProvider: AccessTokenProviding?) -> URLSessionAPIClient {
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [MockURLProtocol.self]
+        let session = URLSession(configuration: sessionConfiguration)
+        return URLSessionAPIClient(
+            configuration: APIConfiguration(baseURL: URL(string: "http://example.test")!),
+            session: session,
+            tokenProvider: tokenProvider
+        )
+    }
+
+    func testRequestsAttachTheBearerTokenFromTheTokenProvider() async throws {
+        let authedClient = makeClient(tokenProvider: StubTokenProvider(token: "session-access-token"))
+        MockURLProtocol.stubs["GET /api/users/u1"] = .init(
+            statusCode: 200,
+            body: #"{"user":{"id":"u1","email":"you@example.com","displayName":null,"preferences":{},"communicationStyle":null,"defaultWorkspaceId":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}}"#.data(using: .utf8)!
+        )
+
+        _ = try await authedClient.getUser(id: "u1")
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        XCTAssertEqual(recorded.value(forHTTPHeaderField: "Authorization"), "Bearer session-access-token")
+    }
+
+    func testRequestsOmitTheAuthorizationHeaderWhenTheTokenProviderHasNoToken() async throws {
+        let unauthedClient = makeClient(tokenProvider: StubTokenProvider(token: nil))
+        MockURLProtocol.stubs["GET /health"] = .init(
+            statusCode: 200,
+            body: """
+            {"status":"ok","timestamp":"2026-01-01T00:00:00.000Z","checks":{"database":{"status":"ok","detail":null},"aiProvider":{"status":"ok","detail":"mock"},"memory":{"status":"ok","detail":null},"knowledge":{"status":"ok","detail":null},"integrations":{"status":"ok","detail":"gmail, github, calendar"},"voiceProviders":{"status":"ok","detail":"mock / mock"}}}
+            """.data(using: .utf8)!
+        )
+
+        _ = try await unauthedClient.getHealth()
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        XCTAssertNil(recorded.value(forHTTPHeaderField: "Authorization"))
+    }
+
+    func testRequestsOmitTheAuthorizationHeaderWhenNoTokenProviderIsConfigured() async throws {
+        // `client` (from `setUp`) has no token provider — the default used by every existing test in this file.
+        MockURLProtocol.stubs["GET /api/workspaces/w1/tasks"] = .init(statusCode: 200, body: #"{"tasks":[]}"#.data(using: .utf8)!)
+
+        _ = try await client.listTasks(workspaceId: "w1", status: nil)
+
+        let recorded = try XCTUnwrap(MockURLProtocol.recordedRequests.last)
+        XCTAssertNil(recorded.value(forHTTPHeaderField: "Authorization"))
     }
 
     func testGetHealthDecodesUnwrappedResponse() async throws {
