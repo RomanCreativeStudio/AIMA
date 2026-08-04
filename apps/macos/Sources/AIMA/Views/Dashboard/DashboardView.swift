@@ -69,13 +69,24 @@ struct DashboardView: View {
     }
 
     private func workspaceHeader(_ workspace: Workspace) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(workspace.name)
-                .font(.largeTitle)
-                .fontWeight(.bold)
-            Text(workspace.type.rawValue.capitalized)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+        HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(workspace.name)
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+                Text(workspace.type.rawValue.capitalized)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            // Alpha Daily Briefing sprint: `.task(id:)` already reloads on launch and on workspace switch; this
+            // is the explicit re-fetch a user can trigger without switching workspaces and back.
+            Button {
+                Task { await viewModel.load(workspaceId: workspace.id) }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+            .disabled(viewModel.isLoading)
         }
     }
 
@@ -275,9 +286,31 @@ struct DashboardView: View {
         if let briefing = viewModel.dailyBriefing {
             SectionCard(title: "Daily Briefing") {
                 VStack(alignment: .leading, spacing: 10) {
+                    if !briefing.greeting.isEmpty {
+                        Text(briefing.greeting)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+
                     HStack(spacing: 24) {
                         taskCountColumn("Pending Approvals", count: briefing.pendingApprovalCount)
                         taskCountColumn("Active Workflows", count: briefing.activeWorkflowCount)
+                        taskCountColumn("Overdue Tasks", count: briefing.overdueTasks.count)
+                    }
+
+                    if !briefing.overdueTasks.isEmpty {
+                        Text("Overdue").font(.subheadline).fontWeight(.medium).foregroundStyle(.red)
+                        ForEach(briefing.overdueTasks) { task in
+                            Text("• \(task.title)").font(.callout)
+                        }
+                    }
+
+                    if !briefing.integrationsNeedingAttention.isEmpty {
+                        Text("Integrations Needing Attention").font(.subheadline).fontWeight(.medium).foregroundStyle(.orange)
+                        ForEach(briefing.integrationsNeedingAttention) { integration in
+                            Text("• \(integration.displayName)")
+                                .font(.callout)
+                        }
                     }
 
                     if !briefing.priorityTasks.isEmpty {

@@ -247,6 +247,7 @@ async function main(): Promise<void> {
     actionLogger,
     memoryService,
     proactiveIntelligenceService,
+    integrationService,
   );
   const taskIntelligenceService = new TaskIntelligenceService(taskService);
   const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);

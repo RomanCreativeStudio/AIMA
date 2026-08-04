@@ -1,11 +1,13 @@
 import type { ActionLogger, ActionLogRecord } from '../actionLog/logger';
 import type { ApprovalEngine } from '../approval/approvalEngine';
+import type { IntegrationService } from '../integrations/integrationService';
+import type { WorkspaceIntegration } from '../integrations/types';
 import type { MemoryService } from '../memory/memoryService';
 import type { ProactiveIntelligenceService } from '../proactive/proactiveIntelligenceService';
 import type { TaskService } from '../tasks/taskService';
 import type { WorkflowService } from '../workflows/workflowService';
 import type { WorkspaceService } from '../workspaces/workspaceService';
-import { isOpenTask, rankTasksByPriority } from './taskAnalysis';
+import { findOverdue, isOpenTask, rankTasksByPriority } from './taskAnalysis';
 import { ACTIVE_WORKFLOW_RUN_STATUSES, type DailyBriefing } from './types';
 
 const DEFAULT_PRIORITY_TASK_LIMIT = 5;
@@ -37,22 +39,28 @@ export class BriefingService {
     /** Additive (Phase 3.5) — optional so every pre-3.5 call site (mostly test files that only need `BriefingService` to exist for router wiring, not its full output) keeps compiling unchanged. Omitting it just means `recentMemories`/`suggestedNextActions` come back empty. */
     private readonly memoryService?: MemoryService,
     private readonly proactiveIntelligenceService?: ProactiveIntelligenceService,
+    /** Alpha Daily Briefing sprint: same optional posture as `memoryService`/`proactiveIntelligenceService` — omitting it just means `integrationsNeedingAttention` comes back empty. */
+    private readonly integrationService?: IntegrationService,
   ) {}
 
   async getDailyBriefing(workspaceId: string): Promise<DailyBriefing> {
     const workspace = await this.workspaceService.getWorkspace(workspaceId);
 
-    const [tasks, pendingApprovals, workflowRuns, recentActivity, recentMemories, suggestions] = await Promise.all([
-      this.taskService.listTasks(workspaceId),
-      this.approvalEngine.list(workspaceId, 'pending'),
-      this.workflowService.listRuns(workspaceId),
-      this.actionLogger.list(workspaceId, DEFAULT_RECENT_ACTIVITY_LIMIT),
-      this.memoryService?.listMemories({ workspaceId, limit: DEFAULT_RECENT_MEMORY_LIMIT }) ?? Promise.resolve([]),
-      this.proactiveIntelligenceService?.getSuggestions(workspaceId) ?? Promise.resolve([]),
-    ]);
+    const [tasks, pendingApprovals, workflowRuns, recentActivity, recentMemories, suggestions, integrations] =
+      await Promise.all([
+        this.taskService.listTasks(workspaceId),
+        this.approvalEngine.list(workspaceId, 'pending'),
+        this.workflowService.listRuns(workspaceId),
+        this.actionLogger.list(workspaceId, DEFAULT_RECENT_ACTIVITY_LIMIT),
+        this.memoryService?.listMemories({ workspaceId, limit: DEFAULT_RECENT_MEMORY_LIMIT }) ?? Promise.resolve([]),
+        this.proactiveIntelligenceService?.getSuggestions(workspaceId) ?? Promise.resolve([]),
+        this.integrationService?.listForWorkspace(workspaceId) ?? Promise.resolve([]),
+      ]);
 
     const activeWorkflows = workflowRuns.filter((run) => ACTIVE_WORKFLOW_RUN_STATUSES.includes(run.status));
-    const priorityTasks = rankTasksByPriority(tasks.filter(isOpenTask), new Date(), DEFAULT_DUE_SOON_WINDOW_MS).slice(
+    const openTasks = tasks.filter(isOpenTask);
+    const now = new Date();
+    const priorityTasks = rankTasksByPriority(openTasks, now, DEFAULT_DUE_SOON_WINDOW_MS).slice(
       0,
       DEFAULT_PRIORITY_TASK_LIMIT,
     );
@@ -69,11 +77,29 @@ export class BriefingService {
       recentMemories,
       calendarHighlights: recentActivity.filter((entry) => isCalendarActivity(entry)),
       suggestedNextActions: suggestions.slice(0, DEFAULT_SUGGESTED_ACTION_LIMIT),
-      generatedAt: new Date().toISOString(),
+      greeting: buildGreeting(workspace.name, now),
+      overdueTasks: findOverdue(openTasks, now),
+      integrationsNeedingAttention: integrations.filter(needsAttention),
+      generatedAt: now.toISOString(),
     };
   }
 }
 
 function isCalendarActivity(entry: ActionLogRecord): boolean {
   return entry.actionType !== null && CALENDAR_ACTION_TYPES.has(entry.actionType);
+}
+
+/** Deterministic, time-of-day greeting — no AI call, mirroring `taskAnalysis.ts`'s "deterministic where possible" posture. Boundaries are local-to-the-process wall-clock hours: before noon, before 6pm, otherwise evening. Exported (like `taskAnalysis.ts`'s helpers) so it's directly unit-testable rather than only through a full `getDailyBriefing` call. */
+export function buildGreeting(workspaceName: string, now: Date): string {
+  const hour = now.getHours();
+  const timeOfDay = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
+  return `Good ${timeOfDay}! Here's what's happening in ${workspaceName}.`;
+}
+
+/** An integration a founder should look at: it's actively erroring, it's enabled but disconnected, or its stored token has already expired. Never a live provider call — reads only what `IntegrationService.listForWorkspace` already returns. Exported for direct unit testing (see `buildGreeting`'s doc comment). */
+export function needsAttention(integration: WorkspaceIntegration): boolean {
+  if (integration.status === 'error') return true;
+  if (integration.enabled && integration.status === 'disconnected') return true;
+  if (integration.tokenExpiresAt && new Date(integration.tokenExpiresAt).getTime() < Date.now()) return true;
+  return false;
 }

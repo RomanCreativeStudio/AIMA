@@ -27,7 +27,11 @@ export interface InsightsRouterDependencies {
 export function insightsRouter(deps: InsightsRouterDependencies): Router {
   const router = Router();
 
-  router.get('/workspaces/:workspaceId/briefing', async (req, res, next) => {
+  // Alpha Daily Briefing sprint: `/daily-briefing` is the canonical path going forward — `/briefing` (Phase
+  // 2.5) stays mounted, unchanged, purely so no existing caller breaks (no breaking API changes). Both hit
+  // the exact same `BriefingService.getDailyBriefing` call; this is deliberately one handler function
+  // registered twice, not two aggregations of the same data.
+  router.get(['/workspaces/:workspaceId/briefing', '/workspaces/:workspaceId/daily-briefing'], async (req, res, next) => {
     try {
       const { workspaceId } = req.params;
       if (!isUuid(workspaceId)) {

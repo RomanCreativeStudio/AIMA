@@ -282,6 +282,99 @@ test('GET .../briefing returns a well-formed daily briefing for a fresh workspac
   });
 });
 
+// Alpha Daily Briefing sprint: `/daily-briefing` is the same handler as `/briefing` (see routes/insights.ts),
+// registered at a second path — these tests exercise that path directly plus the three fields the sprint
+// added to the payload (greeting, overdueTasks, integrationsNeedingAttention).
+
+test('GET .../daily-briefing 404s for an unknown workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/daily-briefing`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../daily-briefing 400s for a malformed workspaceId', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/daily-briefing`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../daily-briefing returns a well-formed briefing with a greeting for a fresh, empty workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/daily-briefing`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 200);
+
+      const body = (await response.json()) as {
+        briefing: {
+          workspaceId: string;
+          workspaceName: string;
+          greeting: string;
+          overdueTasks: unknown[];
+          integrationsNeedingAttention: unknown[];
+        };
+      };
+      assert.equal(body.briefing.workspaceId, workspaceId);
+      assert.ok(body.briefing.greeting.length > 0);
+      assert.ok(body.briefing.greeting.includes('rcs'));
+      assert.deepEqual(body.briefing.overdueTasks, []);
+      assert.deepEqual(body.briefing.integrationsNeedingAttention, []);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET .../daily-briefing aggregates overdue tasks created through the real tasks route, scoped to the workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    const { userId: otherUserId, workspaceId: otherWorkspaceId } = await seedWorkspace(pool);
+    try {
+      const overdueDueDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'Late thing', dueDate: overdueDueDate }),
+      });
+      await fetch(`${baseUrl}/api/workspaces/${otherWorkspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(otherUserId) },
+        body: JSON.stringify({ title: 'Other workspace late thing', dueDate: overdueDueDate }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/daily-briefing`, {
+        headers: authHeader(userId),
+      });
+      assert.equal(response.status, 200);
+
+      const body = (await response.json()) as { briefing: { overdueTasks: Array<{ title: string }> } };
+      assert.equal(body.briefing.overdueTasks.length, 1);
+      assert.equal(body.briefing.overdueTasks[0].title, 'Late thing');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+      await cleanupWorkspace(pool, otherUserId);
+    }
+  });
+});
+
 test('GET .../task-intelligence buckets due-soon and overdue tasks created through the real tasks route', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);

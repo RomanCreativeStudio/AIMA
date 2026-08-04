@@ -2,7 +2,9 @@ import Foundation
 
 /// Mirrors `backend/src/insights/types.ts#DailyBriefing` (Phase 2.5, item
 /// 1) — a synchronous, read-only snapshot of a workspace, returned by
-/// `GET /api/workspaces/:id/briefing`. Distinct from the Phase 2.4
+/// `GET /api/workspaces/:id/daily-briefing` (Alpha Daily Briefing sprint;
+/// `/briefing` is the same payload at the original Phase 2.5 path, kept
+/// mounted for backward compatibility). Distinct from the Phase 2.4
 /// `daily_workspace_briefing` *workflow*: this is a plain report with no
 /// execution state of its own, safe to re-fetch as often as the Dashboard
 /// likes.
@@ -22,6 +24,14 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
     public let calendarHighlights: [ActionLogRecord]
     /// Top advisory suggestions from the Proactive Intelligence Engine (Phase 3.5) — informational only.
     public let suggestedNextActions: [Suggestion]
+    /// A deterministic, time-of-day greeting (Alpha Daily Briefing sprint) — e.g. "Good morning! Here's what's
+    /// happening in RCS."
+    public let greeting: String
+    /// Open tasks past their due date (Alpha Daily Briefing sprint) — may overlap with `priorityTasks`.
+    public let overdueTasks: [TaskItem]
+    /// Connected integrations that need attention: erroring, enabled-but-disconnected, or an already-expired
+    /// token (Alpha Daily Briefing sprint). Empty when the backend's `IntegrationService` isn't configured.
+    public let integrationsNeedingAttention: [WorkspaceIntegration]
     public let generatedAt: String
 
     public init(
@@ -36,6 +46,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         recentMemories: [MemoryRecord] = [],
         calendarHighlights: [ActionLogRecord] = [],
         suggestedNextActions: [Suggestion] = [],
+        greeting: String = "",
+        overdueTasks: [TaskItem] = [],
+        integrationsNeedingAttention: [WorkspaceIntegration] = [],
         generatedAt: String
     ) {
         self.workspaceId = workspaceId
@@ -49,16 +62,22 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         self.recentMemories = recentMemories
         self.calendarHighlights = calendarHighlights
         self.suggestedNextActions = suggestedNextActions
+        self.greeting = greeting
+        self.overdueTasks = overdueTasks
+        self.integrationsNeedingAttention = integrationsNeedingAttention
         self.generatedAt = generatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case workspaceId, workspaceName, pendingApprovalCount, pendingApprovals, activeWorkflowCount, activeWorkflows
-        case priorityTasks, recentActivity, recentMemories, calendarHighlights, suggestedNextActions, generatedAt
+        case priorityTasks, recentActivity, recentMemories, calendarHighlights, suggestedNextActions
+        case greeting, overdueTasks, integrationsNeedingAttention, generatedAt
     }
 
-    /// Custom decode so a payload from before Phase 3.5 (missing the three new fields) still decodes, defaulting
-    /// each to an empty array — the same backward-compatible-decode posture as `SendMessageResult.memorySuggestions`.
+    /// Custom decode so a payload missing newer fields still decodes, defaulting each to an empty array/string —
+    /// the same backward-compatible-decode posture as `SendMessageResult.memorySuggestions`. `greeting`,
+    /// `overdueTasks`, `integrationsNeedingAttention` are Alpha Daily Briefing sprint additions; the rest predate
+    /// Phase 3.5.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
@@ -72,6 +91,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         recentMemories = try container.decodeIfPresent([MemoryRecord].self, forKey: .recentMemories) ?? []
         calendarHighlights = try container.decodeIfPresent([ActionLogRecord].self, forKey: .calendarHighlights) ?? []
         suggestedNextActions = try container.decodeIfPresent([Suggestion].self, forKey: .suggestedNextActions) ?? []
+        greeting = try container.decodeIfPresent(String.self, forKey: .greeting) ?? ""
+        overdueTasks = try container.decodeIfPresent([TaskItem].self, forKey: .overdueTasks) ?? []
+        integrationsNeedingAttention = try container.decodeIfPresent([WorkspaceIntegration].self, forKey: .integrationsNeedingAttention) ?? []
         generatedAt = try container.decode(String.self, forKey: .generatedAt)
     }
 }

@@ -25,7 +25,7 @@ import { WorkflowRegistry } from '../workflows/registry';
 import type { WorkflowKey } from '../workflows/types';
 import { WorkflowService } from '../workflows/workflowService';
 import { WorkspaceService } from '../workspaces/workspaceService';
-import { BriefingService } from './briefingService';
+import { BriefingService, buildGreeting, needsAttention } from './briefingService';
 
 const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
@@ -82,9 +82,10 @@ function buildFullService(client: Client) {
     base.actionLogger,
     memoryService,
     proactiveIntelligenceService,
+    integrationService,
   );
 
-  return { ...base, briefingService, memoryService, proactiveIntelligenceService };
+  return { ...base, briefingService, memoryService, proactiveIntelligenceService, integrationService };
 }
 
 async function capabilityIdFor(client: Client, actionType: string): Promise<string> {
@@ -254,4 +255,121 @@ test('getDailyBriefing surfaces suggestedNextActions from the Proactive Intellig
     assert.ok(briefing.suggestedNextActions.length <= 3);
     assert.ok(briefing.suggestedNextActions.some((s) => s.source === 'frequent_workflow_pattern'));
   });
+});
+
+// Alpha Daily Briefing sprint: greeting, overdueTasks, integrationsNeedingAttention.
+
+test('getDailyBriefing includes a non-empty greeting mentioning the workspace name', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService } = buildService(client);
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.ok(briefing.greeting.length > 0);
+    assert.ok(briefing.greeting.includes('rcs'));
+  });
+});
+
+test('getDailyBriefing surfaces overdueTasks, workspace-scoped, using the same overdue rule as TaskIntelligenceService', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: otherWorkspaceId } = await seedWorkspace(client, 'mfs');
+    const { briefingService, taskService } = buildService(client);
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const overdue = await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+    await taskService.createTask({ workspaceId, title: 'Not due yet', dueDate: tomorrow });
+    await taskService.createTask({ workspaceId, title: 'No due date' });
+    await taskService.createTask({ workspaceId: otherWorkspaceId, title: 'Other workspace overdue', dueDate: yesterday });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.overdueTasks.length, 1);
+    assert.equal(briefing.overdueTasks[0].id, overdue.id);
+  });
+});
+
+test('getDailyBriefing overdueTasks defaults to empty and never throws for a brand-new workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService } = buildService(client);
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.deepEqual(briefing.overdueTasks, []);
+  });
+});
+
+test('getDailyBriefing integrationsNeedingAttention defaults to empty when integrationService is omitted', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService } = buildService(client);
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.deepEqual(briefing.integrationsNeedingAttention, []);
+  });
+});
+
+test('getDailyBriefing surfaces a connected integration whose token has already expired', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, integrationService } = buildFullService(client);
+
+    await integrationService.connect({
+      workspaceId,
+      provider: 'github',
+      credentials: { accessToken: 'gh-token', expiresAt: new Date(Date.now() - 60_000).toISOString() },
+    });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.integrationsNeedingAttention.length, 1);
+    assert.equal(briefing.integrationsNeedingAttention[0].provider, 'github');
+  });
+});
+
+test('getDailyBriefing does not flag a connected integration with no expiry or a future one', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, integrationService } = buildFullService(client);
+
+    await integrationService.connect({ workspaceId, provider: 'github', credentials: { accessToken: 'gh-token' } });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.deepEqual(briefing.integrationsNeedingAttention, []);
+  });
+});
+
+test('buildGreeting mentions the workspace name and picks a time-of-day salutation', () => {
+  assert.equal(buildGreeting('RCS', new Date('2026-01-01T09:00:00')), "Good morning! Here's what's happening in RCS.");
+  assert.equal(buildGreeting('RCS', new Date('2026-01-01T14:00:00')), "Good afternoon! Here's what's happening in RCS.");
+  assert.equal(buildGreeting('RCS', new Date('2026-01-01T20:00:00')), "Good evening! Here's what's happening in RCS.");
+});
+
+test('needsAttention flags error status, enabled-but-disconnected, and an expired token', () => {
+  const base = {
+    workspaceId: 'w1',
+    provider: 'github' as const,
+    connectedAt: null,
+    lastValidatedAt: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  assert.equal(needsAttention({ ...base, enabled: true, status: 'error', tokenExpiresAt: null }), true);
+  assert.equal(needsAttention({ ...base, enabled: true, status: 'disconnected', tokenExpiresAt: null }), true);
+  assert.equal(
+    needsAttention({ ...base, enabled: true, status: 'connected', tokenExpiresAt: new Date(Date.now() - 1000).toISOString() }),
+    true,
+  );
+  assert.equal(needsAttention({ ...base, enabled: false, status: 'disconnected', tokenExpiresAt: null }), false);
+  assert.equal(needsAttention({ ...base, enabled: true, status: 'connected', tokenExpiresAt: null }), false);
+  assert.equal(
+    needsAttention({ ...base, enabled: true, status: 'connected', tokenExpiresAt: new Date(Date.now() + 1000).toISOString() }),
+    false,
+  );
 });

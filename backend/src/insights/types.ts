@@ -1,6 +1,7 @@
 import type { ActionLogRecord } from '../actionLog/logger';
 import type { PendingApproval } from '../approval/types';
 import type { Message } from '../conversation/types';
+import type { WorkspaceIntegration } from '../integrations/types';
 import type { MemoryRecord, RankedMemoryResult } from '../memory/types';
 import type { Suggestion } from '../proactive/types';
 import type { Task } from '../tasks/types';
@@ -47,6 +48,12 @@ export interface DailyBriefing {
   calendarHighlights: ActionLogRecord[];
   /** Top advisory suggestions from the Proactive Intelligence Engine (Phase 3.5, item 1) — informational only; never itself creates, executes, or sends anything. */
   suggestedNextActions: Suggestion[];
+  /** Alpha Daily Briefing sprint: a deterministic, time-of-day greeting — see `buildGreeting` in `briefingService.ts`. No AI call, same "deterministic where possible" posture as `taskAnalysis.ts`. */
+  greeting: string;
+  /** Alpha Daily Briefing sprint: open tasks past their due date — reuses `taskAnalysis.ts#findOverdue` (the same pure function `TaskIntelligenceService` already uses), not a second overdue calculation. A subset of tasks that may also appear in `priorityTasks`. */
+  overdueTasks: Task[];
+  /** Alpha Daily Briefing sprint: connected integrations whose `status` is `error`, or `disconnected` while still `enabled`, or whose `tokenExpiresAt` has already passed — see `needsAttention` in `briefingService.ts`. Empty when `IntegrationService` isn't supplied. */
+  integrationsNeedingAttention: WorkspaceIntegration[];
   generatedAt: string;
 }
 

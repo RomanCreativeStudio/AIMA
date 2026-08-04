@@ -310,10 +310,22 @@ final class URLSessionAPIClientTests: XCTestCase {
         let body = """
         {"briefing":{"workspaceId":"w1","workspaceName":"RCS","pendingApprovalCount":0,"pendingApprovals":[],"activeWorkflowCount":0,"activeWorkflows":[],"priorityTasks":[],"recentActivity":[],"generatedAt":"2026-01-01T00:00:00.000Z"}}
         """.data(using: .utf8)!
-        MockURLProtocol.stubs["GET /api/workspaces/w1/briefing"] = .init(statusCode: 200, body: body)
+        MockURLProtocol.stubs["GET /api/workspaces/w1/daily-briefing"] = .init(statusCode: 200, body: body)
 
         let briefing = try await client.getDailyBriefing(workspaceId: "w1")
         XCTAssertEqual(briefing.workspaceName, "RCS")
+    }
+
+    func testGetDailyBriefingDecodesTheAlphaDailyBriefingFields() async throws {
+        let body = """
+        {"briefing":{"workspaceId":"w1","workspaceName":"RCS","pendingApprovalCount":0,"pendingApprovals":[],"activeWorkflowCount":0,"activeWorkflows":[],"priorityTasks":[],"recentActivity":[],"greeting":"Good morning! Here's what's happening in RCS.","overdueTasks":[],"integrationsNeedingAttention":[],"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/daily-briefing"] = .init(statusCode: 200, body: body)
+
+        let briefing = try await client.getDailyBriefing(workspaceId: "w1")
+        XCTAssertEqual(briefing.greeting, "Good morning! Here's what's happening in RCS.")
+        XCTAssertEqual(briefing.overdueTasks, [])
+        XCTAssertEqual(briefing.integrationsNeedingAttention, [])
     }
 
     func testGetTaskIntelligenceUnwrapsTheTaskIntelligenceEnvelope() async throws {

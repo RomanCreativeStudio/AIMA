@@ -925,8 +925,28 @@ public actor MockAPIClient: APIClient {
             priorityTasks: priorityTasks, recentActivity: recentActivity,
             recentMemories: recentMemories, calendarHighlights: [],
             suggestedNextActions: suggestedNextActions,
+            greeting: Self.buildGreeting(workspaceName: workspace.name, now: now),
+            overdueTasks: Self.findOverdue(openTasks, now: now),
+            integrationsNeedingAttention: (integrationsByWorkspace[workspaceId] ?? []).filter(Self.needsAttention),
             generatedAt: ISO8601DateFormatter().string(from: now)
         )
+    }
+
+    /// Mirrors the backend's `briefingService.ts#buildGreeting` — same deterministic, time-of-day rule.
+    private static func buildGreeting(workspaceName: String, now: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: now)
+        let timeOfDay = hour < 12 ? "morning" : hour < 18 ? "afternoon" : "evening"
+        return "Good \(timeOfDay)! Here's what's happening in \(workspaceName)."
+    }
+
+    /// Mirrors the backend's `briefingService.ts#needsAttention`.
+    private static func needsAttention(_ integration: WorkspaceIntegration) -> Bool {
+        if integration.status == .error { return true }
+        if integration.enabled && integration.status == .disconnected { return true }
+        if let tokenExpiresAt = integration.tokenExpiresAt, let expiry = ISO8601DateFormatter().date(from: tokenExpiresAt), expiry < Date() {
+            return true
+        }
+        return false
     }
 
     public func getProactivePatterns(workspaceId: String) async throws -> [Pattern] {

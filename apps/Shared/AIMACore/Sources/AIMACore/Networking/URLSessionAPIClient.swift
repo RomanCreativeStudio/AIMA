@@ -304,8 +304,11 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
 
     // MARK: - Productivity Intelligence
 
+    /// Alpha Daily Briefing sprint: hits `/daily-briefing`, not the original Phase 2.5 `/briefing` path — both
+    /// return the identical payload (see the backend's `routes/insights.ts`), so this stays the one client
+    /// method rather than adding a second, redundant one for the new path.
     public func getDailyBriefing(workspaceId: String) async throws -> DailyBriefing {
-        try await send("GET", "/api/workspaces/\(workspaceId)/briefing", envelope: BriefingEnvelope.self).briefing
+        try await send("GET", "/api/workspaces/\(workspaceId)/daily-briefing", envelope: BriefingEnvelope.self).briefing
     }
 
     public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {
