@@ -310,6 +310,73 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.lastRetrievedContext?.memories.isEmpty ?? true)
     }
 
+    // MARK: - Workspace scoping (Assistant Core Experience sprint)
+
+    func testConversationsAreScopedToTheirOwnWorkspace() async {
+        let apiClient = MockAPIClient()
+        let rcsViewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await rcsViewModel.loadConversations()
+        XCTAssertFalse(rcsViewModel.conversations.isEmpty, "sanity check: mock-ws-rcs has a seeded conversation")
+
+        let otherViewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-personal")
+        await otherViewModel.loadConversations()
+
+        XCTAssertTrue(otherViewModel.conversations.isEmpty, "a conversation seeded for one workspace must never appear in another's list")
+        XCTAssertNil(otherViewModel.selectedConversationId)
+        XCTAssertTrue(otherViewModel.messages.isEmpty)
+    }
+
+    func testStartNewConversationInOneWorkspaceDoesNotAppearInAnothers() async {
+        let apiClient = MockAPIClient()
+        let rcsViewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await rcsViewModel.startNewConversation(title: "RCS-only thread")
+
+        let otherViewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-development")
+        await otherViewModel.loadConversations()
+
+        XCTAssertFalse(otherViewModel.conversations.contains { $0.title == "RCS-only thread" })
+    }
+
+    // MARK: - Error handling (Assistant Core Experience sprint)
+
+    func testLoadConversationsSurfacesAPIErrorsAsUserFacingMessages() async {
+        let apiClient = MockAPIClient()
+        await apiClient.setShouldFail(true)
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+
+        await viewModel.loadConversations()
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertTrue(viewModel.conversations.isEmpty)
+        XCTAssertFalse(viewModel.isLoadingConversations)
+    }
+
+    func testSendDraftMessageSurfacesAPIErrorsAndPreservesTheDraft() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await apiClient.setShouldFail(true)
+
+        viewModel.draftMessage = "this should fail"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.draftMessage, "this should fail", "a failed send must not silently discard what the user typed")
+        XCTAssertFalse(viewModel.isSending)
+    }
+
+    func testSelectingAConversationSurfacesAPIErrorsAsUserFacingMessages() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let conversationId = viewModel.conversations.first!.id
+        await apiClient.setShouldFail(true)
+
+        await viewModel.selectConversation(conversationId)
+
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
     func testSelectingAConversationClearsStaleRetrievedContext() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
