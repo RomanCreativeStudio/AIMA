@@ -48,6 +48,7 @@ The following are deliberately out of scope until later sprints and are called o
 - Real PDF text extraction — `PdfDocumentParser` is a stub that fails clearly; the format is recognized end-to-end so a real implementation is a drop-in later.
 - Token-level response streaming to the client — `POST .../messages` currently returns one JSON response once the full completion is ready.
 - Wake word detection, background/always-listening audio capture, and autonomous multi-turn voice conversation — explicitly out of scope for both the mock and real (`openai`, Phase 3.3) voice providers; every voice turn requires an explicit client call with already-captured audio (docs/decisions/0017-voice-assistant-foundation.md, docs/decisions/0018-real-voice-provider-integration.md). Only OpenAI's Whisper/TTS REST APIs are implemented as a real vendor today — a second vendor is a drop-in `SpeechToTextProvider`/`TextToSpeechProvider` implementation later, no call-site changes.
+- Scheduled invitation expiry — `InvitationService.expirePendingInvitations(olderThanDays)` (Invitation Acceptance & Lifecycle sprint) is a sweep, not a cron job; this codebase has no scheduling infrastructure, and none was introduced for this. Call it manually (a one-off script, a REPL against the running process, or a future admin action) whenever stale pending invitations should be marked `expired` — it's idempotent, so re-running it is always safe.
 
 ## Running locally
 

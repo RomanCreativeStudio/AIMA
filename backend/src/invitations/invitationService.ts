@@ -52,6 +52,48 @@ export class InvitationService {
     );
     return result.rows.map(mapInvitationRow);
   }
+
+  /**
+   * Invitation Acceptance & Lifecycle sprint: called by the login route immediately after
+   * `UserService.getOrProvisionFromAuth` creates a brand-new profile — never on a returning user's login,
+   * since only that "just created" branch tells the caller a signup actually happened. Transitions every
+   * still-`pending` invitation for `email` to `accepted` with a single conditional UPDATE (`WHERE status =
+   * 'pending'`), the same race-safety pattern `getOrInsertUserRow` already relies on for the user-row insert
+   * itself: under READ COMMITTED, a concurrent call for the same email blocks on the row lock until the
+   * first commits, then re-evaluates the WHERE clause against the now-`accepted` row and matches nothing —
+   * so two overlapping calls can never both promote the account or double-accept. A no-op (and not an error)
+   * when there is no pending invitation for `email` at all, the common case for anyone who signed up without
+   * being invited.
+   */
+  async acceptInvitationFor(email: string, userId: string): Promise<void> {
+    const result = await this.db.query(`UPDATE invitations SET status = 'accepted' WHERE email = $1 AND status = 'pending' RETURNING id`, [
+      email,
+    ]);
+    if (result.rows.length === 0) return;
+
+    // Safe to fully replace `preferences` rather than read-merge-write: this only ever runs immediately after
+    // a brand-new profile is provisioned, whose `preferences` is still the column default `{}` — there is
+    // nothing else to preserve yet.
+    await this.userService.updateProfile(userId, { preferences: { betaTester: true } });
+  }
+
+  /**
+   * Invitation Acceptance & Lifecycle sprint: a sweep, not a cron job — this codebase has no scheduling
+   * infrastructure, and none is introduced for this. Call it explicitly (an ops script, a future admin
+   * action) whenever stale pending invitations should be marked `expired`. Idempotent: re-running it only
+   * ever matches rows still `pending` and past `olderThanDays`, so a repeat call (or two overlapping calls)
+   * against the same data does nothing extra the second time.
+   */
+  async expirePendingInvitations(olderThanDays: number): Promise<Invitation[]> {
+    const result = await this.db.query(
+      `UPDATE invitations
+       SET status = 'expired'
+       WHERE status = 'pending' AND created_at < now() - make_interval(days => $1)
+       RETURNING id, email, invited_by, status, created_at`,
+      [olderThanDays],
+    );
+    return result.rows.map(mapInvitationRow);
+  }
 }
 
 interface InvitationRow {

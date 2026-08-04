@@ -55,6 +55,7 @@ import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
 import { TaskService } from '../tasks/taskService';
 import { HealthService } from '../health/healthService';
+import { InvitationService } from '../invitations/invitationService';
 import { UserService } from '../users/userService';
 import { WorkspaceService } from '../workspaces/workspaceService';
 
@@ -101,6 +102,7 @@ async function withTestServer(
   const preferenceService = new PreferenceService(pool);
   const workspaceService = new WorkspaceService(pool);
   const userService = new UserService(pool);
+  const invitationService = new InvitationService(pool, userService);
   const authProvider = authProviderOverride ?? new MockAuthProvider();
   const sessionService = new SessionService(pool, authProvider);
   const contextManager = new ContextManager(memoryService, documentService, preferenceService);
@@ -183,6 +185,7 @@ async function withTestServer(
     preferenceService,
     workspaceService,
     userService,
+    invitationService,
     approvalEngine,
     healthService,
     conversationService,
@@ -383,6 +386,136 @@ test('POST /api/auth/login auto-provisioning is race-safe under concurrent first
       assert.equal(rows.rows[0].count, 1, 'exactly one profile row must exist despite the concurrent race');
     } finally {
       await cleanupUser(pool, userId);
+    }
+  });
+});
+
+// Invitation Acceptance & Lifecycle sprint: a matching pending invitation is consumed exactly when a
+// first-time signup happens (isNewProfile), never on a returning user's login.
+
+async function cleanupInvitation(pool: Pool, invitationId: string): Promise<void> {
+  await pool.query('DELETE FROM invitations WHERE id = $1', [invitationId]);
+}
+
+test('POST /api/auth/login signup consumes a matching pending invitation and promotes the new profile to betaTester', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `invitee-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    const inviter = await seedLoginableUser(pool);
+    const invitationService = new InvitationService(pool, new UserService(pool));
+    const invitation = await invitationService.createInvitation({ email, invitedBy: inviter.userId });
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      const invitationRow = await pool.query('SELECT status FROM invitations WHERE id = $1', [invitation.id]);
+      assert.equal(invitationRow.rows[0].status, 'accepted');
+
+      const userRow = await pool.query<{ preferences: { betaTester?: boolean } }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.equal(userRow.rows[0].preferences.betaTester, true);
+    } finally {
+      await cleanupUser(pool, userId);
+      await cleanupUser(pool, inviter.userId);
+    }
+  });
+});
+
+test('POST /api/auth/login signup with no matching invitation is unaffected', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `no-invitation-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      const userRow = await pool.query<{ preferences: Record<string, unknown> }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.deepEqual(userRow.rows[0].preferences, {});
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login existing user with a later pending invitation for their email is unaffected on login', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    const inviter = await seedLoginableUser(pool);
+    const invitationService = new InvitationService(pool, new UserService(pool));
+    const invitation = await invitationService.createInvitation({ email, invitedBy: inviter.userId });
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      // isNewProfile is false for a returning user's login — the invitation must stay untouched and the
+      // account must not be silently promoted just because someone re-invited an already-registered address.
+      const invitationRow = await pool.query('SELECT status FROM invitations WHERE id = $1', [invitation.id]);
+      assert.equal(invitationRow.rows[0].status, 'pending');
+
+      const userRow = await pool.query<{ preferences: Record<string, unknown> }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.equal(userRow.rows[0].preferences.betaTester, undefined);
+    } finally {
+      await cleanupUser(pool, userId);
+      await cleanupUser(pool, inviter.userId);
+      await cleanupInvitation(pool, invitation.id);
+    }
+  });
+});
+
+test('POST /api/auth/login concurrent first-time signups against the same invited email accept the invitation exactly once', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `invitee-race-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    const inviter = await seedLoginableUser(pool);
+    const invitationService = new InvitationService(pool, new UserService(pool));
+    const invitation = await invitationService.createInvitation({ email, invitedBy: inviter.userId });
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+      const responses = await Promise.all([attempt(), attempt(), attempt()]);
+      for (const response of responses) {
+        assert.equal(response.status, 201);
+      }
+
+      const invitationRow = await pool.query('SELECT status FROM invitations WHERE id = $1', [invitation.id]);
+      assert.equal(invitationRow.rows[0].status, 'accepted');
+
+      const userRow = await pool.query<{ preferences: { betaTester?: boolean } }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.equal(userRow.rows[0].preferences.betaTester, true);
+    } finally {
+      await cleanupUser(pool, userId);
+      await cleanupUser(pool, inviter.userId);
     }
   });
 });

@@ -169,6 +169,8 @@ export function createApp(deps: AppDependencies): Application {
         authProvider: deps.authProvider,
         sessionService: deps.sessionService,
         userService: deps.userService,
+        invitationService: deps.invitationService,
+        logger,
         loginEmailRateLimiter: deps.authRateLimiters.loginEmail,
         loginIpRateLimiter: deps.authRateLimiters.loginIp,
         refreshIpRateLimiter: deps.authRateLimiters.refreshIp,

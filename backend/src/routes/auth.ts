@@ -4,6 +4,8 @@ import { ipKey, normalizeEmail, rateLimitMiddleware, respondRateLimited, type Ra
 import type { AuthProvider } from '../auth/types';
 import { AuthLoginFailedError, AuthRefreshFailedError, SessionRevokedError } from '../auth/errors';
 import type { SessionService } from '../auth/sessionService';
+import type { InvitationService } from '../invitations/invitationService';
+import type { Logger } from '../logging/types';
 import type { UserService } from '../users/userService';
 import { isUuid } from '../util/uuid';
 
@@ -11,6 +13,13 @@ export interface AuthRouterDependencies {
   authProvider: AuthProvider;
   sessionService: SessionService;
   userService: UserService;
+  /** Invitation Acceptance & Lifecycle sprint: optional for the same reason as every other optional
+   * dependency in this codebase — a caller that never supplies one (every pre-existing test included) simply
+   * gets no invitation-acceptance behavior on login, not an error. */
+  invitationService?: InvitationService;
+  /** Used only to log (never throw on) an invitation-acceptance failure during login — see the login
+   * handler's own comment for why that failure must never affect the login itself. */
+  logger?: Logger;
 }
 
 /**
@@ -93,7 +102,23 @@ export function authPublicRouter(deps: AuthPublicRouterDependencies): Router {
       // no matching local row yet — the exact gap that caused a real
       // production login failure before this sprint — gets one created
       // here instead of failing with a misleading "invalid credentials."
-      const user = await deps.userService.getOrProvisionFromAuth(verified.subjectId, verified.email);
+      const { user, isNewProfile } = await deps.userService.getOrProvisionFromAuth(verified.subjectId, verified.email);
+
+      // Invitation Acceptance & Lifecycle sprint: only a genuine first-time signup ever consumes an
+      // invitation — `isNewProfile` is exactly that signal, so a returning user's login never re-triggers
+      // this even if the founder later re-invites their already-registered address. Must never fail (or
+      // delay) login: a lookup/update error here is logged and swallowed, the same "log only, never break
+      // the primary flow" posture `WebhookNotificationService` already established.
+      if (isNewProfile && deps.invitationService) {
+        try {
+          await deps.invitationService.acceptInvitationFor(user.email, user.id);
+        } catch (error) {
+          deps.logger?.warn('Invitation acceptance failed during signup', {
+            userId: user.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
 
       const session = await deps.sessionService.createSession(
         user.id,

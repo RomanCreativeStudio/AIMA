@@ -62,23 +62,30 @@ export class UserService {
    * the same `id` finds the user row already there, sees zero workspaces,
    * and finishes the job — self-healing on retry rather than leaving a
    * permanently broken account.
+   *
+   * `isNewProfile` (Invitation Acceptance & Lifecycle sprint) is true exactly when this call is the one that
+   * inserted the `users` row — never for an already-existing profile, and never for the loser of a
+   * concurrent insert race (see `getOrInsertUserRow`). The login route uses it to gate invitation
+   * acceptance: an invitation must only ever be consumed by a genuine first-time signup, not by every
+   * subsequent login from the same account.
    */
-  async getOrProvisionFromAuth(id: string, email: string): Promise<UserProfile> {
-    const user = await this.getOrInsertUserRow(id, email);
+  async getOrProvisionFromAuth(id: string, email: string): Promise<{ user: UserProfile; isNewProfile: boolean }> {
+    const { user, isNewProfile } = await this.getOrInsertUserRow(id, email);
 
     const workspaceService = new WorkspaceService(this.db);
     const workspaces = await workspaceService.listWorkspaces(user.id);
     if (workspaces.length > 0) {
-      return user;
+      return { user, isNewProfile };
     }
 
     const workspace = await this.provisionDefaultWorkspace(workspaceService, user.id);
-    return this.updateProfile(user.id, { defaultWorkspaceId: workspace.id });
+    const withDefaultWorkspace = await this.updateProfile(user.id, { defaultWorkspaceId: workspace.id });
+    return { user: withDefaultWorkspace, isNewProfile };
   }
 
-  private async getOrInsertUserRow(id: string, email: string): Promise<UserProfile> {
+  private async getOrInsertUserRow(id: string, email: string): Promise<{ user: UserProfile; isNewProfile: boolean }> {
     try {
-      return await this.getUser(id);
+      return { user: await this.getUser(id), isNewProfile: false };
     } catch (error) {
       if (!(error instanceof UserNotFoundError)) throw error;
     }
@@ -92,13 +99,15 @@ export class UserService {
     );
 
     if (inserted.rows.length > 0) {
-      return mapUserRow(inserted.rows[0]);
+      return { user: mapUserRow(inserted.rows[0]), isNewProfile: true };
     }
 
     // Lost the race — a concurrent call already inserted this id between
     // our getUser() check and this insert. Its row is now the true state;
-    // read it back instead of treating the conflict as an error.
-    return this.getUser(id);
+    // read it back instead of treating the conflict as an error. Not the
+    // winner, so isNewProfile is false here too — only the call that
+    // actually performed the insert reports true.
+    return { user: await this.getUser(id), isNewProfile: false };
   }
 
   private async provisionDefaultWorkspace(workspaceService: WorkspaceService, userId: string): Promise<Workspace> {

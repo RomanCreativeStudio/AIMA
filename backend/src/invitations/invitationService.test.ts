@@ -112,3 +112,124 @@ test('listInvitations returns newest first', async () => {
     assert.ok(secondIndex < firstIndex);
   });
 });
+
+// Invitation Acceptance & Lifecycle sprint.
+
+test('acceptInvitationFor transitions a matching pending invitation to accepted and promotes the user to betaTester', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId: adminId } = await seedWorkspace(client);
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const inviteeEmail = 'invitee@example.com';
+    const invitation = await service.createInvitation({ email: inviteeEmail, invitedBy: adminId });
+    const invitee = await userService.createUser({ email: inviteeEmail });
+
+    await service.acceptInvitationFor(inviteeEmail, invitee.id);
+
+    const [accepted] = (await service.listInvitations()).filter((i) => i.id === invitation.id);
+    assert.equal(accepted.status, 'accepted');
+    const updated = await userService.getUser(invitee.id);
+    assert.equal(updated.preferences.betaTester, true);
+  });
+});
+
+test('acceptInvitationFor is a no-op for an email with no pending invitation', async () => {
+  await withTestTransaction(async (client) => {
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const user = await userService.createUser({ email: 'no-invite@example.com' });
+
+    await assert.doesNotReject(() => service.acceptInvitationFor('no-invite@example.com', user.id));
+
+    const updated = await userService.getUser(user.id);
+    assert.deepEqual(updated.preferences, {});
+  });
+});
+
+test('acceptInvitationFor only touches invitations for the given email, not others', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId: adminId } = await seedWorkspace(client);
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const other = await service.createInvitation({ email: 'someone-else@example.com', invitedBy: adminId });
+    const invitee = await userService.createUser({ email: 'invitee2@example.com' });
+    await service.createInvitation({ email: 'invitee2@example.com', invitedBy: adminId });
+
+    await service.acceptInvitationFor('invitee2@example.com', invitee.id);
+
+    const [untouched] = (await service.listInvitations()).filter((i) => i.id === other.id);
+    assert.equal(untouched.status, 'pending');
+  });
+});
+
+test('acceptInvitationFor called twice for the same email only accepts once and does not error', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId: adminId } = await seedWorkspace(client);
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const inviteeEmail = 'twice@example.com';
+    await service.createInvitation({ email: inviteeEmail, invitedBy: adminId });
+    const invitee = await userService.createUser({ email: inviteeEmail });
+
+    await service.acceptInvitationFor(inviteeEmail, invitee.id);
+    await assert.doesNotReject(() => service.acceptInvitationFor(inviteeEmail, invitee.id));
+
+    const matching = (await service.listInvitations()).filter((i) => i.email === inviteeEmail);
+    assert.equal(matching.length, 1);
+    assert.equal(matching[0].status, 'accepted');
+  });
+});
+
+test('expirePendingInvitations marks only pending invitations older than the threshold', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId: adminId } = await seedWorkspace(client);
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const old = await service.createInvitation({ email: 'old@example.com', invitedBy: adminId });
+    const recent = await service.createInvitation({ email: 'recent@example.com', invitedBy: adminId });
+    await client.query(`UPDATE invitations SET created_at = now() - interval '40 days' WHERE id = $1`, [old.id]);
+
+    const expired = await service.expirePendingInvitations(30);
+
+    assert.equal(expired.length, 1);
+    assert.equal(expired[0].id, old.id);
+    const all = await service.listInvitations();
+    assert.equal(all.find((i) => i.id === old.id)?.status, 'expired');
+    assert.equal(all.find((i) => i.id === recent.id)?.status, 'pending');
+  });
+});
+
+test('expirePendingInvitations leaves already-accepted invitations untouched regardless of age', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId: adminId } = await seedWorkspace(client);
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const inviteeEmail = 'already-accepted@example.com';
+    const invitation = await service.createInvitation({ email: inviteeEmail, invitedBy: adminId });
+    const invitee = await userService.createUser({ email: inviteeEmail });
+    await service.acceptInvitationFor(inviteeEmail, invitee.id);
+    await client.query(`UPDATE invitations SET created_at = now() - interval '40 days' WHERE id = $1`, [invitation.id]);
+
+    const expired = await service.expirePendingInvitations(30);
+
+    assert.equal(expired.length, 0);
+    const all = await service.listInvitations();
+    assert.equal(all.find((i) => i.id === invitation.id)?.status, 'accepted');
+  });
+});
+
+test('expirePendingInvitations is idempotent — a second call matches nothing more', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId: adminId } = await seedWorkspace(client);
+    const userService = new UserService(client);
+    const service = new InvitationService(client, userService);
+    const old = await service.createInvitation({ email: 'idempotent@example.com', invitedBy: adminId });
+    await client.query(`UPDATE invitations SET created_at = now() - interval '40 days' WHERE id = $1`, [old.id]);
+
+    const first = await service.expirePendingInvitations(30);
+    const second = await service.expirePendingInvitations(30);
+
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 0);
+  });
+});

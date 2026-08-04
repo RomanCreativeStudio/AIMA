@@ -46,12 +46,13 @@ test('getOrProvisionFromAuth creates a profile using the given id/email, leaving
     const id = randomUUID();
     const email = `${randomUUID()}@example.com`;
 
-    const user = await service.getOrProvisionFromAuth(id, email);
+    const { user, isNewProfile } = await service.getOrProvisionFromAuth(id, email);
 
     assert.equal(user.id, id);
     assert.equal(user.email, email);
     assert.equal(user.displayName, null);
     assert.deepEqual(user.preferences, {});
+    assert.equal(isNewProfile, true, 'a brand-new profile must report isNewProfile: true');
   });
 });
 
@@ -64,8 +65,10 @@ test('getOrProvisionFromAuth is idempotent — a second call for the same id ret
     const first = await service.getOrProvisionFromAuth(id, email);
     const second = await service.getOrProvisionFromAuth(id, email);
 
-    assert.equal(second.id, first.id);
-    assert.equal(second.createdAt, first.createdAt);
+    assert.equal(second.user.id, first.user.id);
+    assert.equal(second.user.createdAt, first.user.createdAt);
+    assert.equal(first.isNewProfile, true);
+    assert.equal(second.isNewProfile, false, 'a repeat call for an id that already exists must never report isNewProfile: true');
 
     const rows = await client.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [id]);
     assert.equal(rows.rows[0].count, 1);
@@ -78,10 +81,14 @@ test('getOrProvisionFromAuth returns an already-existing profile untouched — n
     const service = new UserService(client);
     const existing = await service.getUser(userId);
 
-    const result = await service.getOrProvisionFromAuth(userId, 'different-email-should-be-ignored@example.com');
+    const { user: result, isNewProfile } = await service.getOrProvisionFromAuth(
+      userId,
+      'different-email-should-be-ignored@example.com',
+    );
 
     assert.equal(result.id, existing.id);
     assert.equal(result.email, existing.email);
+    assert.equal(isNewProfile, false);
   });
 });
 
@@ -95,7 +102,7 @@ test('getOrProvisionFromAuth creates a default workspace for a brand-new profile
     const id = randomUUID();
     const email = `${randomUUID()}@example.com`;
 
-    const user = await service.getOrProvisionFromAuth(id, email);
+    const { user } = await service.getOrProvisionFromAuth(id, email);
 
     assert.ok(user.defaultWorkspaceId, 'a brand-new profile must come back with a default workspace already set');
 
@@ -115,7 +122,7 @@ test('getOrProvisionFromAuth does not create a second workspace on a repeated ca
     const first = await service.getOrProvisionFromAuth(id, email);
     const second = await service.getOrProvisionFromAuth(id, email);
 
-    assert.equal(second.defaultWorkspaceId, first.defaultWorkspaceId);
+    assert.equal(second.user.defaultWorkspaceId, first.user.defaultWorkspaceId);
     const rows = await client.query('SELECT count(*)::int AS count FROM workspaces WHERE user_id = $1', [id]);
     assert.equal(rows.rows[0].count, 1);
   });
@@ -126,11 +133,12 @@ test('getOrProvisionFromAuth never creates a workspace for an existing user who 
     const { userId } = await seedWorkspace(client, 'rcs');
     const service = new UserService(client);
 
-    const result = await service.getOrProvisionFromAuth(userId, 'ignored@example.com');
+    const { user: result, isNewProfile } = await service.getOrProvisionFromAuth(userId, 'ignored@example.com');
 
     // seedWorkspace does not itself set default_workspace_id — provisioning must not backfill it for an
     // account that already had a workspace before this call; only first-time provisioning ever sets it.
     assert.equal(result.defaultWorkspaceId, null);
+    assert.equal(isNewProfile, false);
     const rows = await client.query('SELECT count(*)::int AS count FROM workspaces WHERE user_id = $1', [userId]);
     assert.equal(rows.rows[0].count, 1);
   });
@@ -142,7 +150,7 @@ test('the auto-provisioned workspace belongs only to the provisioned user', asyn
     const service = new UserService(client);
     const id = randomUUID();
 
-    const user = await service.getOrProvisionFromAuth(id, `${randomUUID()}@example.com`);
+    const { user } = await service.getOrProvisionFromAuth(id, `${randomUUID()}@example.com`);
 
     const rows = await client.query<{ user_id: string }>('SELECT user_id FROM workspaces WHERE id = $1', [
       user.defaultWorkspaceId,
@@ -161,9 +169,12 @@ test('getOrProvisionFromAuth recovers a user row left with zero workspaces by a 
     await client.query('INSERT INTO users (id, email) VALUES ($1, $2)', [id, email]);
     const service = new UserService(client);
 
-    const recovered = await service.getOrProvisionFromAuth(id, email);
+    const { user: recovered, isNewProfile } = await service.getOrProvisionFromAuth(id, email);
 
     assert.ok(recovered.defaultWorkspaceId, 'a subsequent call must finish the interrupted provisioning, not leave the account stuck');
+    // The users row already existed (inserted directly above, not by this call) — only the workspace was
+    // missing, so this must not be reported as a fresh signup.
+    assert.equal(isNewProfile, false);
     const rows = await client.query('SELECT count(*)::int AS count FROM workspaces WHERE user_id = $1', [id]);
     assert.equal(rows.rows[0].count, 1);
   });
