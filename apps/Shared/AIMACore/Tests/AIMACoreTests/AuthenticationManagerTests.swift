@@ -228,6 +228,26 @@ final class AuthenticationManagerTests: XCTestCase {
         XCTAssertTrue(manager.hasCompletedOnboarding)
     }
 
+    // MARK: - beta status (Beta Tester Infrastructure sprint)
+
+    func testAccountWithNoBetaStatusSetIsNotABetaTester() async {
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: MockAPIClient())
+
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+
+        XCTAssertFalse(manager.isBetaTester)
+    }
+
+    func testAccountWithBetaStatusSetInPreferencesIsRecognizedAsABetaTester() async throws {
+        let apiClient = MockAPIClient()
+        _ = try await apiClient.updateUserProfile(id: "mock-user", request: UpdateUserProfileRequest(preferences: ["betaTester": .bool(true)]))
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: apiClient)
+
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+
+        XCTAssertTrue(manager.isBetaTester)
+    }
+
     func testCompleteOnboardingPreservesOtherPreferences() async throws {
         let apiClient = MockAPIClient()
         _ = try await apiClient.updateUserProfile(id: "mock-user", request: UpdateUserProfileRequest(preferences: ["theme": .string("dark")]))

@@ -11,10 +11,12 @@ import type { ConversationService } from './conversation/conversationService';
 import type { RetrievalService } from './embeddings/retrievalService';
 import type { DraftService } from './drafts/draftService';
 import type { ExecutionService } from './execution/executionService';
+import type { FeedbackService } from './feedback/feedbackService';
 import type { HealthService } from './health/healthService';
 import type { BriefingService } from './insights/briefingService';
 import type { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
 import type { TaskIntelligenceService } from './insights/taskIntelligenceService';
+import type { UsageMetricsService } from './insights/usageMetricsService';
 import type { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import type { IntegrationService } from './integrations/integrationService';
 import type { IntegrationRegistry } from './integrations/registry';
@@ -50,6 +52,7 @@ import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
 import { executionsRouter } from './routes/executions';
+import { feedbackRouter } from './routes/feedback';
 import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
 import { oauthRouter, oauthCallbackRouter } from './routes/oauth';
@@ -106,6 +109,10 @@ export interface AppDependencies {
   sessionService?: SessionService;
   /** EPIC-004 Sprint 4.7 (ADR-0023): the public auth surface's rate limiters. Optional for the same reason `sessionService` is — but `authPublicRouter` only mounts when both are present (see below), so the login/refresh routes can never ship without their abuse protection. `index.ts` always supplies real ones, built by `authRateLimitConfigFromEnv`. */
   authRateLimiters?: AuthRateLimiters;
+  /** Beta Tester Infrastructure sprint: optional so every pre-existing call site (tests included) keeps compiling — the `/workspaces/:workspaceId/feedback` routes are simply not mounted when this is omitted. `index.ts`, the one real production call site, always supplies a real one. */
+  feedbackService?: FeedbackService;
+  /** Beta Tester Infrastructure sprint: optional for the same reason as `feedbackService` — `GET /workspaces/:workspaceId/usage` is simply not mounted when this is omitted. Deliberately kept separate from `WorkspaceInsightsService` rather than added to it, since 19+ files construct that service directly and a constructor change there would ripple across the whole test suite for no reason. */
+  usageMetricsService?: UsageMetricsService;
 }
 
 /**
@@ -240,8 +247,12 @@ export function createApp(deps: AppDependencies): Application {
       taskIntelligenceService: deps.taskIntelligenceService,
       conversationIntelligenceService: deps.conversationIntelligenceService,
       workspaceInsightsService: deps.workspaceInsightsService,
+      usageMetricsService: deps.usageMetricsService,
     }),
   );
+  if (deps.feedbackService) {
+    app.use('/api', feedbackRouter({ feedbackService: deps.feedbackService }));
+  }
   app.use('/api', executionsRouter({ executionService: deps.executionService }));
   app.use('/api', voiceRouter({ voiceService: deps.voiceService }));
   if (deps.proactiveIntelligenceService) {

@@ -101,4 +101,8 @@ public protocol APIClient: Sendable {
     /// Re-chunks and re-embeds a workspace's conversations/tasks — requires an explicit call (a reindex button),
     /// never run automatically or in the background.
     func reindexEmbeddings(workspaceId: String) async throws -> ReindexWorkspaceResult
+
+    /// Beta Tester Infrastructure sprint: submit/list feedback, bug reports, and feature requests.
+    func submitFeedback(workspaceId: String, request: CreateFeedbackRequest) async throws -> Feedback
+    func listFeedback(workspaceId: String) async throws -> [Feedback]
 }

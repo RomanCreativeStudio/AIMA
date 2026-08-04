@@ -156,6 +156,7 @@ struct DashboardView: View {
                 quickAccessButton("Memory", systemImage: "brain", section: .memory)
                 quickAccessButton("Integrations", systemImage: "puzzlepiece.extension", section: .integrations)
                 quickAccessButton("Approvals", systemImage: "checkmark.seal", section: .approvals)
+                quickAccessButton("Feedback", systemImage: "bubble.left.and.exclamationmark.bubble.right", section: .feedback)
             }
         }
     }

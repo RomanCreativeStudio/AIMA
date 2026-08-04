@@ -2,6 +2,7 @@ import { Router, type Response } from 'express';
 import type { BriefingService } from '../insights/briefingService';
 import type { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
 import type { TaskIntelligenceService } from '../insights/taskIntelligenceService';
+import type { UsageMetricsService } from '../insights/usageMetricsService';
 import type { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
 import { ConversationNotFoundError } from '../conversation/errors';
 import { WorkspaceNotFoundError } from '../types/errors';
@@ -12,6 +13,8 @@ export interface InsightsRouterDependencies {
   taskIntelligenceService: TaskIntelligenceService;
   conversationIntelligenceService: ConversationIntelligenceService;
   workspaceInsightsService: WorkspaceInsightsService;
+  /** Beta Tester Infrastructure sprint: optional so every pre-existing call site keeps compiling — `GET /workspaces/:workspaceId/usage` is simply not registered when this is omitted. */
+  usageMetricsService?: UsageMetricsService;
 }
 
 /**
@@ -83,6 +86,26 @@ export function insightsRouter(deps: InsightsRouterDependencies): Router {
       handleKnownErrors(error, res, next);
     }
   });
+
+  // Beta Tester Infrastructure sprint: only registered when usageMetricsService is supplied, so every
+  // pre-existing call site of insightsRouter (there is only one, app.ts) keeps working unmodified.
+  if (deps.usageMetricsService) {
+    const usageMetricsService = deps.usageMetricsService;
+    router.get('/workspaces/:workspaceId/usage', async (req, res, next) => {
+      try {
+        const { workspaceId } = req.params;
+        if (!isUuid(workspaceId)) {
+          res.status(400).json({ error: 'workspaceId must be a valid UUID' });
+          return;
+        }
+
+        const usage = await usageMetricsService.getUsageMetrics(workspaceId);
+        res.json({ usage });
+      } catch (error) {
+        handleKnownErrors(error, res, next);
+      }
+    });
+  }
 
   return router;
 }

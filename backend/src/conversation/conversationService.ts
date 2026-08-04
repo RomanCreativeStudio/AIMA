@@ -129,6 +129,15 @@ export class ConversationService {
     return result.rows.map(mapMessageRow).reverse();
   }
 
+  /** Beta Tester Infrastructure sprint: total user-authored messages ever sent in this workspace — the "messages sent" usage signal. Unlike `listMessages`, uncapped and workspace-wide (not scoped to one conversation), so a plain `COUNT`, not a `.length` over a limited list. */
+  async countMessages(workspaceId: string): Promise<number> {
+    const result = await this.db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM messages WHERE workspace_id = $1 AND role = 'user'`,
+      [workspaceId],
+    );
+    return Number(result.rows[0].count);
+  }
+
   /**
    * Runs one user turn: saves the user message, hands off to
    * AimaCoreService for context gathering + intent detection + the AI

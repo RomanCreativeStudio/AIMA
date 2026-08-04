@@ -511,6 +511,14 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).result
     }
 
+    public func submitFeedback(workspaceId: String, request: CreateFeedbackRequest) async throws -> Feedback {
+        try await send("POST", "/api/workspaces/\(workspaceId)/feedback", body: request, envelope: FeedbackEnvelope.self).feedback
+    }
+
+    public func listFeedback(workspaceId: String) async throws -> [Feedback] {
+        try await send("GET", "/api/workspaces/\(workspaceId)/feedback", envelope: FeedbackListEnvelope.self).feedback
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -636,3 +644,5 @@ private struct SuggestionsEnvelope: Decodable { let suggestions: [Suggestion] }
 private struct SearchResultsEnvelope: Decodable { let results: [SearchResult] }
 private struct RetrievedContextEnvelope: Decodable { let context: RetrievedContext }
 private struct ReindexResultEnvelope: Decodable { let result: ReindexWorkspaceResult }
+private struct FeedbackEnvelope: Decodable { let feedback: Feedback }
+private struct FeedbackListEnvelope: Decodable { let feedback: [Feedback] }

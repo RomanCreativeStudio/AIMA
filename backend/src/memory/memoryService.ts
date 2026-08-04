@@ -173,6 +173,17 @@ export class MemoryService {
     return result.rows.map(mapRow);
   }
 
+  /** Beta Tester Infrastructure sprint: total non-archived memories ever created in this workspace — the "memories created" usage signal. Uncapped, unlike `listMemories` (which caps at `DEFAULT_LIST_LIMIT`), so a plain `COUNT`, not `.length`. */
+  async countMemories(workspaceId: string): Promise<number> {
+    await this.assertWorkspaceExists(workspaceId);
+
+    const result = await this.db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM memory_records WHERE workspace_id = $1 AND archived_at IS NULL`,
+      [workspaceId],
+    );
+    return Number(result.rows[0].count);
+  }
+
   async getMemory(workspaceId: string, memoryId: string): Promise<MemoryRecord> {
     const result = await this.db.query<MemoryRow>(
       `SELECT id, workspace_id, scope, content, source, conversation_id, project_key, metadata, created_at,

@@ -22,6 +22,7 @@ import { DraftService } from './drafts/draftService';
 import { ExecutionIntentMatcher } from './execution/executionIntentMatcher';
 import { ExecutionRegistry } from './execution/registry';
 import { ExecutionService } from './execution/executionService';
+import { FeedbackService } from './feedback/feedbackService';
 import { CalendarCreateEventExecutor } from './execution/executors/calendarCreateEventExecutor';
 import { CalendarUpdateEventExecutor } from './execution/executors/calendarUpdateEventExecutor';
 import { CalendarDeleteEventExecutor } from './execution/executors/calendarDeleteEventExecutor';
@@ -33,6 +34,7 @@ import { HealthService, type IntegrationReadiness } from './health/healthService
 import { BriefingService } from './insights/briefingService';
 import { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
 import { TaskIntelligenceService } from './insights/taskIntelligenceService';
+import { UsageMetricsService } from './insights/usageMetricsService';
 import { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import { IntentEngine } from './intent/intentEngine';
 import { PatternDetectionService } from './proactive/patternDetectionService';
@@ -252,6 +254,14 @@ async function main(): Promise<void> {
     approvalEngine,
     taskService,
   );
+  const feedbackService = new FeedbackService(pool);
+  const usageMetricsService = new UsageMetricsService(
+    workspaceService,
+    conversationService,
+    memoryService,
+    integrationService,
+    sessionService,
+  );
 
   const app = createApp({
     pool,
@@ -285,6 +295,8 @@ async function main(): Promise<void> {
     retrievalService,
     sessionService,
     authRateLimiters,
+    feedbackService,
+    usageMetricsService,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,
     logger,

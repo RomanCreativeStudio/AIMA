@@ -218,6 +218,47 @@ test('updateProfile rejects a defaultWorkspaceId belonging to a different user',
   });
 });
 
+// Beta status (Beta Tester Infrastructure sprint) — no dedicated column or endpoint; audited and confirmed
+// the existing generic `preferences` blob already round-trips an arbitrary beta-status marker with zero
+// schema changes, the same way it already carries `onboardingCompleted`.
+
+test('updateProfile can set a beta-tester marker in preferences', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client, 'personal');
+    const service = new UserService(client);
+
+    const updated = await service.updateProfile(userId, { preferences: { betaTester: true } });
+
+    assert.deepEqual(updated.preferences, { betaTester: true });
+  });
+});
+
+test('a profile that never had its beta status set has it absent, not defaulted to true or false', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client, 'rcs');
+    const service = new UserService(client);
+
+    const user = await service.getUser(userId);
+
+    assert.deepEqual(user.preferences, {});
+    assert.equal((user.preferences as Record<string, unknown>).betaTester, undefined);
+  });
+});
+
+test('setting a beta-tester marker does not disturb other existing preference keys', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client, 'mfs');
+    const service = new UserService(client);
+    await service.updateProfile(userId, { preferences: { theme: 'dark', onboardingCompleted: true } });
+
+    const updated = await service.updateProfile(userId, {
+      preferences: { theme: 'dark', onboardingCompleted: true, betaTester: true },
+    });
+
+    assert.deepEqual(updated.preferences, { theme: 'dark', onboardingCompleted: true, betaTester: true });
+  });
+});
+
 test('updateProfile throws UserNotFoundError for an unknown user', async () => {
   await withTestTransaction(async (client) => {
     const service = new UserService(client);

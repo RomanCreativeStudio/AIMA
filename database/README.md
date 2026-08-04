@@ -30,6 +30,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `0017_memory_intelligence.sql` | Adds a `memory_type` enum (`short_term`/`long_term`) and extends `memory_records` with `importance_score`/`confidence_score` (`CHECK`-constrained to 0–1), `memory_type`, `last_accessed_at`, `expires_at`, and `archived_at` — the Advanced Memory System's scoring/lifecycle layer (docs/decisions/0019-advanced-memory-system.md), purely additive on top of `0002_memory_scopes.sql`'s existing scope model. Adds a partial index (`idx_memory_records_active`, `WHERE archived_at IS NULL`) so retrieval's "exclude archived" filter stays cheap. |
 | `0019_embeddings.sql` | Adds `embedding_models` (one row per provider/model pair actually used) and `embeddings` (a generic embedding store for content types without their own embedding column — conversations, tasks, and forward-compatible `note`/`document` placeholders) plus an `embedding_source_type` enum — the Semantic Search & Context Retrieval layer (docs/decisions/0021-semantic-search-and-context-retrieval.md), deliberately separate from `memory_records.embedding`/`document_chunks.embedding`'s existing, well-tested paths. Includes an HNSW index (`idx_embeddings_vector`, cosine ops) mirroring `memory_records`/`document_chunks`. |
 | `0020_auth_sessions.sql` | Adds the `auth_sessions` table — local session/device storage (`user_id` FK, `device_label`, unique `refresh_token_hash`, `created_at`/`last_seen_at`/`revoked_at`) per the Authentication Architecture (docs/decisions/0022-authentication-architecture.md, Decision 3): device/session state is owned by AIMA's own database, not the managed auth provider. Purely additive; rollback is `DROP TABLE IF EXISTS auth_sessions;`. |
+| `0021_beta_feedback.sql` | Adds a `feedback_type` enum (`bug`/`feature`/`general`) and the `feedback` table (`workspace_id`/`user_id` FKs, `type`, `message`, a monotonic `sequence` column from the start — the same fix as `messages`/`pending_approvals`/`conversations`/`workflow_runs`/`action_log`/`executions`) — the Beta Tester Infrastructure sprint's minimal feedback/bug-report/feature-request storage. Purely additive; rollback is `DROP TABLE IF EXISTS feedback; DROP TYPE IF EXISTS feedback_type;`. |
 
 ## Entities
 
@@ -59,6 +60,7 @@ Schema for AIMA's Postgres database. Migrations are plain, numbered SQL files ap
 | `voice_turns` | One row per turn within a `voice_sessions` row — `transcript_text`/`transcript_confidence`, `response_text`, ordered by a monotonic `sequence` column (`0016_voice.sql`). |
 | `embedding_models` | One row per distinct (`provider_name`, `model_name`) pair actually used to produce a vector, so a stored embedding can record exactly which model produced it (`0019_embeddings.sql`). Created/read by `backend/src/embeddings/embeddingService.ts`. |
 | `embeddings` | A generic embedding store for content types without their own dedicated embedding column (conversations, tasks; `note`/`document` reserved for future use) — `source_type`/`source_id` (not a FK; workspace isolation is still enforced directly via `workspace_id`), `content`/`content_hash` (skips re-embedding unchanged text), `embedding_model_id` FK, `embedding_version`, and the `embedding` vector itself, with an HNSW index (`0019_embeddings.sql`). Deliberately separate from `memory_records.embedding`/`document_chunks.embedding`. Created/read by `backend/src/embeddings/embeddingService.ts`, queried by `backend/src/embeddings/retrievalService.ts`. |
+| `feedback` | One row per beta feedback/bug-report/feature-request submission — `workspace_id`/`user_id` FKs, `type` (`bug`/`feature`/`general`), `message`, ordered by a monotonic `sequence` column (`0021_beta_feedback.sql`). Created/read by `backend/src/feedback/feedbackService.ts`. |
 
 ## Security boundary (RLS)
 
@@ -110,6 +112,7 @@ psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0016_voice.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0017_memory_intelligence.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0019_embeddings.sql
 psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0020_auth_sessions.sql
+psql -d aima_dev -v ON_ERROR_STOP=1 -f database/migrations/0021_beta_feedback.sql
 ```
 
 Point `backend/.env`'s `DATABASE_URL` at this database.
@@ -139,6 +142,7 @@ psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0016_voice.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0017_memory_intelligence.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0019_embeddings.sql
 psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0020_auth_sessions.sql
+psql -d aima_test -v ON_ERROR_STOP=1 -f database/migrations/0021_beta_feedback.sql
 ```
 
 Tests default to `postgresql://postgres:postgres@127.0.0.1:5432/aima_test`; override with the `TEST_DATABASE_URL` environment variable if your local setup differs. Each test either runs inside a transaction that's rolled back, or cleans up the rows it seeded — the test database is never reset automatically between runs. This matters for anything that syncs the capability registry into the `capabilities` table via a real (non-transactional) connection — those upserts persist permanently, so tests proving "this specific capability has no DB row" must use a one-off capability name rather than assuming the table is empty.

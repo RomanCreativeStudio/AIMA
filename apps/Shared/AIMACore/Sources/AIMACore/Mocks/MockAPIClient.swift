@@ -29,6 +29,7 @@ public actor MockAPIClient: APIClient {
     private var voiceSessionsByWorkspace: [String: [VoiceSession]] = [:]
     private var voiceTurnsBySession: [String: [VoiceTurn]] = [:]
     private var memoriesByWorkspace: [String: [MemoryRecord]] = [:]
+    private var feedbackByWorkspace: [String: [Feedback]] = [:]
     /// Set by `forceNextVoiceRequestToFailWithProviderError`, consumed by the
     /// next `submitVoiceRequest` call — simulates the backend's
     /// `VoiceProviderError` (HTTP 502) without needing a real vendor outage
@@ -981,6 +982,28 @@ public actor MockAPIClient: APIClient {
             conversations: [IndexResult(sourceType: .conversation, sourceId: "mock-conversation-1", chunksIndexed: 1, chunksSkipped: 0, chunksDeleted: 0)],
             tasks: [IndexResult(sourceType: .task, sourceId: "mock-task-1", chunksIndexed: 1, chunksSkipped: 0, chunksDeleted: 0)]
         )
+    }
+
+    public func submitFeedback(workspaceId: String, request: CreateFeedbackRequest) async throws -> Feedback {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        let feedback = Feedback(
+            id: UUID().uuidString, workspaceId: workspaceId, userId: user.id,
+            type: request.type ?? .general, message: request.message,
+            createdAt: ISO8601DateFormatter().string(from: Date())
+        )
+        feedbackByWorkspace[workspaceId, default: []].insert(feedback, at: 0)
+        return feedback
+    }
+
+    public func listFeedback(workspaceId: String) async throws -> [Feedback] {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        return feedbackByWorkspace[workspaceId] ?? []
     }
 
     public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {

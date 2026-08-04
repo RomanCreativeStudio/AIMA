@@ -125,6 +125,10 @@ final class DependencyContainer {
         MemoryViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }
 
+    func makeFeedbackViewModel(workspaceId: String) -> FeedbackViewModel {
+        FeedbackViewModel(apiClient: apiClient, workspaceId: workspaceId)
+    }
+
     func makeSearchViewModel(workspaceId: String) -> SearchViewModel {
         SearchViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }

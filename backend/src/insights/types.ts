@@ -127,3 +127,19 @@ export interface WorkspaceInsights {
   taskMetrics: TaskCompletionMetrics;
   generatedAt: string;
 }
+
+/**
+ * Beta Tester Infrastructure sprint: engagement signals that `WorkspaceInsights` doesn't already cover —
+ * "actions approved/executed" are already `WorkspaceInsights.approvalMetrics`/`activityMetrics`, so they're
+ * deliberately not repeated here. `lastActiveAt` is the owning user's most recent `auth_sessions.last_seen_at`
+ * across all their devices, or `null` for an account with no session yet recorded (a seeded/test account).
+ */
+export interface UsageMetrics {
+  workspaceId: string;
+  conversationsCreated: number;
+  messagesSent: number;
+  memoriesCreated: number;
+  integrationsConnected: number;
+  lastActiveAt: string | null;
+  generatedAt: string;
+}

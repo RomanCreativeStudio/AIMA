@@ -65,6 +65,19 @@ public final class AuthenticationManager {
         return false
     }
 
+    /// Beta Tester Infrastructure sprint: whether this account is marked as a beta tester — reuses
+    /// `UserProfile.preferences` exactly like `hasCompletedOnboarding` above, no schema change or new state
+    /// manager. This is a tracking/analytics marker only, not an access gate: AIMA has no invite/waitlist
+    /// system, so this never blocks sign-in — it only lets the app (and whoever's running the beta) know who
+    /// opted in. Read-only here; there is deliberately no `setBetaTester` — an account's beta status is an
+    /// operational decision made outside the app, not something a user toggles on themselves.
+    public var isBetaTester: Bool {
+        if case .bool(true) = currentUser?.preferences["betaTester"] {
+            return true
+        }
+        return false
+    }
+
     /// Startup flow: restore session → validate/refresh if needed → fetch user → fetch workspaces →
     /// `.authenticated`. Call once at launch, before deciding which screen to show (`AIMAApp` does exactly
     /// that: `.task { await authenticationManager.restoreSession() }`, gating `rootContent` on `state`).
