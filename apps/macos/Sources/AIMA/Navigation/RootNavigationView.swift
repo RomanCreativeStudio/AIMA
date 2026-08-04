@@ -49,12 +49,19 @@ enum AppSection: String, CaseIterable, Identifiable {
 /// wrapper needed), and the Workspace screen is the one place that changes it.
 struct RootNavigationView: View {
     let container: DependencyContainer
+    let authenticationManager: AuthenticationManager
     @State private var selectedSection: AppSection? = .dashboard
     @State private var workspaceViewModel: WorkspaceViewModel
 
-    init(container: DependencyContainer) {
+    /// Seeds `workspaceViewModel` from `authenticationManager.workspaces`/`.activeWorkspaceId` — both already
+    /// fetched as part of reaching `.authenticated` (macOS Auth Bootstrap sprint) — instead of letting `load()`
+    /// make its own, redundant `listWorkspaces`/`getUser` call the instant this view appears.
+    init(container: DependencyContainer, authenticationManager: AuthenticationManager) {
         self.container = container
-        _workspaceViewModel = State(initialValue: container.makeWorkspaceViewModel())
+        self.authenticationManager = authenticationManager
+        let workspaceViewModel = container.makeWorkspaceViewModel()
+        workspaceViewModel.seed(workspaces: authenticationManager.workspaces, activeWorkspaceId: authenticationManager.activeWorkspaceId)
+        _workspaceViewModel = State(initialValue: workspaceViewModel)
     }
 
     var body: some View {
@@ -71,7 +78,12 @@ struct RootNavigationView: View {
             detailView
         }
         .task {
-            await workspaceViewModel.load()
+            // A fallback, not the normal path: `init` already seeded this from `authenticationManager` above,
+            // so `workspaces` is only empty here if that seed genuinely had nothing (a preview, or a signed-in
+            // user with no workspaces yet).
+            if workspaceViewModel.workspaces.isEmpty {
+                await workspaceViewModel.load()
+            }
         }
     }
 
@@ -101,7 +113,7 @@ struct RootNavigationView: View {
         case .workspace:
             WorkspaceSwitcherView(viewModel: workspaceViewModel)
         case .settings:
-            SettingsView(container: container)
+            SettingsView(container: container, authenticationManager: authenticationManager)
         case .none:
             ContentUnavailableView("Select a Section", systemImage: "sidebar.left")
         }
@@ -128,5 +140,8 @@ struct RootNavigationView: View {
 }
 
 #Preview {
-    RootNavigationView(container: .preview)
+    RootNavigationView(
+        container: .preview,
+        authenticationManager: AuthenticationManager(authClient: MockAuthClient(), apiClient: DependencyContainer.preview.apiClient)
+    )
 }

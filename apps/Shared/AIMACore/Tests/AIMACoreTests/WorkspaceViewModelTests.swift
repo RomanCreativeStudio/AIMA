@@ -74,6 +74,39 @@ final class WorkspaceViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.isReindexing)
     }
 
+    func testSeedPopulatesWorkspacesAndActiveWorkspaceWithoutAnApiCall() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        let workspaces = [
+            Workspace(
+                id: "seeded-ws", userId: "mock-user", slug: .personal, name: "Seeded",
+                type: .personal, instructions: nil, assistantBehavior: [:], metadata: [:],
+                createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+            ),
+        ]
+
+        viewModel.seed(workspaces: workspaces, activeWorkspaceId: "seeded-ws")
+
+        XCTAssertEqual(viewModel.workspaces.map(\.id), ["seeded-ws"])
+        XCTAssertEqual(viewModel.activeWorkspaceId, "seeded-ws")
+    }
+
+    func testSeedFallsBackToTheFirstWorkspaceWhenTheGivenActiveIdIsNotInTheList() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        let workspaces = [
+            Workspace(
+                id: "ws-1", userId: "mock-user", slug: .personal, name: "One",
+                type: .personal, instructions: nil, assistantBehavior: [:], metadata: [:],
+                createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z"
+            ),
+        ]
+
+        viewModel.seed(workspaces: workspaces, activeWorkspaceId: "does-not-exist")
+
+        XCTAssertEqual(viewModel.activeWorkspaceId, "ws-1")
+    }
+
     func testSwitchWorkspaceClearsTheStaleReindexResult() async {
         let apiClient = MockAPIClient()
         let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")

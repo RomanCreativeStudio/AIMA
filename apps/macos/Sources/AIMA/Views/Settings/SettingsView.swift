@@ -8,12 +8,15 @@ import SwiftUI
 /// dependency-injection concern owned by the container.
 struct SettingsView: View {
     let container: DependencyContainer
+    let authenticationManager: AuthenticationManager
     @State private var viewModel: SettingsViewModel
     @State private var displayNameDraft: String = ""
     @State private var communicationStyleDraft: String = ""
+    @State private var isSigningOut = false
 
-    init(container: DependencyContainer) {
+    init(container: DependencyContainer, authenticationManager: AuthenticationManager) {
         self.container = container
+        self.authenticationManager = authenticationManager
         _viewModel = State(initialValue: container.makeSettingsViewModel())
     }
 
@@ -36,6 +39,20 @@ struct SettingsView: View {
                     }
                 }
                 .disabled(viewModel.isSaving)
+            }
+
+            Section("Account") {
+                if let user = authenticationManager.currentUser {
+                    LabeledContent("Signed in as", value: user.email)
+                }
+                Button("Sign Out", role: .destructive) {
+                    Task {
+                        isSigningOut = true
+                        await authenticationManager.signOut()
+                        isSigningOut = false
+                    }
+                }
+                .disabled(isSigningOut)
             }
 
             if let errorMessage = viewModel.errorMessage {
@@ -62,5 +79,8 @@ struct SettingsView: View {
 }
 
 #Preview {
-    SettingsView(container: .preview)
+    SettingsView(
+        container: .preview,
+        authenticationManager: AuthenticationManager(authClient: MockAuthClient(), apiClient: DependencyContainer.preview.apiClient)
+    )
 }

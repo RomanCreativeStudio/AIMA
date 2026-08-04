@@ -59,6 +59,20 @@ public final class WorkspaceViewModel {
         }
     }
 
+    /// Pre-populates from an already-loaded workspace list — e.g. `AuthenticationManager`, which fetches a
+    /// user's workspaces itself as part of reaching `.authenticated` (macOS Auth Bootstrap sprint). Lets a
+    /// caller that already has this data skip `load()`'s otherwise-redundant second `listWorkspaces`/`getUser`
+    /// round trip immediately after sign-in. `load()` remains available unchanged for any caller that doesn't
+    /// already have the data (previews, direct construction, or if `workspaces` is empty for any reason).
+    public func seed(workspaces: [Workspace], activeWorkspaceId: String?) {
+        self.workspaces = workspaces
+        if let activeWorkspaceId, workspaces.contains(where: { $0.id == activeWorkspaceId }) {
+            self.activeWorkspaceId = activeWorkspaceId
+        } else {
+            self.activeWorkspaceId = self.activeWorkspaceId ?? workspaces.first?.id
+        }
+    }
+
     public func switchWorkspace(to workspaceId: String) {
         guard workspaces.contains(where: { $0.id == workspaceId }) else { return }
         activeWorkspaceId = workspaceId

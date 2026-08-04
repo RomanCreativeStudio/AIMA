@@ -15,11 +15,12 @@ final class DependencyContainer {
     private(set) var apiClient: APIClient
     private(set) var configuration: APIConfiguration
     private(set) var authClient: AuthClient
-    /// The signed-in user's id once real authentication succeeds (`AuthenticationViewModel.onCurrentUserChange`,
-    /// wired below) — before that, or in mock mode before signing in, falls back to `AIMA_USER_ID`/`"mock-user"`
-    /// exactly as before this foundation existed. Every `make*ViewModel` reads this at call time, and every one
-    /// of them is only ever invoked after `RootNavigationView` appears, which itself only happens once
-    /// authenticated — so by the time any view model is built, this already reflects the real signed-in user.
+    /// The signed-in user's id once real authentication succeeds (`setUserId(_:)`, called from `AIMAApp` when
+    /// `AuthenticationManager.currentUser` changes) — before that, or in mock mode before signing in, falls back
+    /// to `AIMA_USER_ID`/`"mock-user"` exactly as before this foundation existed. Every `make*ViewModel` reads
+    /// this at call time, and every one of them is only ever invoked after `RootNavigationView` appears, which
+    /// itself only happens once `AuthenticationManager.state` is `.authenticated` — so by the time any view
+    /// model is built, this already reflects the real signed-in user.
     private(set) var userId: String
 
     /// `AIMA_USE_MOCK_API=1` runs the app entirely against `MockAPIClient`/`MockAuthClient` — useful for
@@ -65,13 +66,19 @@ final class DependencyContainer {
         KeychainSessionStore(account: configuration.baseURL.host ?? configuration.baseURL.absoluteString)
     }
 
-    func makeAuthenticationViewModel() -> AuthenticationViewModel {
-        let viewModel = AuthenticationViewModel(authClient: authClient)
-        viewModel.onCurrentUserChange = { [weak self] user in
-            guard let self, let user else { return }
-            self.userId = user.id
-        }
-        return viewModel
+    /// The single `AuthenticationManager` for the process (macOS Auth Bootstrap sprint) — coordinates
+    /// `authClient`/`apiClient` into `.loading`/`.signedOut`/`.authenticated(UserProfile)`, replacing the
+    /// narrower `AuthenticationViewModel` (identity-only, no profile/workspaces) this app used before.
+    func makeAuthenticationManager() -> AuthenticationManager {
+        AuthenticationManager(authClient: authClient, apiClient: apiClient)
+    }
+
+    /// Called from `AIMAApp` once `AuthenticationManager.currentUser` reflects a real signed-in profile — the
+    /// same "report the authenticated id upward so `make*ViewModel` calls use it" role
+    /// `makeAuthenticationManager`'s predecessor filled via `onCurrentUserChange`, just invoked by the view
+    /// layer now that `AuthenticationManager` owns no callback of its own.
+    func setUserId(_ userId: String) {
+        self.userId = userId
     }
 
     func makeWorkspaceViewModel() -> WorkspaceViewModel {

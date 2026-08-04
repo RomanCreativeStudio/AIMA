@@ -53,9 +53,8 @@ public final class AuthenticationManager {
     }
 
     /// Startup flow: restore session → validate/refresh if needed → fetch user → fetch workspaces →
-    /// `.authenticated`. Call once at launch, before deciding which screen to show — mirrors
-    /// `AuthenticationViewModel.restoreExistingSession()`'s "call once, before the UI decides" role, just with
-    /// the fuller context (profile + workspaces, not only identity) this sprint's goal asks for.
+    /// `.authenticated`. Call once at launch, before deciding which screen to show (`AIMAApp` does exactly
+    /// that: `.task { await authenticationManager.restoreSession() }`, gating `rootContent` on `state`).
     public func restoreSession() async {
         state = .loading
         errorMessage = nil

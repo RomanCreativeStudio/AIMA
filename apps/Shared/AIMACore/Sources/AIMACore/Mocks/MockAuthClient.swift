@@ -1,10 +1,10 @@
 import Foundation
 
 /// A deterministic in-memory `AuthClient` — mirrors `MockAPIClient`'s role: SwiftUI previews and
-/// `AuthenticationViewModelTests` exercise real sign-in/out/refresh state transitions without a running
-/// backend. Seeded with one known-good account so both the happy path and the invalid-credentials path are
-/// exercisable without extra setup. An `actor` for the same reason `MockAPIClient` is one — its mutable session
-/// state must be safe to touch from Swift concurrency without extra locking.
+/// `AuthenticationManagerTests`/`MockAuthClientTests` exercise real sign-in/out/refresh state transitions
+/// without a running backend. Seeded with one known-good account so both the happy path and the
+/// invalid-credentials path are exercisable without extra setup. An `actor` for the same reason `MockAPIClient`
+/// is one — its mutable session state must be safe to touch from Swift concurrency without extra locking.
 public actor MockAuthClient: AuthClient, AccessTokenProviding {
     public static let seededEmail = "mock@example.com"
     public static let seededPassword = "password123"

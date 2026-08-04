@@ -1,15 +1,24 @@
 import AIMACore
 import SwiftUI
 
-/// The sign-in screen (macOS Authentication Foundation) — shown by `AIMAApp` whenever
-/// `AuthenticationViewModel.isAuthenticated` is false. Contains no authentication logic of its own; every
-/// action here just calls through to the view model, which is the only thing that talks to `AuthClient`.
+/// The sign-in screen (macOS Auth Bootstrap sprint) — shown by `AIMAApp` whenever `AuthenticationManager.state`
+/// is `.signedOut`. Contains no authentication logic of its own; every action here just calls through to
+/// `manager.signIn`, which is the only thing that talks to `AuthClient`. `email`/`password` are transient UI
+/// state owned by this view (not `AuthenticationManager`, which has no reason to hold in-progress form text),
+/// mirroring `SettingsView`'s existing `displayNameDraft`/`communicationStyleDraft` pattern.
 struct LoginView: View {
-    @Bindable var viewModel: AuthenticationViewModel
+    let manager: AuthenticationManager
+    @State private var email = ""
+    @State private var password = ""
     @FocusState private var focusedField: Field?
 
     private enum Field {
         case email, password
+    }
+
+    private var isSigningIn: Bool {
+        if case .loading = manager.state { return true }
+        return false
     }
 
     var body: some View {
@@ -23,20 +32,20 @@ struct LoginView: View {
             }
 
             VStack(alignment: .leading, spacing: 12) {
-                TextField("Email", text: $viewModel.email)
+                TextField("Email", text: $email)
                     .textContentType(.username)
                     .focused($focusedField, equals: .email)
                     .onSubmit { focusedField = .password }
 
-                SecureField("Password", text: $viewModel.password)
+                SecureField("Password", text: $password)
                     .textContentType(.password)
                     .focused($focusedField, equals: .password)
                     .onSubmit(signIn)
             }
             .textFieldStyle(.roundedBorder)
-            .disabled(viewModel.isLoading)
+            .disabled(isSigningIn)
 
-            if let errorMessage = viewModel.errorMessage {
+            if let errorMessage = manager.errorMessage {
                 Text(errorMessage)
                     .font(.callout)
                     .foregroundStyle(.red)
@@ -44,7 +53,7 @@ struct LoginView: View {
             }
 
             Button(action: signIn) {
-                if viewModel.isLoading {
+                if isSigningIn {
                     ProgressView()
                         .controlSize(.small)
                         .frame(maxWidth: .infinity)
@@ -54,7 +63,7 @@ struct LoginView: View {
                 }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(viewModel.isLoading || viewModel.email.isEmpty || viewModel.password.isEmpty)
+            .disabled(isSigningIn || email.isEmpty || password.isEmpty)
             .keyboardShortcut(.defaultAction)
         }
         .padding(32)
@@ -63,10 +72,18 @@ struct LoginView: View {
     }
 
     private func signIn() {
-        Task { await viewModel.signIn() }
+        Task {
+            await manager.signIn(email: email, password: password)
+            // Cleared locally, not by `AuthenticationManager` (which never holds in-progress form text) — only
+            // on success, matching this screen's prior behavior: a failed attempt leaves the password in place
+            // so a typo is easy to fix without retyping everything.
+            if case .authenticated = manager.state {
+                password = ""
+            }
+        }
     }
 }
 
 #Preview {
-    LoginView(viewModel: AuthenticationViewModel(authClient: MockAuthClient()))
+    LoginView(manager: AuthenticationManager(authClient: MockAuthClient(), apiClient: MockAPIClient()))
 }
