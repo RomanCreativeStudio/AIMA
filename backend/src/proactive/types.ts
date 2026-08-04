@@ -20,6 +20,15 @@ export interface Suggestion {
   payload: Record<string, unknown>;
 }
 
+/**
+ * Nudge Learning Loop sprint: how Alex responded to an advisory nudge, logged via `ActionLogger` (no new table —
+ * `action_log.payload` already stores arbitrary JSON). `dismissed` suppresses that nudge `source` for a cooldown
+ * window; `acted_on` is a positive ranking signal. `expired`/`ignored` aren't tracked — nothing in the existing
+ * suggestion pipeline persists a suggestion long enough to have a lifecycle that could expire.
+ */
+export const NUDGE_INTERACTION_TYPES = ['dismissed', 'acted_on'] as const;
+export type NudgeInteractionType = (typeof NUDGE_INTERACTION_TYPES)[number];
+
 export const PATTERN_TYPES = [
   'repeated_task',
   'frequent_workflow',

@@ -417,19 +417,23 @@ struct DashboardView: View {
         }
     }
 
-    /// Needs Attention (Proactive Nudges sprint): the subset of `viewModel.suggestions` that are unprompted
-    /// nudges about something already going stale — an overdue task, a blocked task with no recent update, or
-    /// a decision with no follow-up task yet. Visually distinct from the general Recommendations section below
-    /// (red accent, its own card) since these are things Alex didn't ask about but should probably see first.
-    /// Reuses `SuggestionRow` verbatim — `suggestion.explanation` already answers "why did this surface,"
-    /// `suggestion.source` is available as its tooltip.
+    /// Needs Attention (Proactive Nudges sprint; dismiss added in the Nudge Learning Loop sprint): the subset of
+    /// `viewModel.suggestions` that are unprompted nudges about something already going stale — an overdue task,
+    /// a blocked task with no recent update, or a decision with no follow-up task yet. Visually distinct from the
+    /// general Recommendations section below (red accent, its own card) since these are things Alex didn't ask
+    /// about but should probably see first. Reuses `SuggestionRow` — `suggestion.explanation` already answers
+    /// "why did this surface," `suggestion.source` is available as its tooltip — passing `onDismiss` only here,
+    /// since dismissing is a "Needs Attention" affordance, not a general Recommendations one.
     @ViewBuilder
     private var needsAttentionSection: some View {
         if !viewModel.nudges.isEmpty {
             SectionCard(title: "Needs Attention") {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(viewModel.nudges) { nudge in
-                        SuggestionRow(suggestion: nudge)
+                        SuggestionRow(suggestion: nudge) {
+                            guard let workspaceId = workspaceViewModel.activeWorkspaceId else { return }
+                            Task { await viewModel.dismiss(nudge, workspaceId: workspaceId) }
+                        }
                     }
                 }
             }

@@ -471,6 +471,26 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/workspaces/\(workspaceId)/proactive/suggestions", envelope: SuggestionsEnvelope.self).suggestions
     }
 
+    public func dismissSuggestion(workspaceId: String, suggestionId: String, source: String) async throws {
+        struct Body: Encodable { let suggestionId: String; let source: String }
+        _ = try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/proactive/suggestions/dismiss",
+            body: Body(suggestionId: suggestionId, source: source),
+            envelope: RecordedEnvelope.self
+        )
+    }
+
+    public func recordSuggestionActedOn(workspaceId: String, suggestionId: String, source: String) async throws {
+        struct Body: Encodable { let suggestionId: String; let source: String }
+        _ = try await send(
+            "POST",
+            "/api/workspaces/\(workspaceId)/proactive/suggestions/act",
+            body: Body(suggestionId: suggestionId, source: source),
+            envelope: RecordedEnvelope.self
+        )
+    }
+
     // MARK: - Retrieval (Phase 3.6)
 
     public func searchSemantic(workspaceId: String, query: String, sourceTypes: [EmbeddingSourceType]?, limit: Int?) async throws -> [SearchResult] {
@@ -697,6 +717,7 @@ private struct MemoriesEnvelope: Decodable { let memories: [MemoryRecord] }
 private struct MemorySearchResultsEnvelope: Decodable { let results: [RankedMemoryResult] }
 private struct PatternsEnvelope: Decodable { let patterns: [Pattern] }
 private struct SuggestionsEnvelope: Decodable { let suggestions: [Suggestion] }
+private struct RecordedEnvelope: Decodable { let recorded: Bool }
 private struct SearchResultsEnvelope: Decodable { let results: [SearchResult] }
 private struct RetrievedContextEnvelope: Decodable { let context: RetrievedContext }
 private struct ReindexResultEnvelope: Decodable { let result: ReindexWorkspaceResult }

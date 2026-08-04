@@ -1,9 +1,11 @@
 import { rankSuggestions } from '@aima/ai-engine';
+import type { ActionLogger, ActionLogRecord } from '../actionLog/logger';
 import type { IntegrationService } from '../integrations/integrationService';
 import type { IntegrationRegistry } from '../integrations/registry';
 import type { MemoryService } from '../memory/memoryService';
+import type { WorkspaceService } from '../workspaces/workspaceService';
 import type { PatternDetectionService } from './patternDetectionService';
-import type { Pattern, Suggestion } from './types';
+import type { NudgeInteractionType, Pattern, Suggestion } from './types';
 
 /** How many `repeated_task` patterns get an accompanying memory-relevance lookup — bounded so a workspace with many recurring keywords doesn't trigger an unbounded number of embedding searches per request. */
 const MAX_MEMORY_LOOKUPS = 3;
@@ -12,6 +14,19 @@ const MEMORY_MATCH_THRESHOLD = 0.5;
 /** Not pattern-derived — a flat, modest confidence for "you have an unconnected integration," so pattern-backed suggestions naturally rank above it. */
 const INTEGRATION_SUGGESTION_CONFIDENCE = 0.3;
 const EXPLANATION_PREVIEW_LENGTH = 80;
+/** Nudge Learning Loop sprint: how many days a dismissed suggestion `source` stays suppressed — the sprint's own example ("Blocked task dismissed → hide for 7 days"), applied uniformly and made configurable via the constructor. */
+const DEFAULT_NUDGE_COOLDOWN_DAYS = 7;
+/** How far back through `action_log` to look for nudge interactions — bounded like `PatternDetectionService`'s `ACTIVITY_SAMPLE_LIMIT`, not an unbounded query. */
+const NUDGE_INTERACTION_SAMPLE_LIMIT = 100;
+/** Deterministic ranking nudge per net (acted-on minus dismissed) interaction for a suggestion `source` — small and clamped so it adjusts ordering among close suggestions without ever overriding a strong confidence signal. No ML. */
+const INTERACTION_RANKING_WEIGHT = 0.05;
+const MAX_INTERACTION_BIAS = 0.2;
+
+interface NudgeInteractionSummary {
+  dismissedAt?: Date;
+  actedOnCount: number;
+  dismissedCount: number;
+}
 
 /**
  * The Proactive Intelligence Engine (Phase 3.5, item 1): turns
@@ -30,6 +45,10 @@ export class ProactiveIntelligenceService {
     private readonly memoryService: MemoryService,
     private readonly integrationService: IntegrationService,
     private readonly integrationRegistry: IntegrationRegistry,
+    /** Nudge Learning Loop sprint: only used to reject an unknown workspace before writing a dismiss/act interaction — `getSuggestions` already gets this check for free via `patternDetectionService.detect`. */
+    private readonly workspaceService: WorkspaceService,
+    private readonly actionLogger: ActionLogger,
+    private readonly nudgeCooldownDays: number = DEFAULT_NUDGE_COOLDOWN_DAYS,
   ) {}
 
   async detectPatterns(workspaceId: string): Promise<Pattern[]> {
@@ -37,7 +56,10 @@ export class ProactiveIntelligenceService {
   }
 
   async getSuggestions(workspaceId: string): Promise<Suggestion[]> {
-    const patterns = await this.patternDetectionService.detect(workspaceId);
+    const [patterns, interactions] = await Promise.all([
+      this.patternDetectionService.detect(workspaceId),
+      this.loadNudgeInteractions(workspaceId),
+    ]);
 
     const suggestions = [
       ...suggestionsFromPatterns(workspaceId, patterns),
@@ -45,7 +67,67 @@ export class ProactiveIntelligenceService {
       ...(await this.integrationSuggestions(workspaceId)),
     ];
 
-    return rankSuggestions(suggestions);
+    const visible = suggestions.filter((suggestion) => !this.isWithinCooldown(interactions.get(suggestion.source)));
+    const biased = visible.map((suggestion) => applyInteractionBias(suggestion, interactions.get(suggestion.source)));
+
+    return rankSuggestions(biased);
+  }
+
+  /** Advisory only — records that Alex dismissed a nudge so `getSuggestions` suppresses its `source` for `nudgeCooldownDays`. Never deletes or mutates anything; the suggestion itself is recomputed fresh next time, same as every other suggestion. */
+  async dismissSuggestion(workspaceId: string, suggestionId: string, source: string): Promise<void> {
+    await this.recordNudgeInteraction(workspaceId, suggestionId, source, 'dismissed');
+  }
+
+  /** Advisory only — records that Alex acted on a nudge, a positive signal `getSuggestions` uses to rank that `source` slightly higher in the future. */
+  async recordActedOn(workspaceId: string, suggestionId: string, source: string): Promise<void> {
+    await this.recordNudgeInteraction(workspaceId, suggestionId, source, 'acted_on');
+  }
+
+  private async recordNudgeInteraction(
+    workspaceId: string,
+    suggestionId: string,
+    source: string,
+    interaction: NudgeInteractionType,
+  ): Promise<void> {
+    await this.workspaceService.getWorkspace(workspaceId);
+    await this.actionLogger.log({
+      workspaceId,
+      tier: 'suggest',
+      summary: interaction === 'dismissed' ? `Dismissed a suggestion (${source})` : `Acted on a suggestion (${source})`,
+      payload: { nudgeInteraction: interaction, suggestionId, source },
+      outcome: 'success',
+    });
+  }
+
+  /** Reads `action_log` for this workspace's nudge interaction history (Nudge Learning Loop sprint) — the same "prefer `ActionLogger`, add no new table" approach the sprint asked for; `payload.nudgeInteraction` is the marker `recordNudgeInteraction` writes. */
+  private async loadNudgeInteractions(workspaceId: string): Promise<Map<string, NudgeInteractionSummary>> {
+    const records = await this.actionLogger.list(workspaceId, NUDGE_INTERACTION_SAMPLE_LIMIT);
+    const bySource = new Map<string, NudgeInteractionSummary>();
+
+    for (const record of records) {
+      const payload = readNudgeInteractionPayload(record);
+      if (!payload) continue;
+
+      const summary = bySource.get(payload.source) ?? { actedOnCount: 0, dismissedCount: 0 };
+      if (payload.nudgeInteraction === 'dismissed') {
+        summary.dismissedCount += 1;
+        const createdAt = new Date(record.createdAt);
+        if (!summary.dismissedAt || createdAt > summary.dismissedAt) {
+          summary.dismissedAt = createdAt;
+        }
+      } else {
+        summary.actedOnCount += 1;
+      }
+      bySource.set(payload.source, summary);
+    }
+
+    return bySource;
+  }
+
+  private isWithinCooldown(summary: NudgeInteractionSummary | undefined): boolean {
+    if (!summary?.dismissedAt) return false;
+    const cooldownMs = this.nudgeCooldownDays * 24 * 60 * 60 * 1000;
+    return Date.now() - summary.dismissedAt.getTime() < cooldownMs;
   }
 
   /** Only the top `MAX_MEMORY_LOOKUPS` repeated-task patterns get a memory search — an embedding call per pattern, kept bounded. */
@@ -97,6 +179,25 @@ export class ProactiveIntelligenceService {
         };
       });
   }
+}
+
+/** Reads back the marker `recordNudgeInteraction` writes into `payload` — `unknown` because `ActionLogRecord.payload` is untyped JSONB, so this is the one place that trusts its shape. */
+function readNudgeInteractionPayload(record: ActionLogRecord): { nudgeInteraction: NudgeInteractionType; source: string } | null {
+  const payload = record.payload as { nudgeInteraction?: unknown; source?: unknown } | null;
+  if (!payload || typeof payload !== 'object') return null;
+  if (payload.nudgeInteraction !== 'dismissed' && payload.nudgeInteraction !== 'acted_on') return null;
+  if (typeof payload.source !== 'string') return null;
+  return { nudgeInteraction: payload.nudgeInteraction, source: payload.source };
+}
+
+/** Deterministic, no-ML ranking adjustment (Nudge Learning Loop sprint): a suggestion `source` Alex has acted on more than dismissed gets a small confidence boost; one they've dismissed more than acted on gets a small penalty. Clamped so it can only re-order suggestions of similar strength, never override a strong pattern-derived confidence. */
+function applyInteractionBias(suggestion: Suggestion, summary: NudgeInteractionSummary | undefined): Suggestion {
+  if (!summary) return suggestion;
+  const net = summary.actedOnCount - summary.dismissedCount;
+  if (net === 0) return suggestion;
+  const bias = Math.max(-MAX_INTERACTION_BIAS, Math.min(MAX_INTERACTION_BIAS, net * INTERACTION_RANKING_WEIGHT));
+  const confidence = Math.max(0, Math.min(1, suggestion.confidence + bias));
+  return { ...suggestion, confidence };
 }
 
 function suggestionsFromPatterns(workspaceId: string, patterns: readonly Pattern[]): Suggestion[] {

@@ -143,6 +143,46 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.nudges.isEmpty)
     }
 
+    // MARK: - Nudge dismissal (Nudge Learning Loop sprint)
+
+    func testDismissRemovesTheNudgeFromSuggestionsAndNudges() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+        let nudge = try! XCTUnwrap(viewModel.nudges.first)
+
+        await viewModel.dismiss(nudge, workspaceId: "mock-ws-rcs")
+
+        XCTAssertFalse(viewModel.suggestions.contains { $0.id == nudge.id })
+        XCTAssertFalse(viewModel.nudges.contains { $0.id == nudge.id })
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testDismissedNudgeDoesNotReappearOnReload() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+        let nudge = try! XCTUnwrap(viewModel.nudges.first)
+
+        await viewModel.dismiss(nudge, workspaceId: "mock-ws-rcs")
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        XCTAssertFalse(viewModel.suggestions.contains { $0.id == nudge.id }, "a dismissed nudge must stay suppressed after a fresh load")
+    }
+
+    func testDismissRestoresTheSuggestionAndSetsAnErrorMessageWhenTheAPICallFails() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+        let nudge = try! XCTUnwrap(viewModel.nudges.first)
+        await apiClient.setShouldFail(true)
+
+        await viewModel.dismiss(nudge, workspaceId: "mock-ws-rcs")
+
+        XCTAssertTrue(viewModel.suggestions.contains { $0.id == nudge.id }, "a failed dismissal must restore the optimistically-removed suggestion")
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
     func testTaskCountsRollUpByStatus() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)

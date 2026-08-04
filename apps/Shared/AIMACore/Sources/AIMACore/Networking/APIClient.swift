@@ -86,6 +86,13 @@ public protocol APIClient: Sendable {
 
     func getProactivePatterns(workspaceId: String) async throws -> [Pattern]
     func getProactiveSuggestions(workspaceId: String) async throws -> [Suggestion]
+    /// Nudge Learning Loop sprint: advisory only — records that Alex dismissed a nudge so the backend suppresses
+    /// that `source` for a cooldown window and ranks it slightly lower in the future. Never deletes anything;
+    /// `suggestionId`/`source` are the values already present on the `Suggestion` being dismissed.
+    func dismissSuggestion(workspaceId: String, suggestionId: String, source: String) async throws
+    /// Advisory only — records that Alex acted on a nudge, a positive signal the backend uses to rank that
+    /// `source` slightly higher in the future.
+    func recordSuggestionActedOn(workspaceId: String, suggestionId: String, source: String) async throws
 
     /// Manual semantic search across a workspace's indexed content (Phase 3.6) — never triggered automatically.
     func searchSemantic(workspaceId: String, query: String, sourceTypes: [EmbeddingSourceType]?, limit: Int?) async throws -> [SearchResult]

@@ -30,6 +30,9 @@ public actor MockAPIClient: APIClient {
     private var voiceTurnsBySession: [String: [VoiceTurn]] = [:]
     private var memoriesByWorkspace: [String: [MemoryRecord]] = [:]
     private var feedbackByWorkspace: [String: [Feedback]] = [:]
+    /// Nudge Learning Loop sprint: sources dismissed via `dismissSuggestion` — mirrors the backend's cooldown
+    /// suppression (permanently, for the lifetime of this mock instance, rather than a real time-based window).
+    private var dismissedNudgeSourcesByWorkspace: [String: Set<String>] = [:]
     /// Beta Invitations & Notifications sprint: platform-wide, not scoped to any one workspace — mirrors
     /// `invitations`'s real shape (a flat, un-workspaced table).
     private var invitations: [Invitation] = []
@@ -1058,7 +1061,24 @@ public actor MockAPIClient: APIClient {
         guard workspaces.contains(where: { $0.id == workspaceId }) else {
             throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
         }
-        return workspaceId == "mock-ws-rcs" ? Self.seedSuggestions : []
+        let all = workspaceId == "mock-ws-rcs" ? Self.seedSuggestions : []
+        let dismissed = dismissedNudgeSourcesByWorkspace[workspaceId] ?? []
+        return all.filter { !dismissed.contains($0.source) }
+    }
+
+    public func dismissSuggestion(workspaceId: String, suggestionId: String, source: String) async throws {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
+        dismissedNudgeSourcesByWorkspace[workspaceId, default: []].insert(source)
+    }
+
+    public func recordSuggestionActedOn(workspaceId: String, suggestionId: String, source: String) async throws {
+        try await maybeFail()
+        guard workspaces.contains(where: { $0.id == workspaceId }) else {
+            throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
+        }
     }
 
     // MARK: - Retrieval (Phase 3.6)

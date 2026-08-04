@@ -46,7 +46,57 @@ export function proactiveRouter(deps: ProactiveRouterDependencies): Router {
     }
   });
 
+  router.post('/workspaces/:workspaceId/proactive/suggestions/dismiss', async (req, res, next) => {
+    try {
+      const { workspaceId } = req.params;
+      if (!isUuid(workspaceId)) {
+        res.status(400).json({ error: 'workspaceId must be a valid UUID' });
+        return;
+      }
+
+      const interaction = parseInteractionBody(req.body);
+      if (!interaction) {
+        res.status(400).json({ error: 'suggestionId and source are required strings' });
+        return;
+      }
+
+      await deps.proactiveIntelligenceService.dismissSuggestion(workspaceId, interaction.suggestionId, interaction.source);
+      res.json({ recorded: true });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
+  router.post('/workspaces/:workspaceId/proactive/suggestions/act', async (req, res, next) => {
+    try {
+      const { workspaceId } = req.params;
+      if (!isUuid(workspaceId)) {
+        res.status(400).json({ error: 'workspaceId must be a valid UUID' });
+        return;
+      }
+
+      const interaction = parseInteractionBody(req.body);
+      if (!interaction) {
+        res.status(400).json({ error: 'suggestionId and source are required strings' });
+        return;
+      }
+
+      await deps.proactiveIntelligenceService.recordActedOn(workspaceId, interaction.suggestionId, interaction.source);
+      res.json({ recorded: true });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
+    }
+  });
+
   return router;
+}
+
+function parseInteractionBody(body: unknown): { suggestionId: string; source: string } | null {
+  if (!body || typeof body !== 'object') return null;
+  const { suggestionId, source } = body as Record<string, unknown>;
+  if (typeof suggestionId !== 'string' || suggestionId.length === 0) return null;
+  if (typeof source !== 'string' || source.length === 0) return null;
+  return { suggestionId, source };
 }
 
 function handleKnownErrors(error: unknown, res: Response, next: (error: unknown) => void): void {

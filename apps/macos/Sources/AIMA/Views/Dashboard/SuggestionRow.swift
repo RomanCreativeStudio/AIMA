@@ -6,6 +6,14 @@ import SwiftUI
 /// explainable at a glance. No button here creates, executes, or sends anything.
 struct SuggestionRow: View {
     let suggestion: Suggestion
+    /// Nudge Learning Loop sprint: only the "Needs Attention" section passes this — every other caller
+    /// (Recommendations, the Daily Briefing card) leaves it `nil` and gets no dismiss button, unchanged.
+    var onDismiss: (() -> Void)?
+
+    init(suggestion: Suggestion, onDismiss: (() -> Void)? = nil) {
+        self.suggestion = suggestion
+        self.onDismiss = onDismiss
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -28,6 +36,15 @@ struct SuggestionRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .help("Source: \(suggestion.source)")
+
+            if let onDismiss {
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Dismiss — won't resurface for a while")
+            }
         }
     }
 }

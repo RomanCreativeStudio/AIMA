@@ -240,6 +240,8 @@ async function main(): Promise<void> {
     memoryService,
     integrationService,
     integrationRegistry,
+    workspaceService,
+    actionLogger,
   );
   const briefingService = new BriefingService(
     workspaceService,

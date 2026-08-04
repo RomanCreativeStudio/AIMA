@@ -28,7 +28,7 @@ import { ProactiveIntelligenceService } from './proactiveIntelligenceService';
 
 const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
-function buildService(client: Client) {
+function buildService(client: Client, nudgeCooldownDays?: number) {
   const capabilityRegistry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(capabilityRegistry);
   const approvalEngine = new ApprovalEngine(client, permissionEngine);
@@ -58,9 +58,17 @@ function buildService(client: Client) {
     actionLogger,
     memoryService,
   );
-  const service = new ProactiveIntelligenceService(patternDetectionService, memoryService, integrationService, integrationRegistry);
+  const service = new ProactiveIntelligenceService(
+    patternDetectionService,
+    memoryService,
+    integrationService,
+    integrationRegistry,
+    workspaceService,
+    actionLogger,
+    nudgeCooldownDays,
+  );
 
-  return { service, taskService, approvalEngine, workflowService, memoryService, integrationService, permissionEngine };
+  return { service, taskService, approvalEngine, workflowService, memoryService, integrationService, permissionEngine, actionLogger, workspaceService };
 }
 
 test('getSuggestions rejects an unknown workspace', async () => {
@@ -296,5 +304,140 @@ test('getSuggestions isolates suggestions per workspace', async () => {
     assert.ok(suggestionsA.some((s) => s.source === 'frequent_workflow_pattern'));
     assert.ok(!suggestionsB.some((s) => s.source === 'frequent_workflow_pattern'));
     assert.ok(suggestionsA.every((s) => s.workspaceId === a.workspaceId));
+  });
+});
+
+// Nudge Learning Loop sprint: dismiss/act interactions, cooldown suppression, and interaction-based ranking.
+
+test('dismissSuggestion rejects an unknown workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const { service } = buildService(client);
+    await assert.rejects(
+      service.dismissSuggestion('00000000-0000-0000-0000-000000000000', 'task:missed-deadlines', 'missed_deadline_pattern'),
+      WorkspaceNotFoundError,
+    );
+  });
+});
+
+test('dismissSuggestion logs a dismissed nudge interaction via ActionLogger', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, actionLogger } = buildService(client);
+
+    await service.dismissSuggestion(workspaceId, 'task:blocked-stale', 'blocked_task_stale_pattern');
+
+    const records = await actionLogger.list(workspaceId, 10);
+    const entry = records.find((r) => (r.payload as Record<string, unknown> | null)?.nudgeInteraction === 'dismissed');
+    assert.ok(entry, 'a dismissed nudge interaction should be logged');
+    const payload = entry!.payload as Record<string, unknown>;
+    assert.equal(payload.source, 'blocked_task_stale_pattern');
+    assert.equal(payload.suggestionId, 'task:blocked-stale');
+    assert.equal(entry!.tier, 'suggest');
+    assert.equal(entry!.outcome, 'success');
+  });
+});
+
+test('recordActedOn logs an acted_on nudge interaction via ActionLogger', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, actionLogger } = buildService(client);
+
+    await service.recordActedOn(workspaceId, 'task:missed-deadlines', 'missed_deadline_pattern');
+
+    const records = await actionLogger.list(workspaceId, 10);
+    const entry = records.find((r) => (r.payload as Record<string, unknown> | null)?.nudgeInteraction === 'acted_on');
+    assert.ok(entry, 'an acted_on nudge interaction should be logged');
+    assert.equal((entry!.payload as Record<string, unknown>).source, 'missed_deadline_pattern');
+  });
+});
+
+test('getSuggestions suppresses a dismissed nudge source during the cooldown window', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+
+    const before = await service.getSuggestions(workspaceId);
+    assert.ok(before.some((s) => s.source === 'missed_deadline_pattern'), 'sanity check: the nudge is present before dismissal');
+
+    await service.dismissSuggestion(workspaceId, 'task:missed-deadlines', 'missed_deadline_pattern');
+    const after = await service.getSuggestions(workspaceId);
+
+    assert.ok(!after.some((s) => s.source === 'missed_deadline_pattern'), 'a just-dismissed nudge source must not resurface');
+  });
+});
+
+test('getSuggestions surfaces a nudge source again once the cooldown window has elapsed', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+
+    await service.dismissSuggestion(workspaceId, 'task:missed-deadlines', 'missed_deadline_pattern');
+    await client.query(
+      `UPDATE action_log SET created_at = now() - interval '8 days'
+       WHERE workspace_id = $1 AND payload->>'nudgeInteraction' = 'dismissed'`,
+      [workspaceId],
+    );
+
+    const suggestions = await service.getSuggestions(workspaceId);
+
+    assert.ok(
+      suggestions.some((s) => s.source === 'missed_deadline_pattern'),
+      'the default 7-day cooldown must have elapsed by 8 days',
+    );
+  });
+});
+
+test('nudgeCooldownDays is configurable — a 0-day cooldown never suppresses a dismissed source', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client, 0);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+
+    await service.dismissSuggestion(workspaceId, 'task:missed-deadlines', 'missed_deadline_pattern');
+    const suggestions = await service.getSuggestions(workspaceId);
+
+    assert.ok(suggestions.some((s) => s.source === 'missed_deadline_pattern'), 'a 0-day cooldown should never suppress');
+  });
+});
+
+test('getSuggestions raises a suggestion source confidence after a net-positive acted-on interaction', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+
+    const before = await service.getSuggestions(workspaceId);
+    const beforeConfidence = before.find((s) => s.source === 'missed_deadline_pattern')!.confidence;
+
+    await service.recordActedOn(workspaceId, 'task:missed-deadlines', 'missed_deadline_pattern');
+    const after = await service.getSuggestions(workspaceId);
+    const afterConfidence = after.find((s) => s.source === 'missed_deadline_pattern')!.confidence;
+
+    assert.ok(afterConfidence > beforeConfidence, 'a net-positive acted-on source should rank at least slightly higher');
+  });
+});
+
+test('dismissSuggestion/recordActedOn interactions are isolated per workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+    const { service, taskService } = buildService(client);
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId: a.workspaceId, title: 'Overdue task A', dueDate: yesterday });
+    await taskService.createTask({ workspaceId: b.workspaceId, title: 'Overdue task B', dueDate: yesterday });
+
+    await service.dismissSuggestion(a.workspaceId, 'task:missed-deadlines', 'missed_deadline_pattern');
+
+    const suggestionsA = await service.getSuggestions(a.workspaceId);
+    const suggestionsB = await service.getSuggestions(b.workspaceId);
+
+    assert.ok(!suggestionsA.some((s) => s.source === 'missed_deadline_pattern'), 'workspace A dismissed this nudge');
+    assert.ok(suggestionsB.some((s) => s.source === 'missed_deadline_pattern'), "workspace B's identical nudge must be unaffected");
   });
 });

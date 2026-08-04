@@ -84,6 +84,8 @@ function buildFullService(client: Client) {
     memoryService,
     integrationService,
     integrationRegistry,
+    base.workspaceService,
+    base.actionLogger,
   );
   const briefingService = new BriefingService(
     base.workspaceService,

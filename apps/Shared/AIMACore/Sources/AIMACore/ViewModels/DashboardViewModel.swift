@@ -119,4 +119,22 @@ public final class DashboardViewModel {
             errorMessage = error.localizedDescription
         }
     }
+
+    /// Nudge Learning Loop sprint: dismisses a nudge from the Dashboard's "Needs Attention" section. Removes it
+    /// from `suggestions` immediately (optimistic update, per the sprint's requirement) and restores it if the
+    /// backend call fails, so the UI never shows a dismissal that didn't actually take effect.
+    public func dismiss(_ suggestion: Suggestion, workspaceId: String) async {
+        let previousSuggestions = suggestions
+        suggestions.removeAll { $0.id == suggestion.id }
+
+        do {
+            try await apiClient.dismissSuggestion(workspaceId: workspaceId, suggestionId: suggestion.id, source: suggestion.source)
+        } catch let error as APIError {
+            suggestions = previousSuggestions
+            errorMessage = error.userMessage
+        } catch {
+            suggestions = previousSuggestions
+            errorMessage = error.localizedDescription
+        }
+    }
 }

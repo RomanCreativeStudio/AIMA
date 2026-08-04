@@ -156,6 +156,8 @@ async function withTestServer(fn: (baseUrl: string, pool: Pool) => Promise<void>
     memoryService,
     integrationService,
     integrationRegistry,
+    workspaceService,
+    actionLogger,
   );
 
   const briefingService = new BriefingService(
@@ -326,6 +328,107 @@ test('GET .../proactive/suggestions 404s for an unknown workspace', async () => 
       const response = await fetch(
         `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/proactive/suggestions`,
         { headers: authHeader(userId) },
+      );
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+// Nudge Learning Loop sprint: POST .../proactive/suggestions/dismiss and .../act.
+
+test('POST .../proactive/suggestions/dismiss records the interaction and suppresses the suggestion on the next GET', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      await pool.query(
+        "INSERT INTO tasks (workspace_id, title, status, due_date) VALUES ($1, 'Overdue task', 'todo', now() - interval '1 day')",
+        [workspaceId],
+      );
+      const before = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions`, { headers: authHeader(userId) });
+      const beforeBody = (await before.json()) as { suggestions: Array<{ source: string }> };
+      assert.ok(beforeBody.suggestions.some((s) => s.source === 'missed_deadline_pattern'));
+
+      const dismissResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions/dismiss`, {
+        method: 'POST',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId: 'task:missed-deadlines', source: 'missed_deadline_pattern' }),
+      });
+      assert.equal(dismissResponse.status, 200);
+      const dismissBody = (await dismissResponse.json()) as { recorded: boolean };
+      assert.equal(dismissBody.recorded, true);
+
+      const after = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions`, { headers: authHeader(userId) });
+      const afterBody = (await after.json()) as { suggestions: Array<{ source: string }> };
+      assert.ok(!afterBody.suggestions.some((s) => s.source === 'missed_deadline_pattern'));
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../proactive/suggestions/act records the interaction', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions/act`, {
+        method: 'POST',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId: 'task:blocked-stale', source: 'blocked_task_stale_pattern' }),
+      });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { recorded: boolean };
+      assert.equal(body.recorded, true);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../proactive/suggestions/dismiss rejects a missing suggestionId/source', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/proactive/suggestions/dismiss`, {
+        method: 'POST',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId: 'task:missed-deadlines' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../proactive/suggestions/dismiss rejects a malformed workspaceId', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/not-a-uuid/proactive/suggestions/dismiss`, {
+        method: 'POST',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suggestionId: 'task:missed-deadlines', source: 'missed_deadline_pattern' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../proactive/suggestions/dismiss 404s for an unknown workspace', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(
+        `${baseUrl}/api/workspaces/00000000-0000-0000-0000-000000000000/proactive/suggestions/dismiss`,
+        {
+          method: 'POST',
+          headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ suggestionId: 'task:missed-deadlines', source: 'missed_deadline_pattern' }),
+        },
       );
       assert.equal(response.status, 404);
     } finally {
