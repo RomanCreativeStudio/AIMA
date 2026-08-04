@@ -13,6 +13,10 @@ export interface Task {
   status: TaskStatus;
   priority: TaskPriority;
   dueDate: string | null;
+  /** Conversation → Action sprint: `'conversation_suggestion'` when this task was accepted from a Chat suggestion, `null` for a task typed in by hand. Mirrors `MemoryRecord.source`. */
+  source: string | null;
+  /** Conversation → Action sprint: for a `source: 'conversation_suggestion'` task, carries `{ category: 'todo' | 'follow_up' | 'meeting' }` — how `BriefingService` picks out `unresolvedFollowUps`. Empty object for a hand-created task. */
+  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -23,6 +27,8 @@ export interface CreateTaskInput {
   description?: string;
   priority?: TaskPriority;
   dueDate?: string;
+  source?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface UpdateTaskInput {

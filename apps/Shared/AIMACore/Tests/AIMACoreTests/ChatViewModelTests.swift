@@ -196,6 +196,69 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.lastExecutionSuggestion, "an ordinary follow-up message must not keep a stale suggestion around")
     }
 
+    func testSendDraftMessageSurfacesForcedActionSuggestions() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ActionSuggestion(content: "Follow up on the Acme contract", category: .followUp, confidence: 0.8, reason: "test")
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+
+        viewModel.draftMessage = "follow up on the Acme contract"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertEqual(viewModel.lastActionSuggestions, [suggestion])
+    }
+
+    func testActionSuggestionsDoNotPersistPastTheNextOrdinaryMessage() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ActionSuggestion(content: "I need to email the client", category: .todo, confidence: 0.7, reason: "test")
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "I need to email the client"
+        await viewModel.sendDraftMessage()
+        precondition(!viewModel.lastActionSuggestions.isEmpty, "sanity check: the suggestion exists before the next message")
+
+        viewModel.draftMessage = "thanks"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty, "an ordinary follow-up message must not keep stale suggestions around")
+    }
+
+    func testAcceptActionSuggestionCreatesATaskAndRemovesTheSuggestion() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ActionSuggestion(content: "Follow up on the Acme contract", category: .followUp, confidence: 0.8, reason: "test")
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "follow up on the Acme contract"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.acceptActionSuggestion(suggestion)
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty, "accepting removes the card")
+        let tasks = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil)
+        let accepted = tasks.first { $0.title == "Follow up on the Acme contract" }
+        XCTAssertEqual(accepted?.source, "conversation_suggestion")
+    }
+
+    func testDismissActionSuggestionRemovesItWithoutCreatingATask() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ActionSuggestion(content: "Let's schedule a meeting", category: .meeting, confidence: 0.7, reason: "test")
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "Let's schedule a meeting"
+        await viewModel.sendDraftMessage()
+        let tasksBefore = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil)
+
+        viewModel.dismissActionSuggestion(suggestion)
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty)
+        let tasksAfter = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil)
+        XCTAssertEqual(tasksBefore.count, tasksAfter.count, "dismiss must never persist anything")
+    }
+
     func testSelectingAConversationClearsStaleExecutionSuggestion() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

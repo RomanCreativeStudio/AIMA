@@ -19,10 +19,18 @@ export class TaskService {
     await this.assertWorkspaceExists(input.workspaceId);
 
     const result = await this.db.query(
-      `INSERT INTO tasks (workspace_id, title, description, priority, due_date)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id, workspace_id, title, description, status, priority, due_date, created_at, updated_at`,
-      [input.workspaceId, input.title, input.description ?? null, input.priority ?? 'medium', input.dueDate ?? null],
+      `INSERT INTO tasks (workspace_id, title, description, priority, due_date, source, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)
+       RETURNING id, workspace_id, title, description, status, priority, due_date, source, metadata, created_at, updated_at`,
+      [
+        input.workspaceId,
+        input.title,
+        input.description ?? null,
+        input.priority ?? 'medium',
+        input.dueDate ?? null,
+        input.source ?? null,
+        JSON.stringify(input.metadata ?? {}),
+      ],
     );
 
     return mapTaskRow(result.rows[0]);
@@ -38,7 +46,7 @@ export class TaskService {
     }
 
     const result = await this.db.query(
-      `SELECT id, workspace_id, title, description, status, priority, due_date, created_at, updated_at
+      `SELECT id, workspace_id, title, description, status, priority, due_date, source, metadata, created_at, updated_at
        FROM tasks
        WHERE ${conditions.join(' AND ')}
        ORDER BY created_at DESC`,
@@ -50,7 +58,7 @@ export class TaskService {
 
   async getTask(workspaceId: string, taskId: string): Promise<Task> {
     const result = await this.db.query(
-      `SELECT id, workspace_id, title, description, status, priority, due_date, created_at, updated_at
+      `SELECT id, workspace_id, title, description, status, priority, due_date, source, metadata, created_at, updated_at
        FROM tasks WHERE id = $1 AND workspace_id = $2`,
       [taskId, workspaceId],
     );
@@ -89,7 +97,7 @@ export class TaskService {
     const result = await this.db.query(
       `UPDATE tasks SET ${fields.join(', ')}
        WHERE id = $${params.length - 1} AND workspace_id = $${params.length}
-       RETURNING id, workspace_id, title, description, status, priority, due_date, created_at, updated_at`,
+       RETURNING id, workspace_id, title, description, status, priority, due_date, source, metadata, created_at, updated_at`,
       params,
     );
 
@@ -123,6 +131,8 @@ interface TaskRow {
   status: TaskStatus;
   priority: TaskPriority;
   due_date: Date | string | null;
+  source: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: Date | string;
   updated_at: Date | string;
 }
@@ -136,6 +146,8 @@ function mapTaskRow(row: TaskRow): Task {
     status: row.status,
     priority: row.priority,
     dueDate: row.due_date ? toIso(row.due_date) : null,
+    source: row.source,
+    metadata: row.metadata ?? {},
     createdAt: toIso(row.created_at),
     updatedAt: toIso(row.updated_at),
   };

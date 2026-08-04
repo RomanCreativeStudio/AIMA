@@ -616,6 +616,61 @@ test('sendMessage auto-save is isolated per workspace', async () => {
   });
 });
 
+test('sendMessage attaches actionSuggestions for todo/follow-up/meeting/reminder/decision phrasing (Conversation → Action sprint)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content:
+        "I need to email the client. Follow up on the invoice. Let's schedule a meeting Friday. " +
+        "Remind me to send the invoice. We've decided to ship on Friday.",
+    });
+
+    assert.ok(result.actionSuggestions.length >= 5);
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'todo'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'follow_up'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'meeting'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'reminder'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'decision'));
+  });
+});
+
+test('sendMessage leaves actionSuggestions empty for ordinary chat, and never creates a task itself', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'What time is it?' });
+
+    assert.deepEqual(result.actionSuggestions, []);
+
+    const tasks = await client.query('SELECT 1 FROM tasks WHERE workspace_id = $1', [workspaceId]);
+    assert.equal(tasks.rows.length, 0, 'sendMessage must never create a task on its own — accept is a separate, explicit call');
+  });
+});
+
+test('sendMessage does not report the same actionSuggestion twice for overlapping phrasing (duplicate prevention)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'I need to email the client.',
+    });
+
+    const contents = result.actionSuggestions.map((s) => s.content.trim().toLowerCase());
+    assert.equal(new Set(contents).size, contents.length, 'no duplicate content across actionSuggestions');
+  });
+});
+
 test('sendMessage result matches the full response schema', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');
@@ -625,6 +680,7 @@ test('sendMessage result matches the full response schema', async () => {
     const result = await service.sendMessage({ workspaceId, conversationId, content: 'What day is it?' });
 
     assert.deepEqual(Object.keys(result).sort(), [
+      'actionSuggestions',
       'approvalDecision',
       'assistantMessage',
       'executionSuggestion',

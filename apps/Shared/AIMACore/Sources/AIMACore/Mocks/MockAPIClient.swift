@@ -60,6 +60,13 @@ public actor MockAPIClient: APIClient {
     /// `ExecutionIntentMatcher`'s exact trigger phrases.
     private var forcedNextExecutionSuggestion: ExecutionSuggestion?
 
+    /// Set by `forceNextMessageToSuggestActions`, consumed by the next
+    /// `sendMessage` call — lets tests/previews exercise the Chat screen's
+    /// Suggested Task/Reminder/Follow-up cards (Conversation → Action sprint)
+    /// without needing to type one of `RuleBasedActionDetector`'s exact
+    /// trigger phrases.
+    private var forcedNextActionSuggestions: [ActionSuggestion]?
+
     /// Mirrors `backend/src/permissions/registry.ts`: all four built-in execution action types are permanently
     /// tier-locked at Tier 3 (`execute_with_approval`) — none of them auto-execute.
     private static let executionTier = "execute_with_approval"
@@ -377,6 +384,9 @@ public actor MockAPIClient: APIClient {
         let executionSuggestion = forcedNextExecutionSuggestion
         forcedNextExecutionSuggestion = nil
 
+        let actionSuggestions = forcedNextActionSuggestions ?? []
+        forcedNextActionSuggestions = nil
+
         // Mirrors the backend's advisory retrievedContext (Phase 3.6) — populated whenever a workspace has
         // seeded searchable content, nil otherwise, the same "only present when configured" shape as the
         // real RetrievalService-optional ConversationService.
@@ -393,6 +403,7 @@ public actor MockAPIClient: APIClient {
             approvalDecision: approvalDecision,
             workflowSuggestion: workflowSuggestion,
             executionSuggestion: executionSuggestion,
+            actionSuggestions: actionSuggestions,
             retrievedContext: retrievedContext
         )
     }
@@ -428,6 +439,14 @@ public actor MockAPIClient: APIClient {
         forcedNextExecutionSuggestion = suggestion
     }
 
+    /// Test hook (Conversation → Action sprint): makes the next `sendMessage`
+    /// call return the given `ActionSuggestion`s — simulating
+    /// `RuleBasedActionDetector` matching the user's message, without needing
+    /// to type an exact trigger phrase.
+    public func forceNextMessageToSuggestActions(_ suggestions: [ActionSuggestion]) {
+        forcedNextActionSuggestions = suggestions
+    }
+
     /// Test hook (Phase 3.3): makes the next `submitVoiceRequest` call fail
     /// as the backend's `VoiceProviderError` would (HTTP 502) — lets
     /// `VoiceSessionViewModel`'s provider-error UI state be exercised
@@ -449,7 +468,8 @@ public actor MockAPIClient: APIClient {
         let task = TaskItem(
             id: UUID().uuidString, workspaceId: workspaceId, title: request.title,
             description: request.description, status: .todo, priority: request.priority ?? .medium,
-            dueDate: request.dueDate, createdAt: now, updatedAt: now
+            dueDate: request.dueDate, source: request.source, metadata: request.metadata ?? [:],
+            createdAt: now, updatedAt: now
         )
         tasksByWorkspace[workspaceId, default: []].append(task)
         return task
@@ -917,6 +937,8 @@ public actor MockAPIClient: APIClient {
         let recentActivity = actionLogByWorkspace[workspaceId] ?? []
         let recentMemories = memoriesByWorkspace[workspaceId] ?? []
         let suggestedNextActions = Array((workspaceId == "mock-ws-rcs" ? Self.seedSuggestions : []).prefix(3))
+        let allTasks = tasksByWorkspace[workspaceId] ?? []
+        let acceptedTasks = allTasks.filter { $0.source == "conversation_suggestion" }
 
         return DailyBriefing(
             workspaceId: workspaceId, workspaceName: workspace.name,
@@ -929,6 +951,9 @@ public actor MockAPIClient: APIClient {
             overdueTasks: Self.findOverdue(openTasks, now: now),
             integrationsNeedingAttention: (integrationsByWorkspace[workspaceId] ?? []).filter(Self.needsAttention),
             openCommitments: (memoriesByWorkspace[workspaceId] ?? []).filter(Self.isOpenCommitment),
+            acceptedTasks: acceptedTasks,
+            unresolvedFollowUps: acceptedTasks.filter(Self.isUnresolvedFollowUp),
+            recentDecisions: (memoriesByWorkspace[workspaceId] ?? []).filter(Self.isRecentDecision),
             generatedAt: ISO8601DateFormatter().string(from: now)
         )
     }
@@ -955,6 +980,20 @@ public actor MockAPIClient: APIClient {
         guard memory.source == "auto_extracted" else { return false }
         guard case .string(let category)? = memory.metadata["category"] else { return false }
         return ["reminder", "decision", "project_update"].contains(category)
+    }
+
+    /// Mirrors the backend's `briefingService.ts#isUnresolvedFollowUp` (Conversation → Action sprint).
+    private static func isUnresolvedFollowUp(_ task: TaskItem) -> Bool {
+        guard isOpenTask(task) else { return false }
+        guard case .string(let category)? = task.metadata["category"] else { return false }
+        return category == "follow_up"
+    }
+
+    /// Mirrors the backend's `briefingService.ts#isRecentDecision` (Conversation → Action sprint).
+    private static func isRecentDecision(_ memory: MemoryRecord) -> Bool {
+        guard memory.source == "auto_extracted" else { return false }
+        guard case .string(let category)? = memory.metadata["category"] else { return false }
+        return category == "decision"
     }
 
     public func getProactivePatterns(workspaceId: String) async throws -> [Pattern] {

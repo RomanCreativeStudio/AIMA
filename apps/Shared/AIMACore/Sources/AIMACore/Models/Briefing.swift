@@ -36,6 +36,15 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
     /// `completed_task` (Personal Workspace Memory sprint). Drawn from the same fetch as `recentMemories`, not a
     /// second query — see the backend's `isOpenCommitment` in `briefingService.ts`.
     public let openCommitments: [MemoryRecord]
+    /// Tasks accepted from a Chat suggestion (`source: "conversation_suggestion"`, Conversation → Action
+    /// sprint) — drawn from the same fetch as `priorityTasks`/`overdueTasks`, not a second query.
+    public let acceptedTasks: [TaskItem]
+    /// The subset of `acceptedTasks` still open whose suggestion category was `follow_up` — see the backend's
+    /// `isUnresolvedFollowUp` in `briefingService.ts`.
+    public let unresolvedFollowUps: [TaskItem]
+    /// Auto-extracted memories whose category is `decision` — the same auto-save pipeline `openCommitments`
+    /// draws from, filtered to just decisions.
+    public let recentDecisions: [MemoryRecord]
     public let generatedAt: String
 
     public init(
@@ -54,6 +63,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         overdueTasks: [TaskItem] = [],
         integrationsNeedingAttention: [WorkspaceIntegration] = [],
         openCommitments: [MemoryRecord] = [],
+        acceptedTasks: [TaskItem] = [],
+        unresolvedFollowUps: [TaskItem] = [],
+        recentDecisions: [MemoryRecord] = [],
         generatedAt: String
     ) {
         self.workspaceId = workspaceId
@@ -71,19 +83,24 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         self.overdueTasks = overdueTasks
         self.integrationsNeedingAttention = integrationsNeedingAttention
         self.openCommitments = openCommitments
+        self.acceptedTasks = acceptedTasks
+        self.unresolvedFollowUps = unresolvedFollowUps
+        self.recentDecisions = recentDecisions
         self.generatedAt = generatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case workspaceId, workspaceName, pendingApprovalCount, pendingApprovals, activeWorkflowCount, activeWorkflows
         case priorityTasks, recentActivity, recentMemories, calendarHighlights, suggestedNextActions
-        case greeting, overdueTasks, integrationsNeedingAttention, openCommitments, generatedAt
+        case greeting, overdueTasks, integrationsNeedingAttention, openCommitments
+        case acceptedTasks, unresolvedFollowUps, recentDecisions, generatedAt
     }
 
     /// Custom decode so a payload missing newer fields still decodes, defaulting each to an empty array/string —
     /// the same backward-compatible-decode posture as `SendMessageResult.memorySuggestions`. `greeting`,
     /// `overdueTasks`, `integrationsNeedingAttention` are Alpha Daily Briefing sprint additions; `openCommitments`
-    /// is a Personal Workspace Memory sprint addition; the rest predate Phase 3.5.
+    /// is a Personal Workspace Memory sprint addition; `acceptedTasks`/`unresolvedFollowUps`/`recentDecisions` are
+    /// Conversation → Action sprint additions; the rest predate Phase 3.5.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
@@ -101,6 +118,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         overdueTasks = try container.decodeIfPresent([TaskItem].self, forKey: .overdueTasks) ?? []
         integrationsNeedingAttention = try container.decodeIfPresent([WorkspaceIntegration].self, forKey: .integrationsNeedingAttention) ?? []
         openCommitments = try container.decodeIfPresent([MemoryRecord].self, forKey: .openCommitments) ?? []
+        acceptedTasks = try container.decodeIfPresent([TaskItem].self, forKey: .acceptedTasks) ?? []
+        unresolvedFollowUps = try container.decodeIfPresent([TaskItem].self, forKey: .unresolvedFollowUps) ?? []
+        recentDecisions = try container.decodeIfPresent([MemoryRecord].self, forKey: .recentDecisions) ?? []
         generatedAt = try container.decode(String.self, forKey: .generatedAt)
     }
 }

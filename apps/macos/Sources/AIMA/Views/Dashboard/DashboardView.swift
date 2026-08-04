@@ -349,6 +349,32 @@ struct DashboardView: View {
                         }
                     }
 
+                    if !briefing.acceptedTasks.isEmpty {
+                        Text("Accepted Tasks").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.acceptedTasks) { task in
+                            Text("• \(task.title)")
+                                .font(.callout)
+                        }
+                    }
+
+                    if !briefing.unresolvedFollowUps.isEmpty {
+                        Text("Unresolved Follow-ups").font(.subheadline).fontWeight(.medium).foregroundStyle(.purple)
+                        ForEach(briefing.unresolvedFollowUps) { task in
+                            Text("• \(task.title)")
+                                .font(.callout)
+                        }
+                    }
+
+                    if !briefing.recentDecisions.isEmpty {
+                        Text("Recent Decisions").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.recentDecisions) { decision in
+                            Text("• \(decision.content)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
                     if !briefing.calendarHighlights.isEmpty {
                         Text("Calendar Highlights").font(.subheadline).fontWeight(.medium)
                         ForEach(briefing.calendarHighlights) { entry in

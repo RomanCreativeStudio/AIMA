@@ -241,6 +241,76 @@ test('POST /api/workspaces/:id/tasks creates a task and logs the action', async 
   });
 });
 
+test('POST .../tasks accepts an optional source/metadata (Conversation → Action sprint: accept creates one task)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({
+          title: 'Follow up on the Acme contract',
+          source: 'conversation_suggestion',
+          metadata: { category: 'follow_up' },
+        }),
+      });
+
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { task: { source: string | null; metadata: Record<string, unknown> } };
+      assert.equal(body.task.source, 'conversation_suggestion');
+      assert.equal(body.task.metadata.category, 'follow_up');
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM tasks WHERE workspace_id = $1', [workspaceId]);
+      assert.equal(rows.rows[0].count, 1, 'accepting a suggestion creates exactly one task');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../tasks defaults source to null and metadata to {} when omitted (hand-created task)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'A hand-typed task' }),
+      });
+
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { task: { source: string | null; metadata: Record<string, unknown> } };
+      assert.equal(body.task.source, null);
+      assert.deepEqual(body.task.metadata, {});
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST .../tasks rejects a non-string source and a non-object metadata', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const badSource = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'Bad source', source: 42 }),
+      });
+      assert.equal(badSource.status, 400);
+
+      const badMetadata = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'Bad metadata', metadata: 'not an object' }),
+      });
+      assert.equal(badMetadata.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
 test('POST .../tasks rejects an empty title', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);

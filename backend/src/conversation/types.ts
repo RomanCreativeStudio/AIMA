@@ -6,6 +6,7 @@ import type { RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
 import type { WorkflowSuggestion } from '../workflows/types';
 import type { ExecutionSuggestion } from '../execution/types';
+import type { ActionSuggestion } from './actionSuggestions';
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 
@@ -49,6 +50,8 @@ export interface SendMessageResult {
   executionSuggestion: ExecutionSuggestion | null;
   /** Advisory candidate memories detected in the user's message (Phase 3.4, docs/decisions/0019-advanced-memory-system.md) — never persisted automatically; the user must explicitly call the memory creation endpoint to save one. Empty when nothing was detected. */
   memorySuggestions: MemoryCandidate[];
+  /** Advisory actionable items detected in the user's message (Conversation → Action sprint: todo/follow-up/reminder/meeting/decision) — never persisted automatically. Accepting one goes through the existing `POST /tasks` route (create_task capability, PermissionEngine-gated), same as a hand-typed task; dismissing one is simply not calling that route. Empty when nothing was detected. */
+  actionSuggestions: ActionSuggestion[];
   /** Semantically retrieved context for this turn — merged memories, related conversations, and related tasks (Phase 3.6, docs/decisions/0021-semantic-search-and-context-retrieval.md). Purely advisory: never wired into the AI prompt itself, never writes anything. `null` when no RetrievalService was configured. */
   retrievedContext: RetrievedContext | null;
 }

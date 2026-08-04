@@ -5,6 +5,7 @@ import type { WorkspaceIntegration } from '../integrations/types';
 import type { MemoryService } from '../memory/memoryService';
 import type { MemoryRecord } from '../memory/types';
 import type { ProactiveIntelligenceService } from '../proactive/proactiveIntelligenceService';
+import type { Task } from '../tasks/types';
 import type { TaskService } from '../tasks/taskService';
 import type { WorkflowService } from '../workflows/workflowService';
 import type { WorkspaceService } from '../workspaces/workspaceService';
@@ -18,10 +19,14 @@ const DEFAULT_RECENT_MEMORY_LIMIT = 5;
 /** Personal Workspace Memory sprint: how many memories `getDailyBriefing` fetches in its single `listMemories` call — wide enough that `openCommitments` (derived from the same result set, see `isOpenCommitment`) isn't starved by `recentMemories`' tighter display limit. */
 const DEFAULT_MEMORY_FETCH_LIMIT = 20;
 const DEFAULT_SUGGESTED_ACTION_LIMIT = 3;
+/** Conversation → Action sprint: display cap for `acceptedTasks`/`unresolvedFollowUps`, mirroring `DEFAULT_RECENT_MEMORY_LIMIT`'s role for memory-derived fields. Applied after filtering the full `tasks` list, so a workspace with many accepted tasks still surfaces its most recent unresolved follow-ups rather than whichever happened to survive an earlier slice. */
+const DEFAULT_ACCEPTED_TASK_LIMIT = 10;
 /** Real writes that already went through Tier 3 approval — see `DailyBriefing.calendarHighlights`'s doc comment. */
 const CALENDAR_ACTION_TYPES = new Set(['create_calendar_event', 'update_calendar_event', 'delete_calendar_event']);
 /** Auto-extracted categories (see `ConversationService.AUTO_SAVE_CATEGORIES`) that represent an outcome still open — `completed_task` is deliberately excluded, since a completed task is finished, not "unfinished." */
 const OPEN_COMMITMENT_CATEGORIES = new Set(['reminder', 'decision', 'project_update']);
+/** Conversation → Action sprint: how a task accepted from a Chat suggestion records where it came from — see `backend/src/tasks/types.ts#Task.source`. */
+const CONVERSATION_SUGGESTION_SOURCE = 'conversation_suggestion';
 
 /**
  * The Daily Briefing (Phase 2.5, item 1): a synchronous, read-only
@@ -69,6 +74,7 @@ export class BriefingService {
       0,
       DEFAULT_PRIORITY_TASK_LIMIT,
     );
+    const acceptedTasksAll = tasks.filter((task) => task.source === CONVERSATION_SUGGESTION_SOURCE);
 
     return {
       workspaceId,
@@ -86,6 +92,9 @@ export class BriefingService {
       overdueTasks: findOverdue(openTasks, now),
       integrationsNeedingAttention: integrations.filter(needsAttention),
       openCommitments: memories.filter(isOpenCommitment),
+      acceptedTasks: acceptedTasksAll.slice(0, DEFAULT_ACCEPTED_TASK_LIMIT),
+      unresolvedFollowUps: acceptedTasksAll.filter(isUnresolvedFollowUp).slice(0, DEFAULT_ACCEPTED_TASK_LIMIT),
+      recentDecisions: memories.filter(isRecentDecision).slice(0, DEFAULT_RECENT_MEMORY_LIMIT),
       generatedAt: now.toISOString(),
     };
   }
@@ -115,4 +124,14 @@ export function isOpenCommitment(memory: MemoryRecord): boolean {
   if (memory.source !== 'auto_extracted') return false;
   const category = memory.metadata?.category;
   return typeof category === 'string' && OPEN_COMMITMENT_CATEGORIES.has(category);
+}
+
+/** Conversation → Action sprint: an accepted task (already filtered to `source: 'conversation_suggestion'`) that's still open and whose suggestion category was `follow_up` — the thing that still needs closing the loop. Exported for direct unit testing. */
+export function isUnresolvedFollowUp(task: Task): boolean {
+  return isOpenTask(task) && task.metadata?.category === 'follow_up';
+}
+
+/** Conversation → Action sprint: an auto-extracted memory whose category is `decision` — the same auto-save pipeline `isOpenCommitment` reads from, filtered to just decisions rather than every open-commitment category. Exported for direct unit testing. */
+export function isRecentDecision(memory: MemoryRecord): boolean {
+  return memory.source === 'auto_extracted' && memory.metadata?.category === 'decision';
 }

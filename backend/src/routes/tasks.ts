@@ -34,7 +34,7 @@ export function tasksRouter(deps: TasksRouterDependencies): Router {
         return;
       }
 
-      const { title, description, priority, dueDate } = req.body ?? {};
+      const { title, description, priority, dueDate, source, metadata } = req.body ?? {};
 
       if (typeof title !== 'string' || title.trim().length === 0) {
         res.status(400).json({ error: 'title is required' });
@@ -48,6 +48,14 @@ export function tasksRouter(deps: TasksRouterDependencies): Router {
         res.status(400).json({ error: 'dueDate must be a string if provided' });
         return;
       }
+      if (source !== undefined && typeof source !== 'string') {
+        res.status(400).json({ error: 'source must be a string if provided' });
+        return;
+      }
+      if (metadata !== undefined && (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata))) {
+        res.status(400).json({ error: 'metadata must be an object if provided' });
+        return;
+      }
 
       const decision = deps.permissionEngine.evaluate(CREATE_TASK_CAPABILITY);
 
@@ -59,6 +67,8 @@ export function tasksRouter(deps: TasksRouterDependencies): Router {
           description: typeof description === 'string' ? description : undefined,
           priority,
           dueDate,
+          source,
+          metadata,
         });
       } catch (error) {
         if (!(error instanceof WorkspaceNotFoundError)) {

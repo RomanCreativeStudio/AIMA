@@ -30,6 +30,11 @@ public final class ChatViewModel {
     public private(set) var lastWorkflowSuggestion: WorkflowSuggestion?
     /// An advisory execution preview (Phase 2.6) for the most recent reply — never itself a running `ExecutionRecord`, just a suggestion the user can act on from the Executions screen.
     public private(set) var lastExecutionSuggestion: ExecutionSuggestion?
+    /// Advisory actionable items detected in the most recent reply (Conversation → Action sprint: todo/follow-up/
+    /// reminder/meeting/decision) — never persisted automatically. Accepting one (`acceptActionSuggestion`) goes
+    /// through the existing `createTask` API call; dismissing one (`dismissActionSuggestion`) just removes it
+    /// from this array, no API call at all — "Dismiss → no persistence."
+    public private(set) var lastActionSuggestions: [ActionSuggestion] = []
     /// The selected conversation's Conversation Intelligence (Phase 2.5, item 3) — summary, suggested follow-ups, and related memories. Fetched only on explicit request (`loadConversationIntelligence`), never automatically, matching the phase's "no automatic actions" rule.
     public private(set) var conversationIntelligence: ConversationIntelligence?
     public private(set) var isLoadingIntelligence = false
@@ -93,6 +98,7 @@ public final class ChatViewModel {
         lastPendingApproval = nil
         lastWorkflowSuggestion = nil
         lastExecutionSuggestion = nil
+        lastActionSuggestions = []
         conversationIntelligence = nil
         lastRetrievedContext = nil
         do {
@@ -120,6 +126,7 @@ public final class ChatViewModel {
             lastPendingApproval = nil
             lastWorkflowSuggestion = result.workflowSuggestion
             lastExecutionSuggestion = result.executionSuggestion
+            lastActionSuggestions = result.actionSuggestions
             lastRetrievedContext = result.retrievedContext
             if let approvalId = result.approvalDecision.pendingApprovalId {
                 lastPendingApproval = try? await apiClient.getApproval(workspaceId: workspaceId, approvalId: approvalId)
@@ -138,6 +145,38 @@ public final class ChatViewModel {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Accept an action suggestion (Conversation → Action sprint): creates a real task via the same
+    /// `createTask` API call a hand-typed task would use — `source: "conversation_suggestion"` and
+    /// `metadata.category` record where it came from, so `BriefingService`/`DailyBriefing` can surface it
+    /// as an accepted task. Never bypasses `PermissionEngine`/`ApprovalEngine`: it's the identical route the
+    /// Tasks screen's "Add Task" button hits. Removes the suggestion from `lastActionSuggestions` on success
+    /// so the card disappears once acted on.
+    public func acceptActionSuggestion(_ suggestion: ActionSuggestion) async {
+        errorMessage = nil
+        do {
+            _ = try await apiClient.createTask(
+                workspaceId: workspaceId,
+                request: CreateTaskRequest(
+                    title: suggestion.content,
+                    source: "conversation_suggestion",
+                    metadata: ["category": .string(suggestion.category.rawValue)]
+                )
+            )
+            lastActionSuggestions.removeAll { $0 == suggestion }
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Dismiss an action suggestion (Conversation → Action sprint): no API call at all — "Dismiss → no
+    /// persistence" means there's nothing to tell the backend, since nothing was ever saved. Just removes
+    /// the card from local state.
+    public func dismissActionSuggestion(_ suggestion: ActionSuggestion) {
+        lastActionSuggestions.removeAll { $0 == suggestion }
     }
 
     /// Resolves the chat approval card (Phase 2.2, item 3) in place — the

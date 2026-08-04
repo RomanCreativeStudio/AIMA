@@ -1,5 +1,5 @@
-import type { MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from '@aima/ai-engine';
-import { RuleBasedMemoryExtractor } from '@aima/ai-engine';
+import type { ActionDetector, MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from '@aima/ai-engine';
+import { RuleBasedActionDetector, RuleBasedMemoryExtractor } from '@aima/ai-engine';
 import type { ActionLogger } from '../actionLog/logger';
 import type { AimaCoreService } from '../core/aimaCoreService';
 import type { Queryable } from '../db/queryable';
@@ -10,6 +10,7 @@ import { isWorkspaceSlug, type WorkspaceSlug } from '../types/workspace';
 import { WorkspaceNotFoundError } from '../types/errors';
 import type { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
 import type { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
+import { buildActionSuggestions } from './actionSuggestions';
 import { ConversationNotFoundError } from './errors';
 import type { Conversation, Message, MessageRole, SendMessageInput, SendMessageResult } from './types';
 
@@ -30,6 +31,8 @@ export interface ConversationServiceDependencies {
   executionIntentMatcher: ExecutionIntentMatcher;
   /** Detects candidate facts/preferences worth remembering (Phase 3.4) — advisory only, shapes `memorySuggestions` on the response; never creates a memory itself. Optional, defaulting to `RuleBasedMemoryExtractor` — the same "no live network call" default as every other rule-based matcher in this pipeline. */
   memoryExtractor?: MemoryExtractor;
+  /** Detects candidate todo/follow-up/meeting items (Conversation → Action sprint) — advisory only, shapes `actionSuggestions` on the response together with the reminder/decision candidates `memoryExtractor` already found; never creates a task itself. Optional, defaulting to `RuleBasedActionDetector`. */
+  actionDetector?: ActionDetector;
   /** Computes the advisory `retrievedContext` (Phase 3.6) — merged memories/conversations/tasks for this turn. Optional so every pre-existing call site keeps compiling; `retrievedContext` is simply `null` when omitted. Never wired into the AI prompt itself. */
   retrievalService?: RetrievalService;
   /** Personal Workspace Memory sprint: when provided, `sendMessage` auto-saves extracted candidates whose category is in `AUTO_SAVE_CATEGORIES` via `MemoryService.createMemory` — the same memory pipeline `RetrievalService`/the memory routes already use, not a second one. Optional so every pre-existing call site (which never saw memories auto-created) keeps compiling unchanged; auto-save is simply skipped when omitted. */
@@ -73,6 +76,7 @@ export class ConversationService {
   private readonly workflowIntentMatcher: WorkflowIntentMatcher;
   private readonly executionIntentMatcher: ExecutionIntentMatcher;
   private readonly memoryExtractor: MemoryExtractor;
+  private readonly actionDetector: ActionDetector;
   private readonly retrievalService: RetrievalService | null;
   private readonly memoryService: MemoryService | null;
   private readonly historyLimit: number;
@@ -87,6 +91,7 @@ export class ConversationService {
     this.workflowIntentMatcher = deps.workflowIntentMatcher;
     this.executionIntentMatcher = deps.executionIntentMatcher;
     this.memoryExtractor = deps.memoryExtractor ?? new RuleBasedMemoryExtractor();
+    this.actionDetector = deps.actionDetector ?? new RuleBasedActionDetector();
     this.retrievalService = deps.retrievalService ?? null;
     this.memoryService = deps.memoryService ?? null;
     this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
@@ -195,6 +200,8 @@ export class ConversationService {
 
       const candidates = this.memoryExtractor.extract(input.content);
       const { advisory } = await this.autoSaveMemories(input.workspaceId, input.conversationId, candidates);
+      const actionCandidates = this.actionDetector.detect(input.content);
+      const actionSuggestions = buildActionSuggestions(actionCandidates, candidates);
 
       await this.actionLogger.log({
         workspaceId: input.workspaceId,
@@ -223,6 +230,7 @@ export class ConversationService {
         workflowSuggestion: this.workflowIntentMatcher.match(input.content),
         executionSuggestion: this.executionIntentMatcher.match(input.content),
         memorySuggestions: advisory,
+        actionSuggestions,
         retrievedContext,
       };
     } catch (error) {

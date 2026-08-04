@@ -56,6 +56,12 @@ export interface DailyBriefing {
   integrationsNeedingAttention: WorkspaceIntegration[];
   /** Personal Workspace Memory sprint: auto-saved memories (`source: 'auto_extracted'`) whose category is `reminder`, `decision`, or `project_update` — outcomes still open, unlike a `completed_task` — see `isOpenCommitment` in `briefingService.ts`. Drawn from the same `listMemories` call as `recentMemories`, not a second query. */
   openCommitments: MemoryRecord[];
+  /** Conversation → Action sprint: tasks accepted from a Chat suggestion (`source: 'conversation_suggestion'`) — drawn from the same `listTasks` call `priorityTasks`/`overdueTasks` already use, not a second query. Includes both open and completed accepted tasks. */
+  acceptedTasks: Task[];
+  /** Conversation → Action sprint: the subset of `acceptedTasks` still open (`isOpenTask`) whose suggestion category was `follow_up` — see `isUnresolvedFollowUp` in `briefingService.ts`. */
+  unresolvedFollowUps: Task[];
+  /** Conversation → Action sprint: auto-extracted memories (`source: 'auto_extracted'`) whose category is `decision` — the same auto-save pipeline `openCommitments` draws from, filtered down to just decisions. */
+  recentDecisions: MemoryRecord[];
   generatedAt: string;
 }
 

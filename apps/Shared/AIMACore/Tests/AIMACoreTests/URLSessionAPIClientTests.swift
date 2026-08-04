@@ -341,6 +341,20 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(briefing.openCommitments[0].source, "auto_extracted")
     }
 
+    func testGetDailyBriefingDecodesAcceptedTasksUnresolvedFollowUpsAndRecentDecisions() async throws {
+        let body = """
+        {"briefing":{"workspaceId":"w1","workspaceName":"RCS","pendingApprovalCount":0,"pendingApprovals":[],"activeWorkflowCount":0,"activeWorkflows":[],"priorityTasks":[],"recentActivity":[],"greeting":"Good morning! Here's what's happening in RCS.","overdueTasks":[],"integrationsNeedingAttention":[],"acceptedTasks":[{"id":"t1","workspaceId":"w1","title":"Follow up on the Acme contract","description":null,"status":"todo","priority":"medium","dueDate":null,"source":"conversation_suggestion","metadata":{"category":"follow_up"},"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}],"unresolvedFollowUps":[{"id":"t1","workspaceId":"w1","title":"Follow up on the Acme contract","description":null,"status":"todo","priority":"medium","dueDate":null,"source":"conversation_suggestion","metadata":{"category":"follow_up"},"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}],"recentDecisions":[{"id":"m1","workspaceId":"w1","scope":"workspace","content":"We've decided to ship on Friday.","source":"auto_extracted","metadata":{"category":"decision"},"createdAt":"2026-01-01T00:00:00.000Z"}],"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/daily-briefing"] = .init(statusCode: 200, body: body)
+
+        let briefing = try await client.getDailyBriefing(workspaceId: "w1")
+        XCTAssertEqual(briefing.acceptedTasks.count, 1)
+        XCTAssertEqual(briefing.acceptedTasks[0].source, "conversation_suggestion")
+        XCTAssertEqual(briefing.unresolvedFollowUps.count, 1)
+        XCTAssertEqual(briefing.recentDecisions.count, 1)
+        XCTAssertEqual(briefing.recentDecisions[0].content, "We've decided to ship on Friday.")
+    }
+
     func testGetTaskIntelligenceUnwrapsTheTaskIntelligenceEnvelope() async throws {
         let body = """
         {"taskIntelligence":{"workspaceId":"w1","suggestedPriorities":[],"dueSoon":[],"overdue":[],"relatedGroups":[],"generatedAt":"2026-01-01T00:00:00.000Z"}}
@@ -547,6 +561,40 @@ final class URLSessionAPIClientTests: XCTestCase {
         let result = try await client.sendMessage(workspaceId: "w1", conversationId: "c1", content: "My name is Roman.")
         XCTAssertEqual(result.memorySuggestions.count, 1)
         XCTAssertEqual(result.memorySuggestions[0].category, .fact)
+    }
+
+    func testSendMessageDecodesActionSuggestionsWhenPresent() async throws {
+        let body = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"I need to email the client.","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"Noted.","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "actionSuggestions": [{"content":"I need to email the client","category":"todo","confidence":0.75,"reason":"matched \\"I need to ...\\""}]
+        }
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/conversations/c1/messages"] = .init(statusCode: 201, body: body)
+
+        let result = try await client.sendMessage(workspaceId: "w1", conversationId: "c1", content: "I need to email the client.")
+        XCTAssertEqual(result.actionSuggestions.count, 1)
+        XCTAssertEqual(result.actionSuggestions[0].category, .todo)
+    }
+
+    func testSendMessageDefaultsActionSuggestionsToEmptyWhenAbsent() async throws {
+        let body = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"hi","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"hello","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [], "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"x"},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null}
+        }
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["POST /api/workspaces/w1/conversations/c1/messages"] = .init(statusCode: 201, body: body)
+
+        let result = try await client.sendMessage(workspaceId: "w1", conversationId: "c1", content: "hi")
+        XCTAssertEqual(result.actionSuggestions, [])
     }
 
     func testListMemoriesAppliesScopeMemoryTypeAndIncludeArchivedQueryParameters() async throws {

@@ -42,6 +42,24 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(briefing.openCommitments, [], "neither seeded memory is source: auto_extracted, so openCommitments stays empty")
     }
 
+    func testLoadPopulatesAcceptedTasksUnresolvedFollowUpsAndRecentDecisions() async {
+        let apiClient = MockAPIClient()
+        _ = try! await apiClient.createTask(
+            workspaceId: "mock-ws-rcs",
+            request: CreateTaskRequest(title: "Follow up on the Acme contract", source: "conversation_suggestion", metadata: ["category": .string("follow_up")])
+        )
+        _ = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "A hand-typed task"))
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        let briefing = try! XCTUnwrap(viewModel.dailyBriefing)
+        XCTAssertEqual(briefing.acceptedTasks.count, 1)
+        XCTAssertEqual(briefing.acceptedTasks[0].title, "Follow up on the Acme contract")
+        XCTAssertEqual(briefing.unresolvedFollowUps.count, 1)
+        XCTAssertEqual(briefing.recentDecisions, [], "no seeded auto_extracted decision memories in this workspace")
+    }
+
     func testLoadPopulatesTaskIntelligenceRankedByPriority() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)

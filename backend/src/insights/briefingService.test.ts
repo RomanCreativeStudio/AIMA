@@ -25,7 +25,7 @@ import { WorkflowRegistry } from '../workflows/registry';
 import type { WorkflowKey } from '../workflows/types';
 import { WorkflowService } from '../workflows/workflowService';
 import { WorkspaceService } from '../workspaces/workspaceService';
-import { BriefingService, buildGreeting, isOpenCommitment, needsAttention } from './briefingService';
+import { BriefingService, buildGreeting, isOpenCommitment, isRecentDecision, isUnresolvedFollowUp, needsAttention } from './briefingService';
 
 const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
@@ -120,6 +120,9 @@ test('getDailyBriefing reports zeros and empty lists for a brand-new workspace',
     assert.deepEqual(briefing.recentActivity, []);
     assert.deepEqual(briefing.recentMemories, [], 'recentMemories defaults to [] when memoryService is omitted');
     assert.deepEqual(briefing.openCommitments, [], 'openCommitments defaults to [] when memoryService is omitted');
+    assert.deepEqual(briefing.acceptedTasks, []);
+    assert.deepEqual(briefing.unresolvedFollowUps, []);
+    assert.deepEqual(briefing.recentDecisions, [], 'recentDecisions defaults to [] when memoryService is omitted');
     assert.deepEqual(briefing.calendarHighlights, []);
     assert.deepEqual(
       briefing.suggestedNextActions,
@@ -303,6 +306,165 @@ test('isOpenCommitment requires source auto_extracted and an open-commitment cat
   assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: { category: 'completed_task' } }), false);
   assert.equal(isOpenCommitment({ ...base, source: null, metadata: { category: 'reminder' } }), false);
   assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: {} }), false);
+});
+
+// Conversation → Action sprint: acceptedTasks, unresolvedFollowUps, recentDecisions.
+
+test('getDailyBriefing surfaces acceptedTasks (source: conversation_suggestion), excluding hand-created tasks', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, taskService } = buildService(client);
+
+    await taskService.createTask({
+      workspaceId,
+      title: 'Follow up on the Acme contract',
+      source: 'conversation_suggestion',
+      metadata: { category: 'follow_up' },
+    });
+    await taskService.createTask({ workspaceId, title: 'A hand-typed task' });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.acceptedTasks.length, 1);
+    assert.equal(briefing.acceptedTasks[0].title, 'Follow up on the Acme contract');
+  });
+});
+
+test('getDailyBriefing acceptedTasks/unresolvedFollowUps is workspace-scoped', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: otherWorkspaceId } = await seedWorkspace(client, 'mfs');
+    const { briefingService, taskService } = buildService(client);
+
+    await taskService.createTask({
+      workspaceId,
+      title: 'Follow up on the Acme contract',
+      source: 'conversation_suggestion',
+      metadata: { category: 'follow_up' },
+    });
+    await taskService.createTask({
+      workspaceId: otherWorkspaceId,
+      title: 'Follow up on the other workspace',
+      source: 'conversation_suggestion',
+      metadata: { category: 'follow_up' },
+    });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.acceptedTasks.length, 1);
+    assert.equal(briefing.unresolvedFollowUps.length, 1);
+    assert.equal(briefing.acceptedTasks[0].workspaceId, workspaceId);
+  });
+});
+
+test('getDailyBriefing unresolvedFollowUps excludes follow_up tasks already done, and non-follow_up categories', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, taskService } = buildService(client);
+
+    const openFollowUp = await taskService.createTask({
+      workspaceId,
+      title: 'Open follow-up',
+      source: 'conversation_suggestion',
+      metadata: { category: 'follow_up' },
+    });
+    const doneFollowUp = await taskService.createTask({
+      workspaceId,
+      title: 'Done follow-up',
+      source: 'conversation_suggestion',
+      metadata: { category: 'follow_up' },
+    });
+    await taskService.updateTask(workspaceId, doneFollowUp.id, { status: 'done' });
+    await taskService.createTask({
+      workspaceId,
+      title: 'Open todo, not a follow-up',
+      source: 'conversation_suggestion',
+      metadata: { category: 'todo' },
+    });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.acceptedTasks.length, 3);
+    assert.equal(briefing.unresolvedFollowUps.length, 1);
+    assert.equal(briefing.unresolvedFollowUps[0].id, openFollowUp.id);
+  });
+});
+
+test('getDailyBriefing surfaces recentDecisions from auto-extracted decision memories, workspace-scoped', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: otherWorkspaceId } = await seedWorkspace(client, 'mfs');
+    const { briefingService, memoryService } = buildFullService(client);
+
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to ship on Friday.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: 'Remind me to send the invoice.',
+      source: 'auto_extracted',
+      metadata: { category: 'reminder' },
+    });
+    await memoryService.createMemory({
+      workspaceId: otherWorkspaceId,
+      scope: 'workspace',
+      content: 'A decision in the other workspace.',
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.recentDecisions.length, 1);
+    assert.equal(briefing.recentDecisions[0].content, "We've decided to ship on Friday.");
+    assert.equal(briefing.recentDecisions[0].workspaceId, workspaceId);
+  });
+});
+
+test('isUnresolvedFollowUp requires an open task with metadata.category === follow_up', () => {
+  const base = {
+    id: 't1',
+    workspaceId: 'w1',
+    title: 'x',
+    description: null,
+    priority: 'medium' as const,
+    dueDate: null,
+    source: 'conversation_suggestion',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  assert.equal(isUnresolvedFollowUp({ ...base, status: 'todo', metadata: { category: 'follow_up' } }), true);
+  assert.equal(isUnresolvedFollowUp({ ...base, status: 'done', metadata: { category: 'follow_up' } }), false);
+  assert.equal(isUnresolvedFollowUp({ ...base, status: 'todo', metadata: { category: 'todo' } }), false);
+  assert.equal(isUnresolvedFollowUp({ ...base, status: 'todo', metadata: {} }), false);
+});
+
+test('isRecentDecision requires source auto_extracted and category decision', () => {
+  const base = {
+    id: 'm1',
+    workspaceId: 'w1',
+    scope: 'workspace' as const,
+    content: 'x',
+    conversationId: null,
+    projectKey: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    importanceScore: 0.5,
+    confidenceScore: 0.5,
+    memoryType: 'long_term' as const,
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
+  };
+
+  assert.equal(isRecentDecision({ ...base, source: 'auto_extracted', metadata: { category: 'decision' } }), true);
+  assert.equal(isRecentDecision({ ...base, source: 'auto_extracted', metadata: { category: 'reminder' } }), false);
+  assert.equal(isRecentDecision({ ...base, source: null, metadata: { category: 'decision' } }), false);
 });
 
 test('getDailyBriefing surfaces calendarHighlights only for calendar write action types, from recentActivity', async () => {

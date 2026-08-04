@@ -52,6 +52,15 @@ struct ChatView: View {
                     ExecutionSuggestionCardView(suggestion: suggestion)
                 }
 
+                // `decision` suggestions are deliberately excluded — see ActionSuggestionCardView's doc comment.
+                ForEach(viewModel.lastActionSuggestions.filter { $0.category != .decision }, id: \.content) { suggestion in
+                    ActionSuggestionCardView(
+                        suggestion: suggestion,
+                        onAccept: { Task { await viewModel.acceptActionSuggestion(suggestion) } },
+                        onDismiss: { viewModel.dismissActionSuggestion(suggestion) }
+                    )
+                }
+
                 if let intelligence = viewModel.conversationIntelligence {
                     ConversationIntelligenceCardView(intelligence: intelligence)
                 }

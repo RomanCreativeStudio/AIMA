@@ -38,6 +38,10 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
     public let status: TaskStatus
     public let priority: TaskPriority
     public let dueDate: String?
+    /// Conversation → Action sprint: `"conversation_suggestion"` when accepted from a Chat suggestion, `nil` for a hand-typed task.
+    public let source: String?
+    /// Conversation → Action sprint: for a `source: "conversation_suggestion"` task, carries `{"category": "todo" | "follow_up" | "meeting"}`. `[:]` for a hand-typed task.
+    public let metadata: [String: JSONValue]
     public let createdAt: String
     public let updatedAt: String
 
@@ -49,6 +53,8 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         status: TaskStatus,
         priority: TaskPriority,
         dueDate: String?,
+        source: String? = nil,
+        metadata: [String: JSONValue] = [:],
         createdAt: String,
         updatedAt: String
     ) {
@@ -59,8 +65,32 @@ public struct TaskItem: Codable, Identifiable, Equatable, Sendable {
         self.status = status
         self.priority = priority
         self.dueDate = dueDate
+        self.source = source
+        self.metadata = metadata
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, workspaceId, title, description, status, priority, dueDate, source, metadata, createdAt, updatedAt
+    }
+
+    /// Custom decode so a payload from before the Conversation → Action sprint (missing `source`/`metadata`
+    /// entirely) still decodes, defaulting to `nil`/`[:]` — the same backward-compatible-decode posture as
+    /// `MemoryRecord`'s scoring/lifecycle fields.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        workspaceId = try container.decode(String.self, forKey: .workspaceId)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        status = try container.decode(TaskStatus.self, forKey: .status)
+        priority = try container.decode(TaskPriority.self, forKey: .priority)
+        dueDate = try container.decodeIfPresent(String.self, forKey: .dueDate)
+        source = try container.decodeIfPresent(String.self, forKey: .source)
+        metadata = try container.decodeIfPresent([String: JSONValue].self, forKey: .metadata) ?? [:]
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        updatedAt = try container.decode(String.self, forKey: .updatedAt)
     }
 }
 
@@ -70,12 +100,24 @@ public struct CreateTaskRequest: Encodable, Sendable {
     public var description: String?
     public var priority: TaskPriority?
     public var dueDate: String?
+    /// Conversation → Action sprint: pass `"conversation_suggestion"` when this request is accepting a Chat suggestion.
+    public var source: String?
+    public var metadata: [String: JSONValue]?
 
-    public init(title: String, description: String? = nil, priority: TaskPriority? = nil, dueDate: String? = nil) {
+    public init(
+        title: String,
+        description: String? = nil,
+        priority: TaskPriority? = nil,
+        dueDate: String? = nil,
+        source: String? = nil,
+        metadata: [String: JSONValue]? = nil
+    ) {
         self.title = title
         self.description = description
         self.priority = priority
         self.dueDate = dueDate
+        self.source = source
+        self.metadata = metadata
     }
 }
 
