@@ -164,6 +164,34 @@ function suggestionsFromPatterns(workspaceId: string, patterns: readonly Pattern
         });
         break;
       }
+      case 'blocked_task_stale': {
+        suggestions.push({
+          id: 'task:blocked-stale',
+          workspaceId,
+          type: 'task',
+          title: 'Review blocked tasks',
+          explanation: pattern.description,
+          confidence: pattern.confidence,
+          source: 'blocked_task_stale_pattern',
+          timestamp: now,
+          payload: { taskIds: pattern.metadata.taskIds },
+        });
+        break;
+      }
+      case 'decision_without_followup': {
+        suggestions.push({
+          id: 'memory:decisions-without-followup',
+          workspaceId,
+          type: 'memory',
+          title: 'Create tasks for undecided follow-ups',
+          explanation: pattern.description,
+          confidence: pattern.confidence,
+          source: 'decision_without_followup_pattern',
+          timestamp: now,
+          payload: { memoryIds: pattern.metadata.memoryIds },
+        });
+        break;
+      }
       // 'activity_trend' and 'memory_usage_trend' are informational only — surfaced via detectPatterns(),
       // not translated into an actionable suggestion (there's no single next action a trend implies).
     }

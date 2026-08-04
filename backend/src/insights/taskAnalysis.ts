@@ -51,6 +51,20 @@ export function findOverdue(tasks: readonly Task[], now: Date): Task[] {
   return tasks.filter((task) => task.dueDate !== null && new Date(task.dueDate).getTime() < now.getTime());
 }
 
+/**
+ * Proactive Nudges sprint: open tasks overdue by at least `minDaysOverdue` full days — reuses `findOverdue`'s
+ * exact "dueDate < now" check, then filters further by elapsed time. `minDaysOverdue: 0` is identical to
+ * `findOverdue` (every overdue task qualifies, matching the pre-existing default behavior), so raising the
+ * threshold is purely additive — no existing caller's output changes unless it opts in.
+ */
+export function findOverdueByAtLeast(tasks: readonly Task[], now: Date, minDaysOverdue: number): Task[] {
+  const thresholdMs = minDaysOverdue * 24 * 60 * 60 * 1000;
+  return findOverdue(tasks, now).filter((task) => {
+    if (!task.dueDate) return false;
+    return now.getTime() - new Date(task.dueDate).getTime() >= thresholdMs;
+  });
+}
+
 /** Due within `windowMs` from `now`, excluding anything already overdue (that's `findOverdue`'s job). */
 export function findDueSoon(tasks: readonly Task[], now: Date, windowMs: number): Task[] {
   return tasks.filter((task) => {

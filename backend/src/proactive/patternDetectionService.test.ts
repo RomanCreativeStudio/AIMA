@@ -18,7 +18,7 @@ import { WorkspaceService } from '../workspaces/workspaceService';
 import { PatternDetectionService } from './patternDetectionService';
 import type { Pattern, PatternType } from './types';
 
-function buildService(client: Client) {
+function buildService(client: Client, overdueGraceDays?: number) {
   const capabilityRegistry = new CapabilityRegistry();
   const permissionEngine = new PermissionEngine(capabilityRegistry);
   const approvalEngine = new ApprovalEngine(client, permissionEngine);
@@ -28,7 +28,15 @@ function buildService(client: Client) {
   const memoryService = new MemoryService(client, new MockEmbeddingProvider());
   const workflowRegistry = new WorkflowRegistry();
   const workflowService = new WorkflowService(client, workflowRegistry, {} as Record<WorkflowKey, WorkflowHandler>, approvalEngine);
-  const service = new PatternDetectionService(workspaceService, taskService, workflowService, approvalEngine, actionLogger, memoryService);
+  const service = new PatternDetectionService(
+    workspaceService,
+    taskService,
+    workflowService,
+    approvalEngine,
+    actionLogger,
+    memoryService,
+    overdueGraceDays,
+  );
 
   return { service, taskService, approvalEngine, workflowService, memoryService, permissionEngine, actionLogger };
 }
@@ -154,6 +162,114 @@ test('missed_deadline is absent when nothing is overdue', async () => {
   });
 });
 
+test('missed_deadline respects a configurable overdueGraceDays threshold', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client, 2);
+
+    const oneDayOverdue = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Barely overdue', dueDate: oneDayOverdue });
+
+    const patterns = await service.detect(workspaceId);
+
+    assert.equal(patternsOfType(patterns, 'missed_deadline').length, 0, 'a 1-day-overdue task must not trigger a 2-day grace threshold');
+  });
+});
+
+test('missed_deadline fires once the overdueGraceDays threshold is met', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client, 2);
+
+    const threeDaysOverdue = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Well overdue', dueDate: threeDaysOverdue });
+
+    const patterns = await service.detect(workspaceId);
+    const [pattern] = patternsOfType(patterns, 'missed_deadline');
+
+    assert.ok(pattern);
+    assert.equal(pattern.occurrences, 1);
+  });
+});
+
+test('detects a blocked_task_stale pattern for a blocked task untouched for 3+ days', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client);
+
+    const blocked = await taskService.createTask({ workspaceId, title: 'Design review' });
+    await taskService.updateTask(workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+    await client.query("UPDATE tasks SET updated_at = now() - interval '4 days' WHERE id = $1", [blocked.id]);
+
+    const patterns = await service.detect(workspaceId);
+    const [pattern] = patternsOfType(patterns, 'blocked_task_stale');
+
+    assert.ok(pattern);
+    assert.equal(pattern.occurrences, 1);
+    assert.deepEqual(pattern.metadata.taskIds, [blocked.id]);
+  });
+});
+
+test('blocked_task_stale is absent for a blocked task tagged less than 3 days ago', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client);
+
+    const blocked = await taskService.createTask({ workspaceId, title: 'Design review' });
+    await taskService.updateTask(workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+
+    const patterns = await service.detect(workspaceId);
+
+    assert.equal(patternsOfType(patterns, 'blocked_task_stale').length, 0);
+  });
+});
+
+test('detects a decision_without_followup pattern for a decision with no related task created afterward', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, memoryService } = buildService(client);
+
+    const decision = await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to migrate the database to Postgres.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const patterns = await service.detect(workspaceId);
+    const [pattern] = patternsOfType(patterns, 'decision_without_followup');
+
+    assert.ok(pattern);
+    assert.equal(pattern.occurrences, 1);
+    assert.deepEqual(pattern.metadata.memoryIds, [decision.id]);
+  });
+});
+
+test('decision_without_followup is absent once a matching task is created after the decision', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, memoryService, taskService } = buildService(client);
+
+    const decision = await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to migrate the database to Postgres.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+    // Backdate the decision: withTestTransaction runs both inserts under one transaction, so under READ
+    // COMMITTED now() is frozen for its duration — the decision and the task below would otherwise share the
+    // exact same created_at, and hasFollowUpTask requires a task created strictly after the decision.
+    await client.query("UPDATE memory_records SET created_at = now() - interval '1 hour' WHERE id = $1", [decision.id]);
+    await taskService.createTask({ workspaceId, title: 'Migrate the database to Postgres' });
+
+    const patterns = await service.detect(workspaceId);
+
+    assert.equal(patternsOfType(patterns, 'decision_without_followup').length, 0);
+  });
+});
+
 test('activity_trend reports increasing when recent activity exists with nothing prior', async () => {
   await withTestTransaction(async (client) => {
     await seedCapabilities(client);
@@ -199,5 +315,29 @@ test('patterns are isolated per workspace', async () => {
 
     assert.equal(patternsOfType(patternsA, 'repeated_task').length, 1);
     assert.equal(patternsOfType(patternsB, 'repeated_task').length, 0);
+  });
+});
+
+test('blocked_task_stale and decision_without_followup patterns are isolated per workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+    const { service, taskService, memoryService } = buildService(client);
+
+    const blocked = await taskService.createTask({ workspaceId: b.workspaceId, title: 'Other workspace blocked task' });
+    await taskService.updateTask(b.workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+    await client.query("UPDATE tasks SET updated_at = now() - interval '4 days' WHERE id = $1", [blocked.id]);
+    await memoryService.createMemory({
+      workspaceId: b.workspaceId,
+      scope: 'workspace',
+      content: 'A decision in the other workspace.',
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const patternsA = await service.detect(a.workspaceId);
+
+    assert.equal(patternsOfType(patternsA, 'blocked_task_stale').length, 0);
+    assert.equal(patternsOfType(patternsA, 'decision_without_followup').length, 0);
   });
 });

@@ -9,7 +9,7 @@ import type { Task } from '../tasks/types';
 import type { TaskService } from '../tasks/taskService';
 import type { WorkflowService } from '../workflows/workflowService';
 import type { WorkspaceService } from '../workspaces/workspaceService';
-import { findCompletedRecently, findOverdue, isOpenTask, rankTasksByPriority } from './taskAnalysis';
+import { extractKeywords, findCompletedRecently, findOverdue, isOpenTask, rankTasksByPriority } from './taskAnalysis';
 import { ACTIVE_WORKFLOW_RUN_STATUSES, type DailyBriefing } from './types';
 
 const DEFAULT_PRIORITY_TASK_LIMIT = 5;
@@ -149,4 +149,46 @@ export function isBlockedTask(task: Task): boolean {
 /** Executive Assistant Loop sprint: an open task tagged `metadata.category === 'postponed'` by an accepted Chat suggestion. Exported for direct unit testing. */
 export function isPostponedTask(task: Task): boolean {
   return isOpenTask(task) && task.metadata?.category === 'postponed';
+}
+
+/** Proactive Nudges sprint: how long a blocked task can sit untouched before it's "stale" — 3 days, per the sprint's requirement. */
+const DEFAULT_STALE_BLOCKED_WINDOW_MS = 3 * 24 * 60 * 60 * 1000;
+
+/**
+ * Proactive Nudges sprint: a blocked task (see `isBlockedTask`) whose `updatedAt` hasn't moved in at least
+ * `staleWindowMs` — genuinely stuck, not just freshly tagged. `updatedAt` is bumped by every `TaskService.
+ * updateTask` call (including the one that tags `metadata.category: 'blocked'`), so this needs no new column,
+ * the same "reuse the timestamp that's already there" reasoning `findCompletedRecently` uses for `updatedAt`.
+ * Exported for direct unit testing.
+ */
+export function findStaleBlockedTasks(
+  tasks: readonly Task[],
+  now: Date,
+  staleWindowMs: number = DEFAULT_STALE_BLOCKED_WINDOW_MS,
+): Task[] {
+  return tasks.filter((task) => isBlockedTask(task) && now.getTime() - new Date(task.updatedAt).getTime() >= staleWindowMs);
+}
+
+/**
+ * Proactive Nudges sprint: a recent decision (see `isRecentDecision`) with no task created afterward whose
+ * title shares a significant keyword with the decision's content — reuses `taskAnalysis.ts#extractKeywords`,
+ * the exact same keyword-overlap heuristic `matchOpenTask`/`groupRelatedTasks` already use, rather than a new
+ * matching rule. Exported for direct unit testing.
+ */
+export function findDecisionsWithoutFollowUp(decisions: readonly MemoryRecord[], tasks: readonly Task[]): MemoryRecord[] {
+  return decisions.filter((decision) => !hasFollowUpTask(decision, tasks));
+}
+
+function hasFollowUpTask(decision: MemoryRecord, tasks: readonly Task[]): boolean {
+  const decisionKeywords = new Set(extractKeywords(decision.content));
+  if (decisionKeywords.size === 0) {
+    return false;
+  }
+  const decisionTime = new Date(decision.createdAt).getTime();
+  return tasks.some((task) => {
+    if (new Date(task.createdAt).getTime() <= decisionTime) {
+      return false;
+    }
+    return extractKeywords(task.title).some((keyword) => decisionKeywords.has(keyword));
+  });
 }

@@ -6,6 +6,7 @@ import {
   findCompletedRecently,
   findDueSoon,
   findOverdue,
+  findOverdueByAtLeast,
   groupRelatedTasks,
   isOpenTask,
   matchOpenTask,
@@ -100,6 +101,31 @@ test('findDueSoon includes a task due exactly at the window boundary', () => {
   const atBoundary = makeTask({ dueDate: new Date(NOW.getTime() + DUE_SOON_WINDOW_MS).toISOString() });
   const result = findDueSoon([atBoundary], NOW, DUE_SOON_WINDOW_MS);
   assert.deepEqual(result.map((task) => task.id), [atBoundary.id]);
+});
+
+test('findOverdueByAtLeast with a 0-day threshold matches findOverdue exactly', () => {
+  const overdue = makeTask({ dueDate: new Date(NOW.getTime() - DAY_MS).toISOString() });
+  const future = makeTask({ dueDate: new Date(NOW.getTime() + DAY_MS).toISOString() });
+
+  const result = findOverdueByAtLeast([overdue, future], NOW, 0);
+
+  assert.deepEqual(result.map((task) => task.id), findOverdue([overdue, future], NOW).map((task) => task.id));
+});
+
+test('findOverdueByAtLeast excludes a task overdue by less than the threshold', () => {
+  const barelyOverdue = makeTask({ dueDate: new Date(NOW.getTime() - DAY_MS).toISOString() });
+
+  const result = findOverdueByAtLeast([barelyOverdue], NOW, 2);
+
+  assert.deepEqual(result, []);
+});
+
+test('findOverdueByAtLeast includes a task overdue by at least the threshold', () => {
+  const wellOverdue = makeTask({ dueDate: new Date(NOW.getTime() - 3 * DAY_MS).toISOString() });
+
+  const result = findOverdueByAtLeast([wellOverdue], NOW, 2);
+
+  assert.deepEqual(result.map((task) => task.id), [wellOverdue.id]);
 });
 
 test('extractKeywords lowercases, dedupes, and drops short words and stopwords', () => {

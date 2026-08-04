@@ -46,6 +46,7 @@ struct DashboardView: View {
                 quickAccessSection
                 systemStatusSection
                 dailyBriefingSection
+                needsAttentionSection
                 productivityWidgetsSection
                 insightCardsSection
                 recommendationsSection
@@ -413,6 +414,26 @@ struct DashboardView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Needs Attention (Proactive Nudges sprint): the subset of `viewModel.suggestions` that are unprompted
+    /// nudges about something already going stale — an overdue task, a blocked task with no recent update, or
+    /// a decision with no follow-up task yet. Visually distinct from the general Recommendations section below
+    /// (red accent, its own card) since these are things Alex didn't ask about but should probably see first.
+    /// Reuses `SuggestionRow` verbatim — `suggestion.explanation` already answers "why did this surface,"
+    /// `suggestion.source` is available as its tooltip.
+    @ViewBuilder
+    private var needsAttentionSection: some View {
+        if !viewModel.nudges.isEmpty {
+            SectionCard(title: "Needs Attention") {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(viewModel.nudges) { nudge in
+                        SuggestionRow(suggestion: nudge)
+                    }
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 10).stroke(.red.opacity(0.3)))
         }
     }
 

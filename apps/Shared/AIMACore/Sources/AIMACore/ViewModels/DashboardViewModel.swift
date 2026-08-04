@@ -45,6 +45,23 @@ public final class DashboardViewModel {
         )
     }
 
+    /// Proactive Nudges sprint: `source` values the backend's `ProactiveIntelligenceService` gives suggestions
+    /// derived from an overdue/blocked-task/decision-without-followup pattern — matches
+    /// `backend/src/proactive/proactiveIntelligenceService.ts`'s `suggestionsFromPatterns` exactly.
+    private static let nudgeSuggestionSources: Set<String> = [
+        "missed_deadline_pattern",
+        "blocked_task_stale_pattern",
+        "decision_without_followup_pattern",
+    ]
+
+    /// Backs the Dashboard's "Needs Attention" section — the subset of `suggestions` that are unprompted nudges
+    /// about something already going stale (overdue, blocked, or an undecided follow-up), distinct from the
+    /// general Recommendations section that shows every advisory suggestion. Reuses `suggestions` verbatim; no
+    /// second fetch, no duplicate ranking or explanation logic.
+    public var nudges: [Suggestion] {
+        suggestions.filter { Self.nudgeSuggestionSources.contains($0.source) }
+    }
+
     public func load(workspaceId: String) async {
         isLoading = true
         errorMessage = nil

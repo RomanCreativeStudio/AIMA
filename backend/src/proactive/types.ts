@@ -27,6 +27,8 @@ export const PATTERN_TYPES = [
   'missed_deadline',
   'activity_trend',
   'memory_usage_trend',
+  'blocked_task_stale',
+  'decision_without_followup',
 ] as const;
 export type PatternType = (typeof PATTERN_TYPES)[number];
 

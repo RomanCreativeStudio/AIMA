@@ -1815,6 +1815,13 @@ public actor MockAPIClient: APIClient {
             detectedAt: "2026-01-01T00:00:00.000Z",
             metadata: ["workflowKey": .string("daily_workspace_briefing")]
         ),
+        Pattern(
+            workspaceId: "mock-ws-rcs", type: .blockedTaskStale,
+            description: "1 blocked task(s) have had no update in 3+ days.",
+            confidence: 0.6, occurrences: 1,
+            detectedAt: "2026-01-01T00:00:00.000Z",
+            metadata: ["taskIds": .array([.string("mock-task-2")])]
+        ),
     ]
 
     private static let seedSuggestions: [Suggestion] = [
@@ -1833,6 +1840,24 @@ public actor MockAPIClient: APIClient {
             confidence: 0.3, source: "integration_not_connected",
             timestamp: "2026-01-01T00:00:00.000Z",
             payload: ["provider": .string("calendar")]
+        ),
+        // Proactive Nudges sprint: mock "Needs Attention" data so the Dashboard's nudges section has something
+        // to render in previews/tests without needing a real PatternDetectionService behind the mock.
+        Suggestion(
+            id: "task:blocked-stale", workspaceId: "mock-ws-rcs", type: .task,
+            title: "Review blocked tasks",
+            explanation: "1 blocked task(s) have had no update in 3+ days.",
+            confidence: 0.6, source: "blocked_task_stale_pattern",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            payload: ["taskIds": .array([.string("mock-task-2")])]
+        ),
+        Suggestion(
+            id: "memory:decisions-without-followup", workspaceId: "mock-ws-rcs", type: .memory,
+            title: "Create tasks for undecided follow-ups",
+            explanation: "1 recent decision(s) have no follow-up task yet.",
+            confidence: 0.6, source: "decision_without_followup_pattern",
+            timestamp: "2026-01-01T00:00:00.000Z",
+            payload: ["memoryIds": .array([.string("mock-memory-decision-1")])]
         ),
     ]
 

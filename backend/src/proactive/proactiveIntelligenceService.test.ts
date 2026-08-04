@@ -141,6 +141,74 @@ test('getSuggestions produces a task suggestion for missed deadlines', async () 
   });
 });
 
+test('getSuggestions produces a task suggestion for a stale blocked task', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService } = buildService(client);
+
+    const blocked = await taskService.createTask({ workspaceId, title: 'Design review' });
+    await taskService.updateTask(workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+    await client.query("UPDATE tasks SET updated_at = now() - interval '4 days' WHERE id = $1", [blocked.id]);
+
+    const suggestions = await service.getSuggestions(workspaceId);
+    const staleBlockedSuggestion = suggestions.find((s) => s.source === 'blocked_task_stale_pattern');
+
+    assert.ok(staleBlockedSuggestion);
+    assert.equal(staleBlockedSuggestion.type, 'task');
+    assert.deepEqual(staleBlockedSuggestion.payload.taskIds, [blocked.id]);
+  });
+});
+
+test('getSuggestions produces a memory suggestion for a decision with no follow-up task', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, memoryService } = buildService(client);
+
+    const decision = await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to migrate the database to Postgres.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const suggestions = await service.getSuggestions(workspaceId);
+    const decisionSuggestion = suggestions.find((s) => s.source === 'decision_without_followup_pattern');
+
+    assert.ok(decisionSuggestion);
+    assert.equal(decisionSuggestion.type, 'memory');
+    assert.deepEqual(decisionSuggestion.payload.memoryIds, [decision.id]);
+  });
+});
+
+test('getSuggestions never emits the same nudge suggestion id twice, even across multiple triggered nudges', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { service, taskService, memoryService } = buildService(client);
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+    const blocked = await taskService.createTask({ workspaceId, title: 'Design review' });
+    await taskService.updateTask(workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+    await client.query("UPDATE tasks SET updated_at = now() - interval '4 days' WHERE id = $1", [blocked.id]);
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to migrate the database to Postgres.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const suggestions = await service.getSuggestions(workspaceId);
+    const ids = suggestions.map((s) => s.id);
+
+    assert.equal(new Set(ids).size, ids.length, 'no duplicate suggestion ids across nudge types');
+    assert.ok(suggestions.some((s) => s.source === 'missed_deadline_pattern'));
+    assert.ok(suggestions.some((s) => s.source === 'blocked_task_stale_pattern'));
+    assert.ok(suggestions.some((s) => s.source === 'decision_without_followup_pattern'));
+  });
+});
+
 test('getSuggestions produces a memory suggestion when a stored memory closely matches a repeated task keyword', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'rcs');

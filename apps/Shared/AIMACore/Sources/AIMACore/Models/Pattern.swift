@@ -1,6 +1,9 @@
 import Foundation
 
-/// Mirrors `backend/src/proactive/types.ts#PatternType`.
+/// Mirrors `backend/src/proactive/types.ts#PatternType`. `blockedTaskStale`/`decisionWithoutFollowup` are
+/// Proactive Nudges sprint additions — required (not just additive convenience) because `PatternType` is a
+/// strict raw-value enum: without these cases, decoding `GET /proactive/patterns` would throw the moment either
+/// nudge fires, since Swift's synthesized `Decodable` rejects an unrecognized raw string.
 public enum PatternType: String, Codable, Sendable {
     case repeatedTask = "repeated_task"
     case frequentWorkflow = "frequent_workflow"
@@ -8,6 +11,8 @@ public enum PatternType: String, Codable, Sendable {
     case missedDeadline = "missed_deadline"
     case activityTrend = "activity_trend"
     case memoryUsageTrend = "memory_usage_trend"
+    case blockedTaskStale = "blocked_task_stale"
+    case decisionWithoutFollowup = "decision_without_followup"
 }
 
 /// Mirrors `backend/src/proactive/types.ts#Pattern` (Phase 3.5, item 3) — one deterministically-detected pattern

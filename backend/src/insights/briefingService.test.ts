@@ -28,6 +28,8 @@ import { WorkspaceService } from '../workspaces/workspaceService';
 import {
   BriefingService,
   buildGreeting,
+  findDecisionsWithoutFollowUp,
+  findStaleBlockedTasks,
   isBlockedTask,
   isOpenCommitment,
   isPostponedTask,
@@ -721,6 +723,77 @@ test('isPostponedTask requires an open task with metadata.category === postponed
   assert.equal(isPostponedTask({ ...base, status: 'todo', metadata: { category: 'postponed' } }), true);
   assert.equal(isPostponedTask({ ...base, status: 'done', metadata: { category: 'postponed' } }), false);
   assert.equal(isPostponedTask({ ...base, status: 'todo', metadata: { category: 'blocked' } }), false);
+});
+
+// Proactive Nudges sprint: findStaleBlockedTasks, findDecisionsWithoutFollowUp.
+
+test('findStaleBlockedTasks returns only blocked tasks whose updatedAt is at least staleWindowMs old', () => {
+  const base = {
+    id: 't1',
+    workspaceId: 'w1',
+    title: 'x',
+    description: null,
+    status: 'todo' as const,
+    priority: 'medium' as const,
+    dueDate: null,
+    source: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  };
+  const now = new Date('2026-01-10T00:00:00.000Z');
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const staleBlocked = { ...base, id: 'stale', metadata: { category: 'blocked' }, updatedAt: new Date(now.getTime() - 4 * dayMs).toISOString() };
+  const freshBlocked = { ...base, id: 'fresh', metadata: { category: 'blocked' }, updatedAt: new Date(now.getTime() - 1 * dayMs).toISOString() };
+  const staleNotBlocked = { ...base, id: 'not-blocked', metadata: {}, updatedAt: new Date(now.getTime() - 10 * dayMs).toISOString() };
+
+  const result = findStaleBlockedTasks([staleBlocked, freshBlocked, staleNotBlocked], now, 3 * dayMs);
+
+  assert.deepEqual(result.map((t) => t.id), ['stale']);
+});
+
+test('findDecisionsWithoutFollowUp excludes a decision once a keyword-matching task is created afterward', () => {
+  const decisionBase = {
+    id: 'd1',
+    workspaceId: 'w1',
+    scope: 'workspace' as const,
+    source: 'auto_extracted',
+    conversationId: null,
+    projectKey: null,
+    metadata: { category: 'decision' },
+    importanceScore: 0.5,
+    confidenceScore: 1,
+    memoryType: 'long_term' as const,
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
+  };
+  const decision = { ...decisionBase, content: "We've decided to migrate to Postgres.", createdAt: '2026-01-01T00:00:00.000Z' };
+  const taskBase = {
+    id: 't1',
+    workspaceId: 'w1',
+    description: null,
+    status: 'todo' as const,
+    priority: 'medium' as const,
+    dueDate: null,
+    source: null,
+    metadata: {},
+    updatedAt: '2026-01-02T00:00:00.000Z',
+  };
+
+  const matchingLaterTask = { ...taskBase, title: 'Migrate to Postgres', createdAt: '2026-01-02T00:00:00.000Z' };
+  const withFollowUp = findDecisionsWithoutFollowUp([decision], [matchingLaterTask]);
+  assert.deepEqual(withFollowUp, []);
+
+  const noFollowUp = findDecisionsWithoutFollowUp([decision], []);
+  assert.deepEqual(noFollowUp.map((d) => d.id), ['d1']);
+
+  const nonMatchingTask = { ...taskBase, title: 'Buy coffee filters', createdAt: '2026-01-02T00:00:00.000Z' };
+  const withUnrelatedTask = findDecisionsWithoutFollowUp([decision], [nonMatchingTask]);
+  assert.deepEqual(withUnrelatedTask.map((d) => d.id), ['d1']);
+
+  const earlierMatchingTask = { ...taskBase, title: 'Migrate to Postgres', createdAt: '2025-12-31T00:00:00.000Z' };
+  const withEarlierTask = findDecisionsWithoutFollowUp([decision], [earlierMatchingTask]);
+  assert.deepEqual(withEarlierTask.map((d) => d.id), ['d1'], 'a task created before the decision does not count as a follow-up');
 });
 
 test('buildGreeting mentions the workspace name and picks a time-of-day salutation', () => {

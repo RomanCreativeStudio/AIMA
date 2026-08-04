@@ -669,6 +669,23 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(pattern.occurrences, 2)
     }
 
+    func testDecodesPatternWithProactiveNudgesTypes() throws {
+        // backend/src/proactive/types.ts#PATTERN_TYPES (Proactive Nudges sprint additions).
+        let blockedJSON = """
+        {"workspaceId":"w1","type":"blocked_task_stale","description":"1 blocked task(s) have had no update in 3+ days.",
+         "confidence":0.6,"occurrences":1,"detectedAt":"2026-01-01T00:00:00.000Z","metadata":{"taskIds":["t1"]}}
+        """.data(using: .utf8)!
+        let blocked = try decoder.decode(Pattern.self, from: blockedJSON)
+        XCTAssertEqual(blocked.type, .blockedTaskStale)
+
+        let decisionJSON = """
+        {"workspaceId":"w1","type":"decision_without_followup","description":"1 recent decision(s) have no follow-up task yet.",
+         "confidence":0.6,"occurrences":1,"detectedAt":"2026-01-01T00:00:00.000Z","metadata":{"memoryIds":["m1"]}}
+        """.data(using: .utf8)!
+        let decision = try decoder.decode(Pattern.self, from: decisionJSON)
+        XCTAssertEqual(decision.type, .decisionWithoutFollowup)
+    }
+
     func testDecodesTaskIntelligenceWithRelatedGroups() throws {
         let json = """
         {

@@ -120,6 +120,29 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.patterns.allSatisfy { $0.workspaceId == "mock-ws-rcs" })
     }
 
+    func testNudgesSurfacesOnlyOverdueBlockedAndDecisionWithoutFollowUpSuggestions() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        XCTAssertFalse(viewModel.nudges.isEmpty, "sanity check: mock-ws-rcs has seeded nudge suggestions")
+        XCTAssertTrue(viewModel.nudges.allSatisfy { suggestion in
+            ["missed_deadline_pattern", "blocked_task_stale_pattern", "decision_without_followup_pattern"].contains(suggestion.source)
+        })
+        XCTAssertTrue(viewModel.nudges.count < viewModel.suggestions.count, "nudges must be a strict subset of every advisory suggestion")
+        XCTAssertFalse(viewModel.nudges.contains { $0.source == "frequent_workflow_pattern" })
+    }
+
+    func testNudgesIsEmptyWhenNoNudgeSuggestionsArePresent() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-personal")
+
+        XCTAssertTrue(viewModel.nudges.isEmpty)
+    }
+
     func testTaskCountsRollUpByStatus() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)

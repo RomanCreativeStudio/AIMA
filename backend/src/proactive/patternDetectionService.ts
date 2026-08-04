@@ -3,7 +3,8 @@ import type { ActionLogger } from '../actionLog/logger';
 import type { ActionLogRecord } from '../actionLog/logger';
 import type { ApprovalEngine } from '../approval/approvalEngine';
 import type { PendingApproval } from '../approval/types';
-import { findOverdue, groupRelatedTasks, isOpenTask } from '../insights/taskAnalysis';
+import { findDecisionsWithoutFollowUp, findStaleBlockedTasks, isRecentDecision } from '../insights/briefingService';
+import { findOverdueByAtLeast, groupRelatedTasks, isOpenTask } from '../insights/taskAnalysis';
 import type { MemoryRecord } from '../memory/types';
 import type { MemoryService } from '../memory/memoryService';
 import type { Task } from '../tasks/types';
@@ -18,6 +19,8 @@ const TREND_WINDOW_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 /** Enough history to compute a two-window trend without an unbounded query. */
 const ACTIVITY_SAMPLE_LIMIT = 200;
 const MEMORY_SAMPLE_LIMIT = 200;
+/** Proactive Nudges sprint: default "overdue" grace period — 0 preserves `detectMissedDeadlines`'s pre-existing behavior (every overdue task counts) unless a caller opts into a longer threshold. */
+const DEFAULT_OVERDUE_GRACE_DAYS = 0;
 
 /**
  * Deterministic pattern detection over a workspace's existing data (Phase 3.5, item 3):
@@ -35,6 +38,8 @@ export class PatternDetectionService {
     private readonly approvalEngine: ApprovalEngine,
     private readonly actionLogger: ActionLogger,
     private readonly memoryService: MemoryService,
+    /** Proactive Nudges sprint: how many days overdue a task must be before `detectMissedDeadlines` flags it — additive, optional, defaults to the pre-existing "any overdue task" behavior. */
+    private readonly overdueGraceDays: number = DEFAULT_OVERDUE_GRACE_DAYS,
   ) {}
 
   async detect(workspaceId: string): Promise<Pattern[]> {
@@ -54,6 +59,8 @@ export class PatternDetectionService {
       ...this.detectFrequentWorkflows(workspaceId, workflowRuns),
       ...this.detectRecurringApprovals(workspaceId, approvals),
       ...this.detectMissedDeadlines(workspaceId, tasks, now),
+      ...this.detectStaleBlockedTasks(workspaceId, tasks, now),
+      ...this.detectDecisionsWithoutFollowUp(workspaceId, memories, tasks),
       this.detectActivityTrend(workspaceId, recentActivity, now),
       this.detectMemoryUsageTrend(workspaceId, memories, now),
     ];
@@ -103,7 +110,7 @@ export class PatternDetectionService {
   }
 
   private detectMissedDeadlines(workspaceId: string, tasks: readonly Task[], now: Date): Pattern[] {
-    const overdue = findOverdue(tasks.filter(isOpenTask), now);
+    const overdue = findOverdueByAtLeast(tasks.filter(isOpenTask), now, this.overdueGraceDays);
     if (overdue.length === 0) {
       return [];
     }
@@ -116,6 +123,45 @@ export class PatternDetectionService {
         occurrences: overdue.length,
         detectedAt: now.toISOString(),
         metadata: { taskIds: overdue.map((task) => task.id) },
+      },
+    ];
+  }
+
+  /** Proactive Nudges sprint: reuses `briefingService.ts#findStaleBlockedTasks` — no duplicate staleness logic. */
+  private detectStaleBlockedTasks(workspaceId: string, tasks: readonly Task[], now: Date): Pattern[] {
+    const stale = findStaleBlockedTasks(tasks, now);
+    if (stale.length === 0) {
+      return [];
+    }
+    return [
+      {
+        workspaceId,
+        type: 'blocked_task_stale',
+        description: `${stale.length} blocked task(s) have had no update in 3+ days.`,
+        confidence: computeRecurrenceConfidence(stale.length, 1),
+        occurrences: stale.length,
+        detectedAt: now.toISOString(),
+        metadata: { taskIds: stale.map((task) => task.id) },
+      },
+    ];
+  }
+
+  /** Proactive Nudges sprint: reuses `briefingService.ts#isRecentDecision`/`findDecisionsWithoutFollowUp` — no duplicate decision detection or matching logic. */
+  private detectDecisionsWithoutFollowUp(workspaceId: string, memories: readonly MemoryRecord[], tasks: readonly Task[]): Pattern[] {
+    const decisions = memories.filter(isRecentDecision);
+    const withoutFollowUp = findDecisionsWithoutFollowUp(decisions, tasks);
+    if (withoutFollowUp.length === 0) {
+      return [];
+    }
+    return [
+      {
+        workspaceId,
+        type: 'decision_without_followup',
+        description: `${withoutFollowUp.length} recent decision(s) have no follow-up task yet.`,
+        confidence: computeRecurrenceConfidence(withoutFollowUp.length, 1),
+        occurrences: withoutFollowUp.length,
+        detectedAt: new Date().toISOString(),
+        metadata: { memoryIds: withoutFollowUp.map((memory) => memory.id) },
       },
     ];
   }
