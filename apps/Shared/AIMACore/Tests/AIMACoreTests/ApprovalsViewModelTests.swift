@@ -61,6 +61,18 @@ final class ApprovalsViewModelTests: XCTestCase {
         XCTAssertNil(viewModel.selectedApproval)
     }
 
+    func testApprovalsAreScopedToTheirOwnWorkspace() async {
+        let apiClient = MockAPIClient()
+        let rcsViewModel = ApprovalsViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await rcsViewModel.load()
+        XCTAssertFalse(rcsViewModel.approvals.isEmpty, "sanity check: mock-ws-rcs has a seeded pending approval")
+
+        let otherViewModel = ApprovalsViewModel(apiClient: apiClient, workspaceId: "mock-ws-personal")
+        await otherViewModel.load()
+
+        XCTAssertTrue(otherViewModel.approvals.isEmpty, "an approval pending in one workspace must never appear in another's list")
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)

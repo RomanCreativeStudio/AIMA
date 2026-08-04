@@ -82,6 +82,33 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(counts.done, 0)
     }
 
+    // MARK: - Workspace scoping (Proactive Intelligence Experience sprint)
+
+    func testLoadingADifferentWorkspaceReplacesPatternsAndSuggestionsRatherThanLeavingStaleOnes() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+        XCTAssertFalse(viewModel.patterns.isEmpty, "sanity check: mock-ws-rcs has seeded patterns")
+        XCTAssertFalse(viewModel.suggestions.isEmpty, "sanity check: mock-ws-rcs has seeded suggestions")
+
+        await viewModel.load(workspaceId: "mock-ws-personal")
+
+        XCTAssertTrue(viewModel.patterns.isEmpty, "a pattern detected in one workspace must never leak into another's dashboard")
+        XCTAssertTrue(viewModel.suggestions.isEmpty, "a suggestion generated in one workspace must never leak into another's dashboard")
+        XCTAssertEqual(viewModel.workspace?.id, "mock-ws-personal")
+    }
+
+    func testLoadingADifferentWorkspaceReplacesPendingApprovalsRatherThanLeavingStaleOnes() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+        XCTAssertFalse(viewModel.pendingApprovals.isEmpty, "sanity check: mock-ws-rcs has a seeded pending approval")
+
+        await viewModel.load(workspaceId: "mock-ws-personal")
+
+        XCTAssertTrue(viewModel.pendingApprovals.isEmpty, "an approval pending in one workspace must never leak into another's dashboard")
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)
