@@ -15,6 +15,21 @@ final class WorkspaceViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.activeWorkspace?.slug, .rcs)
     }
 
+    // MARK: - Empty/new-account state (Product Flow & Beta Readiness Audit)
+
+    func testLoadWithNoWorkspacesLeavesTheListEmptyWithoutAnError() async {
+        let apiClient = MockAPIClient()
+        // No workspace in MockAPIClient's seed data belongs to this id — the same shape a genuinely new
+        // account (auto-provisioned via login, but with no workspace ever created for it) would produce.
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "brand-new-user")
+
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.workspaces.isEmpty)
+        XCTAssertNil(viewModel.activeWorkspace, "with no workspaces loaded, there can be no active one to show")
+        XCTAssertNil(viewModel.errorMessage, "having zero workspaces is a valid, non-error state")
+    }
+
     func testSwitchWorkspaceChangesTheActiveWorkspace() async {
         let apiClient = MockAPIClient()
         let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")

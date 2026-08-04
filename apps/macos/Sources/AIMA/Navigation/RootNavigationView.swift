@@ -134,6 +134,15 @@ struct RootNavigationView: View {
             content(workspaceId).id(workspaceId)
         } else if workspaceViewModel.isLoading {
             ProgressView("Loading workspaces…")
+        } else if workspaceViewModel.workspaces.isEmpty {
+            // Distinct from the "pick one" case below (Product Flow & Beta Readiness Audit) — telling a user
+            // with zero workspaces to "pick one from the Workspace tab" sends them somewhere with nothing to
+            // pick, which is worse than this screen's own empty state.
+            ContentUnavailableView(
+                "No Workspace Yet",
+                systemImage: "square.stack.3d.up.slash",
+                description: Text("This account has no workspace set up yet. Contact your AIMA administrator to get one created.")
+            )
         } else {
             ContentUnavailableView(
                 "No Workspace Selected",

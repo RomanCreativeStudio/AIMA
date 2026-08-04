@@ -38,12 +38,23 @@ struct WorkspaceSwitcherView: View {
                 .buttonStyle(.plain)
             }
 
-            activitySummarySection
+            if !viewModel.workspaces.isEmpty {
+                activitySummarySection
+            }
         }
         .navigationTitle("Workspace")
         .overlay {
             if viewModel.isLoading && viewModel.workspaces.isEmpty {
                 ProgressView()
+            } else if viewModel.workspaces.isEmpty {
+                // A real, if rare, state (Product Flow & Beta Readiness Audit): an account with no workspace
+                // yet — e.g. one just auto-provisioned on first login before any workspace exists for it.
+                // Explains what's true instead of showing an empty list with no context.
+                ContentUnavailableView(
+                    "No Workspaces Yet",
+                    systemImage: "square.stack.3d.up.slash",
+                    description: Text("This account has no workspace set up yet. Contact your AIMA administrator to get one created.")
+                )
             }
         }
         .task {
