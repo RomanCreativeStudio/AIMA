@@ -519,8 +519,10 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/workspaces/\(workspaceId)/feedback", envelope: FeedbackListEnvelope.self).feedback
     }
 
-    public func listBetaUsers() async throws -> [AdminBetaUserSummary] {
-        try await send("GET", "/api/admin/beta-users", envelope: AdminBetaUsersEnvelope.self).users
+    public func listBetaUsers(query: String?) async throws -> [AdminBetaUserSummary] {
+        var params: [String: String] = [:]
+        if let query { params["query"] = query }
+        return try await send("GET", "/api/admin/beta-users", query: params, envelope: AdminBetaUsersEnvelope.self).users
     }
 
     public func listAdminFeedback(limit: Int?) async throws -> [AdminFeedbackEntry] {
@@ -536,6 +538,21 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
             body: UpdateFeedbackStatusRequest(status: status),
             envelope: AdminFeedbackEntryEnvelope.self
         ).feedback
+    }
+
+    public func listAllUsers(query: String?) async throws -> [AdminUserSummary] {
+        var params: [String: String] = [:]
+        if let query { params["query"] = query }
+        return try await send("GET", "/api/admin/users", query: params, envelope: AdminUsersEnvelope.self).users
+    }
+
+    public func updateBetaTesterStatus(userId: String, request: UpdateBetaTesterRequest) async throws -> AdminUserSummary {
+        try await send(
+            "PATCH",
+            "/api/admin/users/\(userId)",
+            body: request,
+            envelope: AdminUserEnvelope.self
+        ).user
     }
 
     // MARK: - Core request plumbing
@@ -668,3 +685,5 @@ private struct FeedbackListEnvelope: Decodable { let feedback: [Feedback] }
 private struct AdminBetaUsersEnvelope: Decodable { let users: [AdminBetaUserSummary] }
 private struct AdminFeedbackEnvelope: Decodable { let feedback: [AdminFeedbackEntry] }
 private struct AdminFeedbackEntryEnvelope: Decodable { let feedback: AdminFeedbackEntry }
+private struct AdminUsersEnvelope: Decodable { let users: [AdminUserSummary] }
+private struct AdminUserEnvelope: Decodable { let user: AdminUserSummary }

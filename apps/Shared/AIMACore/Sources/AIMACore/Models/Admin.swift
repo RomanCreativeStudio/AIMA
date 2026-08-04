@@ -41,6 +41,9 @@ public struct AdminBetaUserSummary: Codable, Identifiable, Equatable, Sendable {
     public let onboardingCompleted: Bool
     public let feedbackCount: Int
     public let usage: AdminUsageSummary
+    /// Beta Tester Management sprint: admin-only invite notes/tags — see `AdminUserSummary`'s doc comment.
+    public let adminNotes: String?
+    public let adminTags: [String]
 
     public var id: String { userId }
 
@@ -54,7 +57,9 @@ public struct AdminBetaUserSummary: Codable, Identifiable, Equatable, Sendable {
         lastActiveAt: String?,
         onboardingCompleted: Bool,
         feedbackCount: Int,
-        usage: AdminUsageSummary
+        usage: AdminUsageSummary,
+        adminNotes: String?,
+        adminTags: [String]
     ) {
         self.userId = userId
         self.email = email
@@ -66,6 +71,46 @@ public struct AdminBetaUserSummary: Codable, Identifiable, Equatable, Sendable {
         self.onboardingCompleted = onboardingCompleted
         self.feedbackCount = feedbackCount
         self.usage = usage
+        self.adminNotes = adminNotes
+        self.adminTags = adminTags
+    }
+}
+
+/// Mirrors `backend/src/admin/types.ts#AdminUserSummary` (Beta Tester Management sprint) — a lightweight row
+/// for the "every account, not just current beta testers" admin view, used to find a candidate and toggle
+/// them into (or out of) the beta, and to record `adminNotes`/`adminTags` about them. Composed from the same
+/// `UserProfile.preferences` `AdminBetaUserSummary` already reads — no new storage.
+public struct AdminUserSummary: Codable, Identifiable, Equatable, Sendable {
+    public let userId: String
+    public let email: String
+    public let displayName: String?
+    public let betaTester: Bool
+    public let adminNotes: String?
+    public let adminTags: [String]
+
+    public var id: String { userId }
+
+    public init(userId: String, email: String, displayName: String?, betaTester: Bool, adminNotes: String?, adminTags: [String]) {
+        self.userId = userId
+        self.email = email
+        self.displayName = displayName
+        self.betaTester = betaTester
+        self.adminNotes = adminNotes
+        self.adminTags = adminTags
+    }
+}
+
+/// Mirrors the PATCH `/api/admin/users/:id` body — any subset of the three fields; the backend applies
+/// only the ones present (see `UpdateBetaTesterInput` server-side).
+public struct UpdateBetaTesterRequest: Encodable, Sendable {
+    public var betaTester: Bool?
+    public var adminNotes: String?
+    public var adminTags: [String]?
+
+    public init(betaTester: Bool? = nil, adminNotes: String? = nil, adminTags: [String]? = nil) {
+        self.betaTester = betaTester
+        self.adminNotes = adminNotes
+        self.adminTags = adminTags
     }
 }
 

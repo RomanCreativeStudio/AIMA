@@ -31,6 +31,7 @@ import { CapabilityRegistry } from '../permissions/registry';
 import { PermissionEngine } from '../permissions/engine';
 import { TaskService } from '../tasks/taskService';
 import { UserService } from '../users/userService';
+import { UserNotFoundError } from '../users/errors';
 import type { UpdateUserProfileInput } from '../users/types';
 import type { WorkflowHandler } from '../workflows/handlers/types';
 import { WorkflowRegistry } from '../workflows/registry';
@@ -249,6 +250,111 @@ test('updateFeedbackStatus rejects an invalid transition', async () => {
     const feedback = await feedbackService.createFeedback({ workspaceId, userId, message: 'x' });
 
     await assert.rejects(() => adminService.updateFeedbackStatus(feedback.id, 'resolved'));
+  });
+});
+
+test('listBetaUsers filters by a query matching email or displayName', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+    await markAsBetaTester(userService, a.userId);
+    await markAsBetaTester(userService, b.userId);
+    await userService.updateProfile(a.userId, { displayName: 'Roman Findlay' });
+
+    const results = await adminService.listBetaUsers('roman');
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].userId, a.userId);
+  });
+});
+
+test('listAllUsers returns every account, including ones not marked as beta testers', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const betaTester = await seedWorkspace(client, 'personal');
+    const regularUser = await seedWorkspace(client, 'rcs');
+    await markAsBetaTester(userService, betaTester.userId);
+
+    const results = await adminService.listAllUsers();
+    const ids = results.map((r) => r.userId);
+
+    assert.ok(ids.includes(betaTester.userId));
+    assert.ok(ids.includes(regularUser.userId));
+    assert.equal(results.find((r) => r.userId === betaTester.userId)?.betaTester, true);
+    assert.equal(results.find((r) => r.userId === regularUser.userId)?.betaTester, false);
+  });
+});
+
+test('listAllUsers filters by a query matching email or displayName', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const a = await seedWorkspace(client, 'rcs');
+    await seedWorkspace(client, 'mfs');
+    await userService.updateProfile(a.userId, { displayName: 'Unique Candidate' });
+
+    const results = await adminService.listAllUsers('unique candidate');
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].userId, a.userId);
+  });
+});
+
+test('updateUserBetaStatus toggles betaTester without touching unrelated preferences', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const { userId } = await seedWorkspace(client, 'personal');
+    await userService.updateProfile(userId, { preferences: { onboardingCompleted: true } });
+
+    const updated = await adminService.updateUserBetaStatus(userId, { betaTester: true });
+
+    assert.equal(updated.betaTester, true);
+    const reloaded = await userService.getUser(userId);
+    assert.equal(reloaded.preferences.onboardingCompleted, true);
+    assert.equal(reloaded.preferences.betaTester, true);
+  });
+});
+
+test('updateUserBetaStatus records adminNotes and adminTags without touching betaTester', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const { userId } = await seedWorkspace(client, 'rcs');
+    await markAsBetaTester(userService, userId);
+
+    const updated = await adminService.updateUserBetaStatus(userId, {
+      adminNotes: 'Invited via Discord, follow up 3/1',
+      adminTags: ['design-partner', 'power-user'],
+    });
+
+    assert.equal(updated.betaTester, true);
+    assert.equal(updated.adminNotes, 'Invited via Discord, follow up 3/1');
+    assert.deepEqual(updated.adminTags, ['design-partner', 'power-user']);
+  });
+});
+
+test('updateUserBetaStatus rejects an unknown userId with UserNotFoundError', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService } = buildService(client);
+
+    await assert.rejects(
+      () => adminService.updateUserBetaStatus('00000000-0000-0000-0000-000000000000', { betaTester: true }),
+      UserNotFoundError,
+    );
+  });
+});
+
+test('listBetaUsers surfaces adminNotes/adminTags recorded via updateUserBetaStatus', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const { userId } = await seedWorkspace(client, 'mfs');
+    await markAsBetaTester(userService, userId);
+    await adminService.updateUserBetaStatus(userId, { adminNotes: 'VIP', adminTags: ['vip'] });
+
+    const results = await adminService.listBetaUsers();
+    const summary = results.find((r) => r.userId === userId);
+
+    assert.equal(summary?.adminNotes, 'VIP');
+    assert.deepEqual(summary?.adminTags, ['vip']);
   });
 });
 

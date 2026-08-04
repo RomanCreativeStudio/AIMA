@@ -15,6 +15,16 @@ public final class AdminViewModel {
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
 
+    /// Bound to the Beta Users search field (Beta Tester Management sprint) — mutate this then call
+    /// `searchBetaUsers()`, mirroring `SearchViewModel.query`'s "explicit call, not as-you-type" pattern.
+    public var betaUserQuery: String = ""
+
+    /// Beta Tester Management sprint: every account, not just current beta testers — the pool `updateUser`
+    /// promotes/demotes from and annotates. Loaded separately from `betaUsers`, via `loadAllUsers()`.
+    public private(set) var allUsers: [AdminUserSummary] = []
+    /// Bound to the all-users search field, same explicit-call pattern as `betaUserQuery`.
+    public var userQuery: String = ""
+
     private let apiClient: APIClient
 
     public init(apiClient: APIClient) {
@@ -27,7 +37,7 @@ public final class AdminViewModel {
         defer { isLoading = false }
 
         do {
-            async let usersResult = apiClient.listBetaUsers()
+            async let usersResult = apiClient.listBetaUsers(query: nil)
             async let feedbackResult = apiClient.listAdminFeedback(limit: nil)
             let (users, feedback) = try await (usersResult, feedbackResult)
             betaUsers = users
@@ -40,6 +50,54 @@ public final class AdminViewModel {
             errorMessage = error.localizedDescription
             betaUsers = []
             recentFeedback = []
+        }
+    }
+
+    /// Re-fetches `betaUsers` filtered by `betaUserQuery` (empty means unfiltered) — an explicit search,
+    /// never triggered as the user types.
+    public func searchBetaUsers() async {
+        errorMessage = nil
+        do {
+            betaUsers = try await apiClient.listBetaUsers(query: betaUserQuery.isEmpty ? nil : betaUserQuery)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Fetches `allUsers` filtered by `userQuery` (empty means unfiltered) — the "every account" pool used
+    /// to find a candidate to promote/demote or annotate. Not called from `load()`: the all-users list is
+    /// only needed once the operator opens that section, so it stays empty until this is called explicitly.
+    public func loadAllUsers() async {
+        errorMessage = nil
+        do {
+            allUsers = try await apiClient.listAllUsers(query: userQuery.isEmpty ? nil : userQuery)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Toggles `betaTester` and/or records `adminNotes`/`adminTags` for one account — any subset of the
+    /// three. On success, re-runs both `loadAllUsers()` and `searchBetaUsers()` (respecting whatever
+    /// `userQuery`/`betaUserQuery` are currently set to) so both lists reflect the change — toggling
+    /// `betaTester` can move a row into or out of `betaUsers`, which a single in-place patch can't express.
+    public func updateUser(_ userId: String, betaTester: Bool? = nil, adminNotes: String? = nil, adminTags: [String]? = nil) async {
+        errorMessage = nil
+        do {
+            _ = try await apiClient.updateBetaTesterStatus(
+                userId: userId,
+                request: UpdateBetaTesterRequest(betaTester: betaTester, adminNotes: adminNotes, adminTags: adminTags)
+            )
+            async let usersReload: Void = loadAllUsers()
+            async let betaReload: Void = searchBetaUsers()
+            _ = await (usersReload, betaReload)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 

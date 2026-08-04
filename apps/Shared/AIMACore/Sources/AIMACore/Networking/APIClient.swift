@@ -108,9 +108,18 @@ public protocol APIClient: Sendable {
 
     /// Internal Operator Dashboard sprint: the founder/admin-only surface — the backend 403s any caller not
     /// on its `ADMIN_USER_IDS` allowlist, or 404s (route not mounted) if no admin is configured at all.
-    func listBetaUsers() async throws -> [AdminBetaUserSummary]
+    /// `query`, if given, filters case-insensitively by email/displayName (Beta Tester Management sprint).
+    func listBetaUsers(query: String?) async throws -> [AdminBetaUserSummary]
     func listAdminFeedback(limit: Int?) async throws -> [AdminFeedbackEntry]
     /// Feedback Triage Workflow sprint: advances a submission one step along new -> reviewed -> resolved.
     /// The backend rejects any other transition with a 409, and an unknown `feedbackId` with a 404.
     func updateFeedbackStatus(feedbackId: String, status: FeedbackStatus) async throws -> AdminFeedbackEntry
+
+    /// Beta Tester Management sprint: every account, not just current beta testers — the view used to find a
+    /// candidate to promote/demote or annotate. `query`, if given, filters case-insensitively by
+    /// email/displayName.
+    func listAllUsers(query: String?) async throws -> [AdminUserSummary]
+    /// Toggles `betaTester` and/or records `adminNotes`/`adminTags` — any subset of the three, matching
+    /// `UpdateBetaTesterRequest`'s optional fields.
+    func updateBetaTesterStatus(userId: String, request: UpdateBetaTesterRequest) async throws -> AdminUserSummary
 }

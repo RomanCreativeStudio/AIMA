@@ -1007,11 +1007,13 @@ public actor MockAPIClient: APIClient {
     }
 
     /// Internal Operator Dashboard sprint: `MockAPIClient` only ever seeds one account (`mock-user`), so
-    /// this returns at most one row — present only when that account's own `preferences.betaTester` is set,
-    /// mirroring the real backend's `AdminService.listBetaUsers` filter rather than always returning data.
-    public func listBetaUsers() async throws -> [AdminBetaUserSummary] {
+    /// this returns at most one row — present only when that account's own `preferences.betaTester` is set
+    /// and (Beta Tester Management sprint) it matches `query`, mirroring the real backend's
+    /// `AdminService.listBetaUsers` filter rather than always returning data.
+    public func listBetaUsers(query: String?) async throws -> [AdminBetaUserSummary] {
         try await maybeFail()
         guard case .bool(true) = user.preferences["betaTester"] else { return [] }
+        guard matchesAdminQuery(query) else { return [] }
 
         let primaryWorkspace = workspaces.first { $0.id == user.defaultWorkspaceId } ?? workspaces.first
         return [
@@ -1021,9 +1023,62 @@ public actor MockAPIClient: APIClient {
                 signupDate: user.createdAt, lastActiveAt: user.updatedAt,
                 onboardingCompleted: { if case .bool(true) = user.preferences["onboardingCompleted"] { return true }; return false }(),
                 feedbackCount: feedbackByWorkspace.values.reduce(0) { $0 + $1.filter { $0.userId == user.id }.count },
-                usage: aggregateUsage()
+                usage: aggregateUsage(),
+                adminNotes: readAdminNotes(), adminTags: readAdminTags()
             )
         ]
+    }
+
+    /// Beta Tester Management sprint: same one-account mock as `listBetaUsers`, but unfiltered by
+    /// `betaTester` — the "every account" admin view.
+    public func listAllUsers(query: String?) async throws -> [AdminUserSummary] {
+        try await maybeFail()
+        guard matchesAdminQuery(query) else { return [] }
+
+        let isBetaTester: Bool = { if case .bool(true) = user.preferences["betaTester"] { return true }; return false }()
+        return [
+            AdminUserSummary(
+                userId: user.id, email: user.email, displayName: user.displayName,
+                betaTester: isBetaTester, adminNotes: readAdminNotes(), adminTags: readAdminTags()
+            )
+        ]
+    }
+
+    /// Mirrors `AdminService.updateUserBetaStatus`'s read-merge-write: `withPreferences` replaces the whole
+    /// `preferences` dictionary, so unrelated keys are copied forward explicitly rather than dropped.
+    public func updateBetaTesterStatus(userId: String, request: UpdateBetaTesterRequest) async throws -> AdminUserSummary {
+        try await maybeFail()
+        guard userId == user.id else {
+            throw APIError.server(statusCode: 404, message: "User \(userId) was not found")
+        }
+
+        var preferences = user.preferences
+        if let betaTester = request.betaTester { preferences["betaTester"] = .bool(betaTester) }
+        if let adminNotes = request.adminNotes { preferences["adminNotes"] = .string(adminNotes) }
+        if let adminTags = request.adminTags { preferences["adminTags"] = .array(adminTags.map { .string($0) }) }
+        user = withPreferences(user, preferences)
+
+        let isBetaTester: Bool = { if case .bool(true) = user.preferences["betaTester"] { return true }; return false }()
+        return AdminUserSummary(
+            userId: user.id, email: user.email, displayName: user.displayName,
+            betaTester: isBetaTester, adminNotes: readAdminNotes(), adminTags: readAdminTags()
+        )
+    }
+
+    private func matchesAdminQuery(_ query: String?) -> Bool {
+        guard let query, !query.isEmpty else { return true }
+        let needle = query.lowercased()
+        return user.email.lowercased().contains(needle) || (user.displayName?.lowercased().contains(needle) ?? false)
+    }
+
+    private func readAdminNotes() -> String? {
+        if case .string(let value) = user.preferences["adminNotes"] { return value }
+        return nil
+    }
+
+    private func readAdminTags() -> [String] {
+        guard case .array(let values) = user.preferences["adminTags"] else { return [] }
+        return values.compactMap { if case .string(let value) = $0 { return value }; return nil }
     }
 
     /// Every seeded submission across every mock workspace, newest-`createdAt`-first, enriched with the

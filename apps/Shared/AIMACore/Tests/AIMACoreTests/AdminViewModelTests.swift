@@ -96,6 +96,56 @@ final class AdminViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.recentFeedback.first?.status, .new)
     }
 
+    func testSearchBetaUsersFiltersByQueryMatchingTheAccount() async throws {
+        let apiClient = MockAPIClient()
+        _ = try await apiClient.updateUserProfile(id: "mock-user", request: UpdateUserProfileRequest(preferences: ["betaTester": .bool(true)]))
+        let viewModel = AdminViewModel(apiClient: apiClient)
+        await viewModel.load()
+
+        viewModel.betaUserQuery = "you@example.com"
+        await viewModel.searchBetaUsers()
+        XCTAssertEqual(viewModel.betaUsers.count, 1)
+
+        viewModel.betaUserQuery = "no-such-match"
+        await viewModel.searchBetaUsers()
+        XCTAssertTrue(viewModel.betaUsers.isEmpty)
+    }
+
+    func testLoadAllUsersReturnsTheSeededAccountRegardlessOfBetaStatus() async throws {
+        let apiClient = MockAPIClient()
+        let viewModel = AdminViewModel(apiClient: apiClient)
+
+        await viewModel.loadAllUsers()
+
+        XCTAssertEqual(viewModel.allUsers.count, 1)
+        XCTAssertEqual(viewModel.allUsers.first?.userId, "mock-user")
+        XCTAssertEqual(viewModel.allUsers.first?.betaTester, false)
+    }
+
+    func testUpdateUserTogglesBetaTesterAndRefreshesBothLists() async throws {
+        let apiClient = MockAPIClient()
+        let viewModel = AdminViewModel(apiClient: apiClient)
+        await viewModel.loadAllUsers()
+        XCTAssertEqual(viewModel.allUsers.first?.betaTester, false)
+
+        await viewModel.updateUser("mock-user", betaTester: true)
+
+        XCTAssertEqual(viewModel.allUsers.first?.betaTester, true)
+        XCTAssertEqual(viewModel.betaUsers.count, 1)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testUpdateUserRecordsAdminNotesAndTags() async throws {
+        let apiClient = MockAPIClient()
+        let viewModel = AdminViewModel(apiClient: apiClient)
+        await viewModel.loadAllUsers()
+
+        await viewModel.updateUser("mock-user", adminNotes: "Invited via Discord", adminTags: ["design-partner"])
+
+        XCTAssertEqual(viewModel.allUsers.first?.adminNotes, "Invited via Discord")
+        XCTAssertEqual(viewModel.allUsers.first?.adminTags, ["design-partner"])
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)

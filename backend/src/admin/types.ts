@@ -19,6 +19,36 @@ export interface AdminBetaUserSummary {
   onboardingCompleted: boolean;
   feedbackCount: number;
   usage: AdminUsageSummary;
+  /** Beta Tester Management sprint: admin-only invite notes/tags — see `AdminUserSummary`'s doc comment. */
+  adminNotes: string | null;
+  adminTags: string[];
+}
+
+/**
+ * Beta Tester Management sprint: a lightweight row for the "every account, not just current beta testers"
+ * admin view — the one used to find a candidate and toggle them into (or out of) the beta, and to record
+ * `adminNotes`/`adminTags` about them. Composed from the same `UserProfile.preferences` the Beta User
+ * Overview already reads (`betaTester`, plus the two new `adminNotes`/`adminTags` keys this sprint adds) —
+ * no new table, no new column; these are ordinary preference keys like `betaTester`/`onboardingCompleted`
+ * already are.
+ */
+export interface AdminUserSummary {
+  userId: string;
+  email: string;
+  displayName: string | null;
+  betaTester: boolean;
+  /** Free-text invite notes an admin left about this account (e.g. "invited via Discord, follow up 3/1"). */
+  adminNotes: string | null;
+  /** Internal-only labels (e.g. "power-user", "design-partner") — never shown to the account itself. */
+  adminTags: string[];
+}
+
+/** The optional fields `AdminService.updateUserBetaStatus` accepts — any subset, applied as a partial
+ * update to the account's `preferences` (not a full replace, so unrelated preference keys are preserved). */
+export interface UpdateBetaTesterInput {
+  betaTester?: boolean;
+  adminNotes?: string;
+  adminTags?: string[];
 }
 
 export interface AdminUsageSummary {

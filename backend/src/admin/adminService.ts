@@ -8,7 +8,13 @@ import type { UserService } from '../users/userService';
 import type { UserProfile } from '../users/types';
 import type { Workspace } from '../workspaces/types';
 import type { WorkspaceService } from '../workspaces/workspaceService';
-import type { AdminBetaUserSummary, AdminFeedbackEntry, AdminUsageSummary } from './types';
+import type {
+  AdminBetaUserSummary,
+  AdminFeedbackEntry,
+  AdminUsageSummary,
+  AdminUserSummary,
+  UpdateBetaTesterInput,
+} from './types';
 
 const ZERO_USAGE: AdminUsageSummary = {
   conversationsCreated: 0,
@@ -36,11 +42,38 @@ export class AdminService {
     private readonly sessionService: SessionService,
   ) {}
 
-  /** Every account marked `preferences.betaTester === true` (`AuthenticationManager.isBetaTester`'s server-side counterpart), newest signup first. */
-  async listBetaUsers(): Promise<AdminBetaUserSummary[]> {
+  /** Every account marked `preferences.betaTester === true` (`AuthenticationManager.isBetaTester`'s server-side counterpart), newest signup first. `query`, if given, is matched case-insensitively against email/displayName (Beta Tester Management sprint). */
+  async listBetaUsers(query?: string): Promise<AdminBetaUserSummary[]> {
     const users = await this.userService.listUsers();
-    const betaUsers = users.filter((user) => user.preferences.betaTester === true);
+    const betaUsers = users.filter((user) => user.preferences.betaTester === true && matchesQuery(user, query));
     return Promise.all(betaUsers.map((user) => this.summarizeUser(user)));
+  }
+
+  /**
+   * Beta Tester Management sprint: every account (not just current beta testers) as a lightweight row — the
+   * view used to find a candidate to promote/demote or annotate, since `listBetaUsers` only ever shows
+   * accounts already marked. `query`, if given, is matched case-insensitively against email/displayName.
+   */
+  async listAllUsers(query?: string): Promise<AdminUserSummary[]> {
+    const users = await this.userService.listUsers();
+    return users.filter((user) => matchesQuery(user, query)).map(toUserSummary);
+  }
+
+  /**
+   * Toggles `betaTester` and/or records `adminNotes`/`adminTags` — any subset of `updates`. Reads the
+   * account's current `preferences` first and merges the change in, because `UserService.updateProfile`
+   * replaces the whole `preferences` column rather than patching it; without this read-merge-write, setting
+   * `betaTester` would silently wipe out unrelated keys like `onboardingCompleted`.
+   */
+  async updateUserBetaStatus(userId: string, updates: UpdateBetaTesterInput): Promise<AdminUserSummary> {
+    const user = await this.userService.getUser(userId);
+    const preferences = { ...user.preferences };
+    if (updates.betaTester !== undefined) preferences.betaTester = updates.betaTester;
+    if (updates.adminNotes !== undefined) preferences.adminNotes = updates.adminNotes;
+    if (updates.adminTags !== undefined) preferences.adminTags = updates.adminTags;
+
+    const updated = await this.userService.updateProfile(userId, { preferences });
+    return toUserSummary(updated);
   }
 
   /** The Feedback Dashboard's "latest submissions" feed, enriched with the submitter's email and workspace name — reads `feedback` rows are otherwise anonymous-looking without a join back to `users`/`workspaces`. */
@@ -90,6 +123,8 @@ export class AdminService {
       onboardingCompleted: user.preferences.onboardingCompleted === true,
       feedbackCount,
       usage,
+      adminNotes: readAdminNotes(user),
+      adminTags: readAdminTags(user),
     };
   }
 
@@ -132,4 +167,30 @@ export class AdminService {
       ZERO_USAGE,
     );
   }
+}
+
+function toUserSummary(user: UserProfile): AdminUserSummary {
+  return {
+    userId: user.id,
+    email: user.email,
+    displayName: user.displayName,
+    betaTester: user.preferences.betaTester === true,
+    adminNotes: readAdminNotes(user),
+    adminTags: readAdminTags(user),
+  };
+}
+
+function readAdminNotes(user: UserProfile): string | null {
+  return typeof user.preferences.adminNotes === 'string' ? user.preferences.adminNotes : null;
+}
+
+function readAdminTags(user: UserProfile): string[] {
+  const tags = user.preferences.adminTags;
+  return Array.isArray(tags) ? tags.filter((tag): tag is string => typeof tag === 'string') : [];
+}
+
+function matchesQuery(user: UserProfile, query: string | undefined): boolean {
+  if (!query) return true;
+  const needle = query.toLowerCase();
+  return user.email.toLowerCase().includes(needle) || (user.displayName?.toLowerCase().includes(needle) ?? false);
 }

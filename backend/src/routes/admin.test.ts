@@ -238,6 +238,10 @@ async function markAsBetaTester(pool: Pool, userId: string): Promise<void> {
   await new UserService(pool).updateProfile(userId, update);
 }
 
+async function setDisplayName(pool: Pool, userId: string, displayName: string): Promise<void> {
+  await new UserService(pool).updateProfile(userId, { displayName });
+}
+
 async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
   await pool.query('DELETE FROM users WHERE id = $1', [userId]);
 }
@@ -451,6 +455,195 @@ test('GET /api/admin/feedback respects the limit query parameter', async () => {
     } finally {
       await cleanupWorkspace(poolForServer, adminSeed.userId);
       await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('GET /api/admin/beta-users respects the query parameter', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const betaA = await seedWorkspace(pool);
+  const betaB = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      await markAsBetaTester(poolForServer, betaA.userId);
+      await markAsBetaTester(poolForServer, betaB.userId);
+      await setDisplayName(poolForServer, betaA.userId, 'Unique Candidate');
+
+      const response = await fetch(`${baseUrl}/api/admin/beta-users?query=unique`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { users: Array<{ userId: string }> };
+      assert.equal(body.users.length, 1);
+      assert.equal(body.users[0].userId, betaA.userId);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, betaA.userId);
+      await cleanupWorkspace(poolForServer, betaB.userId);
+    }
+  });
+});
+
+test('GET /api/admin/users returns every account for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const regularSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { users: Array<{ userId: string; betaTester: boolean }> };
+      const ids = body.users.map((u) => u.userId);
+      assert.ok(ids.includes(adminSeed.userId));
+      assert.ok(ids.includes(regularSeed.userId));
+      assert.equal(body.users.find((u) => u.userId === regularSeed.userId)?.betaTester, false);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, regularSeed.userId);
+    }
+  });
+});
+
+test('GET /api/admin/users rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id toggles betaTester for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: true }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { user: { betaTester: boolean } };
+      assert.equal(body.user.betaTester, true);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id records adminNotes and adminTags', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminNotes: 'Invited via Discord', adminTags: ['design-partner'] }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { user: { adminNotes: string | null; adminTags: string[] } };
+      assert.equal(body.user.adminNotes, 'Invited via Discord');
+      assert.deepEqual(body.user.adminTags, ['design-partner']);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects a non-boolean betaTester with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: 'yes' }),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects an empty body with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects an unknown userId with 404', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: true }),
+      });
+
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: true }),
+      });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
     }
   });
 });

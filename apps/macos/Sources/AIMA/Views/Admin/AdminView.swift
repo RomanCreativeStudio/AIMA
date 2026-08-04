@@ -26,6 +26,7 @@ struct AdminView: View {
                 }
 
                 betaUsersSection
+                manageUsersSection
                 feedbackSection
             }
             .padding()
@@ -39,15 +40,20 @@ struct AdminView: View {
         }
         .task {
             await viewModel.load()
+            await viewModel.loadAllUsers()
         }
     }
 
     private var betaUsersSection: some View {
         SectionCard(title: "Beta Users (\(viewModel.betaUsers.count))") {
-            if viewModel.betaUsers.isEmpty {
-                Text("No accounts are marked as beta testers yet.").foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12) {
+                searchField(placeholder: "Search beta users by email or name", text: $viewModel.betaUserQuery) {
+                    Task { await viewModel.searchBetaUsers() }
+                }
+
+                if viewModel.betaUsers.isEmpty {
+                    Text("No accounts are marked as beta testers yet.").foregroundStyle(.secondary)
+                } else {
                     ForEach(viewModel.betaUsers) { user in
                         betaUserRow(user)
                         if user.id != viewModel.betaUsers.last?.id {
@@ -56,6 +62,15 @@ struct AdminView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func searchField(placeholder: String, text: Binding<String>, onSubmit: @escaping () -> Void) -> some View {
+        HStack {
+            TextField(placeholder, text: text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(onSubmit)
+            Button("Search", action: onSubmit)
         }
     }
 
@@ -91,6 +106,30 @@ struct AdminView: View {
                 usageStat("Approvals", user.usage.approvalsUsed)
                 usageStat("Executions", user.usage.executionsUsed)
             }
+
+            if !user.adminTags.isEmpty || user.adminNotes != nil {
+                adminAnnotations(notes: user.adminNotes, tags: user.adminTags)
+            }
+        }
+    }
+
+    private func adminAnnotations(notes: String?, tags: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if !tags.isEmpty {
+                HStack(spacing: 4) {
+                    ForEach(tags, id: \.self) { tag in
+                        Text(tag)
+                            .font(.caption2)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(.blue.opacity(0.15), in: Capsule())
+                            .foregroundStyle(.blue)
+                    }
+                }
+            }
+            if let notes, !notes.isEmpty {
+                Text(notes).font(.caption).foregroundStyle(.secondary).italic()
+            }
         }
     }
 
@@ -98,6 +137,29 @@ struct AdminView: View {
         VStack(alignment: .leading, spacing: 1) {
             Text("\(value)").font(.callout).fontWeight(.semibold)
             Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    /// Beta Tester Management sprint: every account (not just current beta testers) — the pool used to find
+    /// a candidate and toggle them into (or out of) the beta, and to record invite notes/internal tags.
+    private var manageUsersSection: some View {
+        SectionCard(title: "Manage Users (\(viewModel.allUsers.count))") {
+            VStack(alignment: .leading, spacing: 12) {
+                searchField(placeholder: "Search all accounts by email or name", text: $viewModel.userQuery) {
+                    Task { await viewModel.loadAllUsers() }
+                }
+
+                if viewModel.allUsers.isEmpty {
+                    Text("No accounts found.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(viewModel.allUsers) { user in
+                        ManageUserRow(user: user, viewModel: viewModel)
+                        if user.id != viewModel.allUsers.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -177,6 +239,53 @@ struct AdminView: View {
 #Preview {
     NavigationStack {
         AdminView(container: .preview)
+    }
+}
+
+/// One row in the "Manage Users" section: a beta-tester toggle plus editable invite notes/tags. Notes/tags
+/// are drafted locally (`@State`) and only sent to the backend on "Save" — an explicit action, not saved as
+/// the operator types, matching every other explicit-call pattern in this screen (search, review/resolve).
+private struct ManageUserRow: View {
+    let user: AdminUserSummary
+    let viewModel: AdminViewModel
+
+    @State private var notesDraft: String
+    @State private var tagsDraft: String
+
+    init(user: AdminUserSummary, viewModel: AdminViewModel) {
+        self.user = user
+        self.viewModel = viewModel
+        _notesDraft = State(initialValue: user.adminNotes ?? "")
+        _tagsDraft = State(initialValue: user.adminTags.joined(separator: ", "))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(user.displayName ?? user.email).fontWeight(.medium)
+                    Text(user.email).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Toggle("Beta Tester", isOn: Binding(
+                    get: { user.betaTester },
+                    set: { newValue in Task { await viewModel.updateUser(user.userId, betaTester: newValue) } }
+                ))
+                .toggleStyle(.switch)
+            }
+
+            HStack {
+                TextField("Invite notes", text: $notesDraft)
+                    .textFieldStyle(.roundedBorder)
+                TextField("Tags (comma-separated)", text: $tagsDraft)
+                    .textFieldStyle(.roundedBorder)
+                Button("Save") {
+                    let tags = tagsDraft.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+                    Task { await viewModel.updateUser(user.userId, adminNotes: notesDraft, adminTags: tags) }
+                }
+            }
+            .font(.caption)
+        }
     }
 }
 

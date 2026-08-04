@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import type { Response } from 'express';
 import type { AdminService } from '../admin/adminService';
+import type { UpdateBetaTesterInput } from '../admin/types';
 import { FeedbackNotFoundError, InvalidFeedbackStatusTransitionError } from '../feedback/errors';
 import { FEEDBACK_STATUSES, type FeedbackStatus } from '../feedback/types';
 import { requireAdmin } from '../middleware/requireAdmin';
+import { UserNotFoundError } from '../users/errors';
 import { isUuid } from '../util/uuid';
 
 export interface AdminRouterDependencies {
@@ -23,10 +25,69 @@ export function adminRouter(deps: AdminRouterDependencies): Router {
 
   router.get('/admin/beta-users', async (req, res, next) => {
     try {
-      const users = await deps.adminService.listBetaUsers();
+      const query = readQueryParam(req.query.query);
+      const users = await deps.adminService.listBetaUsers(query);
       res.json({ users });
     } catch (error) {
       next(error);
+    }
+  });
+
+  /** Beta Tester Management sprint: every account, not just current beta testers — the view used to find a candidate to promote/demote or annotate. */
+  router.get('/admin/users', async (req, res, next) => {
+    try {
+      const query = readQueryParam(req.query.query);
+      const users = await deps.adminService.listAllUsers(query);
+      res.json({ users });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.patch('/admin/users/:id', async (req, res, next) => {
+    try {
+      const { id } = req.params;
+      if (!isUuid(id)) {
+        res.status(400).json({ error: 'id must be a valid UUID' });
+        return;
+      }
+
+      const body = req.body as { betaTester?: unknown; adminNotes?: unknown; adminTags?: unknown };
+      const updates: UpdateBetaTesterInput = {};
+
+      if (body.betaTester !== undefined) {
+        if (typeof body.betaTester !== 'boolean') {
+          res.status(400).json({ error: 'betaTester must be a boolean if provided' });
+          return;
+        }
+        updates.betaTester = body.betaTester;
+      }
+
+      if (body.adminNotes !== undefined) {
+        if (typeof body.adminNotes !== 'string') {
+          res.status(400).json({ error: 'adminNotes must be a string if provided' });
+          return;
+        }
+        updates.adminNotes = body.adminNotes;
+      }
+
+      if (body.adminTags !== undefined) {
+        if (!Array.isArray(body.adminTags) || !body.adminTags.every((tag) => typeof tag === 'string')) {
+          res.status(400).json({ error: 'adminTags must be an array of strings if provided' });
+          return;
+        }
+        updates.adminTags = body.adminTags;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        res.status(400).json({ error: 'at least one of betaTester, adminNotes, adminTags must be provided' });
+        return;
+      }
+
+      const user = await deps.adminService.updateUserBetaStatus(id, updates);
+      res.json({ user });
+    } catch (error) {
+      handleKnownErrors(error, res, next);
     }
   });
 
@@ -65,8 +126,12 @@ export function adminRouter(deps: AdminRouterDependencies): Router {
   return router;
 }
 
+function readQueryParam(value: unknown): string | undefined {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
 function handleKnownErrors(error: unknown, res: Response, next: (error: unknown) => void): void {
-  if (error instanceof FeedbackNotFoundError) {
+  if (error instanceof FeedbackNotFoundError || error instanceof UserNotFoundError) {
     res.status(404).json({ error: error.message });
     return;
   }
