@@ -125,4 +125,11 @@ public protocol APIClient: Sendable {
 
     /// Founder Analytics Dashboard sprint: platform-wide totals for the founder dashboard's metric cards.
     func fetchAdminAnalytics() async throws -> AdminAnalytics
+
+    /// Beta Invitations & Notifications sprint: founder-issued invites to prospective beta testers. The
+    /// backend rejects an email already belonging to an active beta tester with a 409
+    /// (`UserAlreadyBetaTesterError`).
+    func createInvitation(email: String) async throws -> Invitation
+    /// Every invitation ever issued, newest first — platform-wide, not scoped to any one workspace.
+    func listInvitations() async throws -> [Invitation]
 }

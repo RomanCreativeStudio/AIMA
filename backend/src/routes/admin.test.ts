@@ -18,6 +18,9 @@ import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExe
 import { GitHubCreateIssueExecutor } from '../execution/executors/githubCreateIssueExecutor';
 import { GitHubCreatePullRequestExecutor } from '../execution/executors/githubCreatePullRequestExecutor';
 import { FeedbackService } from '../feedback/feedbackService';
+import { InvitationService } from '../invitations/invitationService';
+import type { NotificationService } from '../notifications/types';
+import type { Invitation } from '../invitations/types';
 import { BriefingService } from '../insights/briefingService';
 import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
 import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
@@ -69,10 +72,18 @@ interface SeededWorkspace {
   workspaceId: string;
 }
 
+interface WithTestServerOptions {
+  /** Beta Invitations & Notifications sprint: omit to test the "no invitationService configured" case — `/api/admin/invitations` simply isn't mounted, mirroring how `adminUserIds` gates the rest of `adminRouter`. Defaults to a real `InvitationService` so most tests get the routes for free. */
+  mountInvitations?: boolean;
+  /** Injected into `InvitationService` so tests can observe/control notification behavior without a real webhook endpoint. */
+  notificationService?: NotificationService;
+}
+
 /** `adminUserIds` undefined mounts the app with no admin surface at all (mirrors an environment that never configured one); an array (including empty) mounts `/api/admin/*` gated to exactly those ids. */
 async function withTestServer(
   adminUserIds: string[] | undefined,
   fn: (baseUrl: string, pool: Pool) => Promise<void>,
+  options: WithTestServerOptions = {},
 ): Promise<void> {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const registry = new CapabilityRegistry();
@@ -170,6 +181,7 @@ async function withTestServer(
     executionService,
     sessionService,
   );
+  const invitationService = new InvitationService(pool, userService, options.notificationService);
 
   const app = createApp({
     pool,
@@ -199,6 +211,7 @@ async function withTestServer(
     workspaceInsightsService,
     usageMetricsService,
     ...(adminUserIds ? { adminService, adminUserIds } : {}),
+    ...(adminUserIds && options.mountInvitations !== false ? { invitationService } : {}),
     executionService,
     voiceService,
     aiProvider,
@@ -702,6 +715,228 @@ test('GET /api/admin/analytics returns platform totals for a properly configured
     } finally {
       await cleanupWorkspace(poolForServer, adminSeed.userId);
       await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations is not mounted at all when no invitationService is configured', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+          method: 'POST',
+          headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'prospect@example.com' }),
+        });
+        assert.equal(response.status, 404);
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { mountInvitations: false },
+  );
+});
+
+test('POST /api/admin/invitations rejects a request with no Authorization header with 401', async () => {
+  await withTestServer([], async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'prospect@example.com' }),
+    });
+    assert.equal(response.status, 401);
+  });
+});
+
+test('POST /api/admin/invitations rejects a non-admin authenticated caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'prospect@example.com' }),
+      });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations rejects a malformed email with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'not-an-email' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations creates a pending invitation attributed to the admin caller, notifying the configured NotificationService', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  const notified: Invitation[] = [];
+  const notificationService: NotificationService = {
+    async notifyInvitationCreated(invitation) {
+      notified.push(invitation);
+    },
+  };
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+          method: 'POST',
+          headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'prospect@example.com' }),
+        });
+
+        assert.equal(response.status, 201);
+        const body = (await response.json()) as { invitation: Invitation };
+        assert.equal(body.invitation.email, 'prospect@example.com');
+        assert.equal(body.invitation.invitedBy, adminSeed.userId);
+        assert.equal(body.invitation.status, 'pending');
+        assert.equal(notified.length, 1);
+        assert.equal(notified[0].id, body.invitation.id);
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { notificationService },
+  );
+});
+
+test('POST /api/admin/invitations rejects an email already belonging to an active beta tester with 409', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const betaSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      await markAsBetaTester(poolForServer, betaSeed.userId);
+      const betaUser = await new UserService(poolForServer).getUser(betaSeed.userId);
+
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: betaUser.email }),
+      });
+
+      assert.equal(response.status, 409);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, betaSeed.userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations still creates the invitation when the webhook notification fails', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  const failingNotificationService: NotificationService = {
+    async notifyInvitationCreated() {
+      throw new Error('webhook unreachable');
+    },
+  };
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+          method: 'POST',
+          headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'still-created@example.com' }),
+        });
+
+        assert.equal(response.status, 201);
+        const body = (await response.json()) as { invitation: Invitation };
+        assert.equal(body.invitation.email, 'still-created@example.com');
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { notificationService: failingNotificationService },
+  );
+});
+
+test('GET /api/admin/invitations is not mounted at all when no invitationService is configured', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, { headers: authHeader(adminSeed.userId) });
+        assert.equal(response.status, 404);
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { mountInvitations: false },
+  );
+});
+
+test('GET /api/admin/invitations rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/invitations lists an invitation this test just created', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const createResponse = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'list-me@example.com' }),
+      });
+      assert.equal(createResponse.status, 201);
+      const created = ((await createResponse.json()) as { invitation: Invitation }).invitation;
+
+      const listResponse = await fetch(`${baseUrl}/api/admin/invitations`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(listResponse.status, 200);
+      const body = (await listResponse.json()) as { invitations: Invitation[] };
+      // listInvitations() is platform-wide, not scoped to this test's own rows — other test files' invitations
+      // (and unrelated concurrent activity against the same real, un-transacted database) may also be present,
+      // so only assert that the row this test itself created shows up, never an exact count.
+      assert.ok(body.invitations.some((i) => i.id === created.id));
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
     }
   });
 });

@@ -4,6 +4,9 @@ import type { AdminService } from '../admin/adminService';
 import type { UpdateBetaTesterInput } from '../admin/types';
 import { FeedbackNotFoundError, InvalidFeedbackStatusTransitionError } from '../feedback/errors';
 import { FEEDBACK_STATUSES, type FeedbackStatus } from '../feedback/types';
+import { UserAlreadyBetaTesterError } from '../invitations/errors';
+import type { InvitationService } from '../invitations/invitationService';
+import type { AuthenticatedRequest } from '../middleware/auth';
 import { requireAdmin } from '../middleware/requireAdmin';
 import { UserNotFoundError } from '../users/errors';
 import { isUuid } from '../util/uuid';
@@ -11,6 +14,7 @@ import { isUuid } from '../util/uuid';
 export interface AdminRouterDependencies {
   adminService: AdminService;
   adminUserIds: readonly string[];
+  invitationService?: InvitationService;
 }
 
 /**
@@ -133,6 +137,40 @@ export function adminRouter(deps: AdminRouterDependencies): Router {
     }
   });
 
+  // Beta Invitations & Notifications sprint: optional-dependency pattern — these routes only exist when
+  // `invitationService` was supplied (mirrors how the whole `adminRouter` itself is only mounted when its
+  // deps are present in `app.ts`), rather than existing unconditionally and 404ing per-request.
+  if (deps.invitationService) {
+    const invitationService = deps.invitationService;
+
+    router.post('/admin/invitations', async (req: AuthenticatedRequest, res, next) => {
+      try {
+        const { email } = req.body as { email?: unknown };
+        if (typeof email !== 'string' || !email.includes('@')) {
+          res.status(400).json({ error: 'email must be a valid email address' });
+          return;
+        }
+
+        const invitation = await invitationService.createInvitation({
+          email,
+          invitedBy: req.identity!.userId,
+        });
+        res.status(201).json({ invitation });
+      } catch (error) {
+        handleKnownErrors(error, res, next);
+      }
+    });
+
+    router.get('/admin/invitations', async (req, res, next) => {
+      try {
+        const invitations = await invitationService.listInvitations();
+        res.json({ invitations });
+      } catch (error) {
+        next(error);
+      }
+    });
+  }
+
   return router;
 }
 
@@ -146,6 +184,10 @@ function handleKnownErrors(error: unknown, res: Response, next: (error: unknown)
     return;
   }
   if (error instanceof InvalidFeedbackStatusTransitionError) {
+    res.status(409).json({ error: error.message });
+    return;
+  }
+  if (error instanceof UserAlreadyBetaTesterError) {
     res.status(409).json({ error: error.message });
     return;
   }

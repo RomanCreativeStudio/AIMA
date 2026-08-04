@@ -143,6 +143,21 @@ export class UserService {
     return result.rows.map(mapUserRow);
   }
 
+  /**
+   * Beta Invitations & Notifications sprint: looks a profile up by email rather than id — used only to check
+   * whether a prospective invitee is already an active beta tester before `InvitationService.createInvitation`
+   * sends another invite. Returns `null` for no match (an invitee usually has no `users` row yet at all)
+   * rather than throwing, unlike `getUser`, since "not found" is the expected, common case here.
+   */
+  async getUserByEmail(email: string): Promise<UserProfile | null> {
+    const result = await this.db.query(
+      `SELECT id, email, display_name, preferences, communication_style, default_workspace_id, created_at, updated_at
+       FROM users WHERE email = $1`,
+      [email],
+    );
+    return result.rows.length === 0 ? null : mapUserRow(result.rows[0]);
+  }
+
   async updateProfile(userId: string, updates: UpdateUserProfileInput): Promise<UserProfile> {
     await this.getUser(userId); // existence check
 

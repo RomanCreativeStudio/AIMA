@@ -133,6 +133,10 @@ final class DependencyContainer {
         AdminViewModel(apiClient: apiClient)
     }
 
+    func makeInvitationViewModel() -> InvitationViewModel {
+        InvitationViewModel(apiClient: apiClient)
+    }
+
     func makeSearchViewModel(workspaceId: String) -> SearchViewModel {
         SearchViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }

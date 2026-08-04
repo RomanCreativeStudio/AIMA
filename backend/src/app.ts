@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
 import type { AdminService } from './admin/adminService';
+import type { InvitationService } from './invitations/invitationService';
 import type { AuthProvider } from './auth/types';
 import type { SessionService } from './auth/sessionService';
 import type { ActionLogger } from './actionLog/logger';
@@ -119,6 +120,8 @@ export interface AppDependencies {
   adminService?: AdminService;
   /** The env-configured admin allowlist (`ADMIN_USER_IDS`) `requireAdmin` checks `req.identity.userId` against. See `adminService`'s doc comment for why both are optional together. */
   adminUserIds?: readonly string[];
+  /** Beta Invitations & Notifications sprint: optional for the same reason as `adminService` — `POST/GET /api/admin/invitations` are simply not mounted when this is omitted (requires `adminService`/`adminUserIds` too, since they gate the whole `adminRouter`). `index.ts` always supplies a real one; `notificationService` inside it is itself optional (only built when `WEBHOOK_URL` is configured). */
+  invitationService?: InvitationService;
 }
 
 /**
@@ -260,7 +263,14 @@ export function createApp(deps: AppDependencies): Application {
     app.use('/api', feedbackRouter({ feedbackService: deps.feedbackService }));
   }
   if (deps.adminService && deps.adminUserIds) {
-    app.use('/api', adminRouter({ adminService: deps.adminService, adminUserIds: deps.adminUserIds }));
+    app.use(
+      '/api',
+      adminRouter({
+        adminService: deps.adminService,
+        adminUserIds: deps.adminUserIds,
+        invitationService: deps.invitationService,
+      }),
+    );
   }
   app.use('/api', executionsRouter({ executionService: deps.executionService }));
   app.use('/api', voiceRouter({ voiceService: deps.voiceService }));

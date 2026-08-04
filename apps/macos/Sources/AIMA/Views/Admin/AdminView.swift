@@ -1,5 +1,8 @@
 import AIMACore
 import SwiftUI
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// The Internal Operator Dashboard (founder/admin screen): a Beta User Overview and a Feedback Dashboard,
 /// both read straight from `APIClient.listBetaUsers`/`listAdminFeedback` — the backend is the sole
@@ -11,10 +14,17 @@ import SwiftUI
 struct AdminView: View {
     let container: DependencyContainer
     @State private var viewModel: AdminViewModel
+    /// Beta Invitations & Notifications sprint: its own view model, not folded into `AdminViewModel` — see
+    /// `InvitationViewModel`'s doc comment.
+    @State private var invitationViewModel: InvitationViewModel
+    @State private var invitationEmailDraft: String = ""
+    /// Feedback for the "Copy Link" button — clears itself after a moment via `copyInvitationLink`.
+    @State private var copiedInvitationId: String?
 
     init(container: DependencyContainer) {
         self.container = container
         _viewModel = State(initialValue: container.makeAdminViewModel())
+        _invitationViewModel = State(initialValue: container.makeInvitationViewModel())
     }
 
     var body: some View {
@@ -26,6 +36,7 @@ struct AdminView: View {
                 }
 
                 founderDashboardSection
+                invitationsSection
                 betaUsersSection
                 manageUsersSection
                 feedbackSection
@@ -42,6 +53,107 @@ struct AdminView: View {
         .task {
             await viewModel.load()
             await viewModel.loadAllUsers()
+            await invitationViewModel.refresh()
+        }
+    }
+
+    /// Beta Invitations & Notifications sprint: send a new invite, see every invitation ever issued (newest
+    /// first), and copy a shareable link for a pending one. Platform-wide like `betaUsersSection`/
+    /// `manageUsersSection` — not scoped to any one workspace.
+    private var invitationsSection: some View {
+        SectionCard(title: "Invitations (\(invitationViewModel.invitations.count))") {
+            VStack(alignment: .leading, spacing: 12) {
+                if let errorMessage = invitationViewModel.errorMessage {
+                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.caption)
+                }
+
+                HStack {
+                    TextField("Email address", text: $invitationEmailDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { Task { await sendInvitation() } }
+                    Button("Invite") { Task { await sendInvitation() } }
+                        .disabled(invitationEmailDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                    Button("Refresh") { Task { await invitationViewModel.refresh() } }
+                }
+
+                if invitationViewModel.invitations.isEmpty {
+                    Text("No invitations sent yet.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(invitationViewModel.invitations) { invitation in
+                        invitationRow(invitation)
+                        if invitation.id != invitationViewModel.invitations.last?.id {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+        .overlay {
+            if invitationViewModel.isLoading && invitationViewModel.invitations.isEmpty {
+                ProgressView()
+            }
+        }
+    }
+
+    private func invitationRow(_ invitation: Invitation) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(invitation.email).fontWeight(.medium)
+                Text(invitation.createdAt).font(.caption).foregroundStyle(.secondary)
+            }
+            invitationStatusBadge(invitation.status)
+            Spacer()
+            Button(copiedInvitationId == invitation.id ? "Copied" : "Copy Link") {
+                copyInvitationLink(for: invitation)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+        }
+    }
+
+    private func invitationStatusBadge(_ status: InvitationStatus) -> some View {
+        Text(status.rawValue.capitalized)
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(invitationStatusColor(status).opacity(0.2), in: Capsule())
+            .foregroundStyle(invitationStatusColor(status))
+    }
+
+    private func invitationStatusColor(_ status: InvitationStatus) -> Color {
+        switch status {
+        case .pending: return .orange
+        case .accepted: return .green
+        case .expired: return .secondary
+        }
+    }
+
+    private func sendInvitation() async {
+        let email = invitationEmailDraft.trimmingCharacters(in: .whitespaces)
+        guard !email.isEmpty else { return }
+        await invitationViewModel.createInvitation(email: email)
+        if invitationViewModel.errorMessage == nil {
+            invitationEmailDraft = ""
+        }
+    }
+
+    /// The backend's `Invitation` has no token/link field of its own (only `email`/`invitedBy`/`status`/
+    /// `createdAt`) — this constructs a shareable placeholder from the configured backend's own base URL and
+    /// the invitation's id, rather than a hardcoded external domain.
+    private func copyInvitationLink(for invitation: Invitation) {
+        let link = "\(container.configuration.baseURL.absoluteString)/invite/\(invitation.id)"
+        #if canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+        #endif
+        copiedInvitationId = invitation.id
+        Task {
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            if copiedInvitationId == invitation.id {
+                copiedInvitationId = nil
+            }
         }
     }
 

@@ -559,6 +559,19 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/admin/analytics", envelope: AdminAnalyticsEnvelope.self).analytics
     }
 
+    public func createInvitation(email: String) async throws -> Invitation {
+        try await send(
+            "POST",
+            "/api/admin/invitations",
+            body: CreateInvitationRequest(email: email),
+            envelope: InvitationEnvelope.self
+        ).invitation
+    }
+
+    public func listInvitations() async throws -> [Invitation] {
+        try await send("GET", "/api/admin/invitations", envelope: InvitationsEnvelope.self).invitations
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -692,3 +705,5 @@ private struct AdminFeedbackEntryEnvelope: Decodable { let feedback: AdminFeedba
 private struct AdminUsersEnvelope: Decodable { let users: [AdminUserSummary] }
 private struct AdminUserEnvelope: Decodable { let user: AdminUserSummary }
 private struct AdminAnalyticsEnvelope: Decodable { let analytics: AdminAnalytics }
+private struct InvitationEnvelope: Decodable { let invitation: Invitation }
+private struct InvitationsEnvelope: Decodable { let invitations: [Invitation] }

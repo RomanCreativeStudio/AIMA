@@ -30,6 +30,9 @@ public actor MockAPIClient: APIClient {
     private var voiceTurnsBySession: [String: [VoiceTurn]] = [:]
     private var memoriesByWorkspace: [String: [MemoryRecord]] = [:]
     private var feedbackByWorkspace: [String: [Feedback]] = [:]
+    /// Beta Invitations & Notifications sprint: platform-wide, not scoped to any one workspace — mirrors
+    /// `invitations`'s real shape (a flat, un-workspaced table).
+    private var invitations: [Invitation] = []
     /// Set by `forceNextVoiceRequestToFailWithProviderError`, consumed by the
     /// next `submitVoiceRequest` call — simulates the backend's
     /// `VoiceProviderError` (HTTP 502) without needing a real vendor outage
@@ -1158,6 +1161,32 @@ public actor MockAPIClient: APIClient {
             executionsCompleted: activity.executionsCompleted,
             generatedAt: ISO8601DateFormatter().string(from: Date())
         )
+    }
+
+    /// Mirrors `InvitationService.createInvitation`'s duplicate check: `MockAPIClient` only ever seeds one
+    /// account (`mock-user`), so this rejects with 409 only when `email` matches that account's own email
+    /// and its `preferences.betaTester` is set — the same "already an active beta tester" rule as the real
+    /// backend, just against the single seeded profile instead of a `UserService.getUserByEmail` lookup.
+    public func createInvitation(email: String) async throws -> Invitation {
+        try await maybeFail()
+        let isBetaTester: Bool = { if case .bool(true) = user.preferences["betaTester"] { return true }; return false }()
+        if email.lowercased() == user.email.lowercased(), isBetaTester {
+            throw APIError.server(statusCode: 409, message: "\(email) is already a beta tester")
+        }
+
+        let invitation = Invitation(
+            id: UUID().uuidString, email: email, invitedBy: user.id, status: .pending,
+            createdAt: ISO8601DateFormatter().string(from: Date())
+        )
+        invitations.insert(invitation, at: 0)
+        return invitation
+    }
+
+    /// Every invitation ever issued, newest first — `invitations` is always kept in that order since
+    /// `createInvitation` inserts at the front.
+    public func listInvitations() async throws -> [Invitation] {
+        try await maybeFail()
+        return invitations
     }
 
     /// Mirrors `AdminService.aggregatePlatformActivity`'s approval/execution breakdown (total vs. completed)

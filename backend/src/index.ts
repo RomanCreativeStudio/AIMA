@@ -24,6 +24,8 @@ import { ExecutionIntentMatcher } from './execution/executionIntentMatcher';
 import { ExecutionRegistry } from './execution/registry';
 import { ExecutionService } from './execution/executionService';
 import { FeedbackService } from './feedback/feedbackService';
+import { InvitationService } from './invitations/invitationService';
+import { WebhookNotificationService } from './notifications/webhookNotificationService';
 import { CalendarCreateEventExecutor } from './execution/executors/calendarCreateEventExecutor';
 import { CalendarUpdateEventExecutor } from './execution/executors/calendarUpdateEventExecutor';
 import { CalendarDeleteEventExecutor } from './execution/executors/calendarDeleteEventExecutor';
@@ -272,6 +274,10 @@ async function main(): Promise<void> {
     executionService,
     sessionService,
   );
+  const notificationService = config.webhookUrl
+    ? new WebhookNotificationService(config.webhookUrl, logger)
+    : undefined;
+  const invitationService = new InvitationService(pool, userService, notificationService);
 
   const app = createApp({
     pool,
@@ -308,6 +314,7 @@ async function main(): Promise<void> {
     feedbackService,
     usageMetricsService,
     adminService,
+    invitationService,
     adminUserIds: config.adminUserIds,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,

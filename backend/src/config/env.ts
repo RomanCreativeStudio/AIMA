@@ -25,6 +25,10 @@ export interface AppConfig {
    * for why). Empty by default: an operator who hasn't configured this simply has no admin surface, the
    * same safe-by-default posture as every other optional integration here. */
   adminUserIds: string[];
+  /** Beta Invitations & Notifications sprint: optional webhook URL POSTed to on invitation creation
+   * (`WebhookNotificationService`). Unset by default — `index.ts` simply constructs `InvitationService`
+   * without a `notificationService`, the same optional-integration posture as every other config value here. */
+  webhookUrl?: string;
 }
 
 /**
@@ -133,6 +137,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .split(',')
       .map((id) => id.trim())
       .filter(Boolean),
+    webhookUrl: env.WEBHOOK_URL || undefined,
   };
 }
 
