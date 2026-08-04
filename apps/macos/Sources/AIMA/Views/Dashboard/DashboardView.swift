@@ -1,19 +1,31 @@
 import AIMACore
 import SwiftUI
 
-/// The Dashboard screen (Phase 2.1, item 2): current workspace, system
-/// status, pending approvals, and a task overview for the active
-/// workspace. Reloads whenever `workspaceViewModel.activeWorkspaceId`
-/// changes, without needing the whole view (and its `DashboardViewModel`)
-/// to be torn down and rebuilt.
+/// The Dashboard screen (Phase 2.1, item 2; extended in the macOS Dashboard
+/// Shell sprint with a "who's signed in" header and Quick Access into the
+/// other screens): current workspace, system status, pending approvals, and
+/// a task overview for the active workspace. Reloads whenever
+/// `workspaceViewModel.activeWorkspaceId` changes, without needing the whole
+/// view (and its `DashboardViewModel`) to be torn down and rebuilt.
 struct DashboardView: View {
     let container: DependencyContainer
     let workspaceViewModel: WorkspaceViewModel
+    let authenticationManager: AuthenticationManager
+    /// Lets Quick Access buttons switch `RootNavigationView`'s sidebar selection without this view owning (or
+    /// even knowing the shape of) that navigation state itself.
+    let onSelectSection: (AppSection) -> Void
     @State private var viewModel: DashboardViewModel
 
-    init(container: DependencyContainer, workspaceViewModel: WorkspaceViewModel) {
+    init(
+        container: DependencyContainer,
+        workspaceViewModel: WorkspaceViewModel,
+        authenticationManager: AuthenticationManager,
+        onSelectSection: @escaping (AppSection) -> Void
+    ) {
         self.container = container
         self.workspaceViewModel = workspaceViewModel
+        self.authenticationManager = authenticationManager
+        self.onSelectSection = onSelectSection
         _viewModel = State(initialValue: container.makeDashboardViewModel())
     }
 
@@ -28,7 +40,9 @@ struct DashboardView: View {
                 if let workspace = viewModel.workspace {
                     workspaceHeader(workspace)
                 }
+                currentUserSubheader
 
+                quickAccessSection
                 systemStatusSection
                 dailyBriefingSection
                 productivityWidgetsSection
@@ -62,6 +76,49 @@ struct DashboardView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// "Signed in as" line (macOS Dashboard Shell sprint) — reads `authenticationManager.currentUser` directly
+    /// rather than a separate fetch; this is the same `UserProfile` `AuthenticationManager` already loaded to
+    /// reach `.authenticated` in the first place.
+    @ViewBuilder
+    private var currentUserSubheader: some View {
+        if let user = authenticationManager.currentUser {
+            Text("Signed in as \(user.displayName ?? user.email)")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Quick Access (macOS Dashboard Shell sprint) — direct entry points into the screens this app already
+    /// has (Conversations, Tasks, Workflows, Memory, Integrations, Approvals), each just a `selectedSection`
+    /// change handed to `RootNavigationView` via `onSelectSection`. No new business logic: every one of these
+    /// already exists as its own sidebar section with its own `*ViewModel`.
+    private var quickAccessSection: some View {
+        SectionCard(title: "Quick Access") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
+                quickAccessButton("Conversations", systemImage: "bubble.left.and.bubble.right", section: .chat)
+                quickAccessButton("Tasks", systemImage: "checklist", section: .tasks)
+                quickAccessButton("Workflows", systemImage: "flowchart", section: .workflows)
+                quickAccessButton("Memory", systemImage: "brain", section: .memory)
+                quickAccessButton("Integrations", systemImage: "puzzlepiece.extension", section: .integrations)
+                quickAccessButton("Approvals", systemImage: "checkmark.seal", section: .approvals)
+            }
+        }
+    }
+
+    private func quickAccessButton(_ title: String, systemImage: String, section: AppSection) -> some View {
+        Button {
+            onSelectSection(section)
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage).font(.title2)
+                Text(title).font(.callout)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+        }
+        .buttonStyle(.bordered)
     }
 
     private var systemStatusSection: some View {
@@ -305,7 +362,12 @@ struct DashboardView: View {
 
 #Preview {
     NavigationStack {
-        DashboardView(container: .preview, workspaceViewModel: DependencyContainer.preview.makeWorkspaceViewModel())
+        DashboardView(
+            container: .preview,
+            workspaceViewModel: DependencyContainer.preview.makeWorkspaceViewModel(),
+            authenticationManager: AuthenticationManager(authClient: MockAuthClient(), apiClient: DependencyContainer.preview.apiClient),
+            onSelectSection: { _ in }
+        )
     }
 }
 

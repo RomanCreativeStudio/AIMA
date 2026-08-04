@@ -91,7 +91,12 @@ struct RootNavigationView: View {
     private var detailView: some View {
         switch selectedSection {
         case .dashboard:
-            DashboardView(container: container, workspaceViewModel: workspaceViewModel)
+            DashboardView(
+                container: container,
+                workspaceViewModel: workspaceViewModel,
+                authenticationManager: authenticationManager,
+                onSelectSection: { selectedSection = $0 }
+            )
         case .chat:
             workspaceScopedView { ChatView(container: container, workspaceId: $0) }
         case .tasks:
