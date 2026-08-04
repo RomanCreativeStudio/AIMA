@@ -18,6 +18,24 @@ public enum FeedbackType: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 }
 
+/// Mirrors `backend/src/feedback/types.ts#FeedbackStatus` (Internal Operator Dashboard sprint) — display-only
+/// this sprint (no client mutation path yet); every submission starts, and currently stays, `.new`.
+public enum FeedbackStatus: String, Codable, CaseIterable, Identifiable, Sendable {
+    case new
+    case reviewed
+    case resolved
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .new: return "New"
+        case .reviewed: return "Reviewed"
+        case .resolved: return "Resolved"
+        }
+    }
+}
+
 /// Mirrors `backend/src/feedback/types.ts#Feedback` (Beta Tester Infrastructure sprint) — a single feedback/
 /// bug-report/feature-request submission, workspace-scoped like every other resource in this package.
 public struct Feedback: Codable, Identifiable, Equatable, Sendable {
@@ -25,14 +43,16 @@ public struct Feedback: Codable, Identifiable, Equatable, Sendable {
     public let workspaceId: String
     public let userId: String
     public let type: FeedbackType
+    public let status: FeedbackStatus
     public let message: String
     public let createdAt: String
 
-    public init(id: String, workspaceId: String, userId: String, type: FeedbackType, message: String, createdAt: String) {
+    public init(id: String, workspaceId: String, userId: String, type: FeedbackType, status: FeedbackStatus, message: String, createdAt: String) {
         self.id = id
         self.workspaceId = workspaceId
         self.userId = userId
         self.type = type
+        self.status = status
         self.message = message
         self.createdAt = createdAt
     }

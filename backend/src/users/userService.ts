@@ -129,6 +129,20 @@ export class UserService {
     return mapUserRow(result.rows[0]);
   }
 
+  /**
+   * Every account, newest first — the Internal Operator Dashboard sprint's one legitimate cross-account
+   * read. Every other method here is scoped to a single caller's own `userId`; this is deliberately not,
+   * which is exactly why it's only ever called from `AdminService` (behind `requireAdmin`), never from a
+   * route a regular authenticated user can reach.
+   */
+  async listUsers(): Promise<UserProfile[]> {
+    const result = await this.db.query(
+      `SELECT id, email, display_name, preferences, communication_style, default_workspace_id, created_at, updated_at
+       FROM users ORDER BY created_at DESC`,
+    );
+    return result.rows.map(mapUserRow);
+  }
+
   async updateProfile(userId: string, updates: UpdateUserProfileInput): Promise<UserProfile> {
     await this.getUser(userId); // existence check
 

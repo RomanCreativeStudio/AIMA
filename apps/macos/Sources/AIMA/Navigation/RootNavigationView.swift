@@ -20,6 +20,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     case feedback = "Feedback"
     case workspace = "Workspace"
     case settings = "Settings"
+    case admin = "Admin"
 
     var id: String { rawValue }
 
@@ -38,6 +39,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .feedback: return "bubble.left.and.exclamationmark.bubble.right"
         case .workspace: return "square.stack.3d.up"
         case .settings: return "gearshape"
+        case .admin: return "shield.lefthalf.filled"
         }
     }
 }
@@ -123,6 +125,8 @@ struct RootNavigationView: View {
             WorkspaceSwitcherView(viewModel: workspaceViewModel)
         case .settings:
             SettingsView(container: container, authenticationManager: authenticationManager)
+        case .admin:
+            AdminView(container: container)
         case .none:
             ContentUnavailableView("Select a Section", systemImage: "sidebar.left")
         }

@@ -7,6 +7,7 @@ import {
   RuleBasedIntentClassifier,
 } from '@aima/ai-engine';
 import { createApp } from './app';
+import { AdminService } from './admin/adminService';
 import { createAuthProviderFromEnv } from './auth/registry';
 import { SessionService } from './auth/sessionService';
 import { authRateLimitConfigFromEnv, RateLimiter, type AuthRateLimiters } from './middleware/rateLimit';
@@ -262,6 +263,15 @@ async function main(): Promise<void> {
     integrationService,
     sessionService,
   );
+  const adminService = new AdminService(
+    userService,
+    workspaceService,
+    feedbackService,
+    usageMetricsService,
+    workspaceInsightsService,
+    executionService,
+    sessionService,
+  );
 
   const app = createApp({
     pool,
@@ -297,6 +307,8 @@ async function main(): Promise<void> {
     authRateLimiters,
     feedbackService,
     usageMetricsService,
+    adminService,
+    adminUserIds: config.adminUserIds,
     corsOrigins: config.corsOrigins,
     nodeEnv: config.nodeEnv,
     logger,

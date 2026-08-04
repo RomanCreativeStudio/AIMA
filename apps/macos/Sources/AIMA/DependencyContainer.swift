@@ -129,6 +129,10 @@ final class DependencyContainer {
         FeedbackViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }
 
+    func makeAdminViewModel() -> AdminViewModel {
+        AdminViewModel(apiClient: apiClient)
+    }
+
     func makeSearchViewModel(workspaceId: String) -> SearchViewModel {
         SearchViewModel(apiClient: apiClient, workspaceId: workspaceId)
     }

@@ -3,6 +3,7 @@ import express, { type Application } from 'express';
 import helmet from 'helmet';
 import type { Pool } from 'pg';
 import type { AIProvider } from '@aima/ai-engine';
+import type { AdminService } from './admin/adminService';
 import type { AuthProvider } from './auth/types';
 import type { SessionService } from './auth/sessionService';
 import type { ActionLogger } from './actionLog/logger';
@@ -52,6 +53,7 @@ import { conversationsRouter } from './routes/conversations';
 import { documentsRouter } from './routes/documents';
 import { draftsRouter } from './routes/drafts';
 import { executionsRouter } from './routes/executions';
+import { adminRouter } from './routes/admin';
 import { feedbackRouter } from './routes/feedback';
 import { insightsRouter } from './routes/insights';
 import { integrationsRouter } from './routes/integrations';
@@ -113,6 +115,10 @@ export interface AppDependencies {
   feedbackService?: FeedbackService;
   /** Beta Tester Infrastructure sprint: optional for the same reason as `feedbackService` — `GET /workspaces/:workspaceId/usage` is simply not mounted when this is omitted. Deliberately kept separate from `WorkspaceInsightsService` rather than added to it, since 19+ files construct that service directly and a constructor change there would ripple across the whole test suite for no reason. */
   usageMetricsService?: UsageMetricsService;
+  /** Internal Operator Dashboard sprint: optional for the same reason as `feedbackService` — `/api/admin/*` is simply not mounted when either this or `adminUserIds` is omitted, so an environment with no configured admin has no admin surface at all rather than one that 403s everyone. */
+  adminService?: AdminService;
+  /** The env-configured admin allowlist (`ADMIN_USER_IDS`) `requireAdmin` checks `req.identity.userId` against. See `adminService`'s doc comment for why both are optional together. */
+  adminUserIds?: readonly string[];
 }
 
 /**
@@ -252,6 +258,9 @@ export function createApp(deps: AppDependencies): Application {
   );
   if (deps.feedbackService) {
     app.use('/api', feedbackRouter({ feedbackService: deps.feedbackService }));
+  }
+  if (deps.adminService && deps.adminUserIds) {
+    app.use('/api', adminRouter({ adminService: deps.adminService, adminUserIds: deps.adminUserIds }));
   }
   app.use('/api', executionsRouter({ executionService: deps.executionService }));
   app.use('/api', voiceRouter({ voiceService: deps.voiceService }));

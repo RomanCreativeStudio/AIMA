@@ -991,7 +991,7 @@ public actor MockAPIClient: APIClient {
         }
         let feedback = Feedback(
             id: UUID().uuidString, workspaceId: workspaceId, userId: user.id,
-            type: request.type ?? .general, message: request.message,
+            type: request.type ?? .general, status: .new, message: request.message,
             createdAt: ISO8601DateFormatter().string(from: Date())
         )
         feedbackByWorkspace[workspaceId, default: []].insert(feedback, at: 0)
@@ -1004,6 +1004,65 @@ public actor MockAPIClient: APIClient {
             throw APIError.server(statusCode: 404, message: "Workspace not found: \(workspaceId)")
         }
         return feedbackByWorkspace[workspaceId] ?? []
+    }
+
+    /// Internal Operator Dashboard sprint: `MockAPIClient` only ever seeds one account (`mock-user`), so
+    /// this returns at most one row — present only when that account's own `preferences.betaTester` is set,
+    /// mirroring the real backend's `AdminService.listBetaUsers` filter rather than always returning data.
+    public func listBetaUsers() async throws -> [AdminBetaUserSummary] {
+        try await maybeFail()
+        guard case .bool(true) = user.preferences["betaTester"] else { return [] }
+
+        let primaryWorkspace = workspaces.first { $0.id == user.defaultWorkspaceId } ?? workspaces.first
+        return [
+            AdminBetaUserSummary(
+                userId: user.id, email: user.email, displayName: user.displayName,
+                workspaceId: primaryWorkspace?.id, workspaceName: primaryWorkspace?.name,
+                signupDate: user.createdAt, lastActiveAt: user.updatedAt,
+                onboardingCompleted: { if case .bool(true) = user.preferences["onboardingCompleted"] { return true }; return false }(),
+                feedbackCount: feedbackByWorkspace.values.reduce(0) { $0 + $1.filter { $0.userId == user.id }.count },
+                usage: aggregateUsage()
+            )
+        ]
+    }
+
+    /// Every seeded submission across every mock workspace, newest-`createdAt`-first, enriched with the
+    /// (single) seeded user's email and each workspace's name — the same shape `AdminService.listRecentFeedback`
+    /// returns from the real backend.
+    public func listAdminFeedback(limit: Int?) async throws -> [AdminFeedbackEntry] {
+        try await maybeFail()
+        let all = feedbackByWorkspace.values.flatMap { $0 }.sorted { $0.createdAt > $1.createdAt }
+        let capped = limit.map { Array(all.prefix($0)) } ?? all
+        return capped.map { feedback in
+            let workspaceName = workspaces.first { $0.id == feedback.workspaceId }?.name ?? "Unknown Workspace"
+            return AdminFeedbackEntry(
+                id: feedback.id, workspaceId: feedback.workspaceId, userId: feedback.userId,
+                type: feedback.type, status: feedback.status, message: feedback.message, createdAt: feedback.createdAt,
+                userEmail: user.email, workspaceName: workspaceName
+            )
+        }
+    }
+
+    private func aggregateUsage() -> AdminUsageSummary {
+        var total = AdminUsageSummary(conversationsCreated: 0, messagesSent: 0, memoriesCreated: 0, integrationsConnected: 0, approvalsUsed: 0, executionsUsed: 0)
+        for workspace in workspaces {
+            let workspaceConversations = conversations.filter { $0.workspaceId == workspace.id }
+            let messagesSent = workspaceConversations.reduce(0) { partial, conversation in
+                partial + (messagesByConversation[conversation.id] ?? []).filter { $0.role == .user }.count
+            }
+            let integrationsConnected = (integrationsByWorkspace[workspace.id] ?? []).filter { $0.status == .connected }.count
+            let approvalsUsed = (approvalsByWorkspace[workspace.id] ?? []).filter { $0.status == .approved }.count
+            let executionsUsed = (executionsByWorkspace[workspace.id] ?? []).count
+            total = AdminUsageSummary(
+                conversationsCreated: total.conversationsCreated + workspaceConversations.count,
+                messagesSent: total.messagesSent + messagesSent,
+                memoriesCreated: total.memoriesCreated + (memoriesByWorkspace[workspace.id]?.count ?? 0),
+                integrationsConnected: total.integrationsConnected + integrationsConnected,
+                approvalsUsed: total.approvalsUsed + approvalsUsed,
+                executionsUsed: total.executionsUsed + executionsUsed
+            )
+        }
+        return total
     }
 
     public func getTaskIntelligence(workspaceId: String) async throws -> TaskIntelligence {

@@ -20,6 +20,11 @@ export interface AppConfig {
   /** GitHub OAuth app credentials (Phase 2.7) — register at https://github.com/settings/developers. */
   githubOAuthClientId: string;
   githubOAuthClientSecret: string;
+  /** Internal Operator Dashboard sprint: the founder/admin allowlist for `/api/admin/*` (`requireAdmin`) — a
+   * comma-separated list of `users.id` values, not a database column (see `requireAdmin`'s own doc comment
+   * for why). Empty by default: an operator who hasn't configured this simply has no admin surface, the
+   * same safe-by-default posture as every other optional integration here. */
+  adminUserIds: string[];
 }
 
 /**
@@ -124,6 +129,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     googleOAuthClientSecret,
     githubOAuthClientId,
     githubOAuthClientSecret,
+    adminUserIds: (env.ADMIN_USER_IDS ?? '')
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean),
   };
 }
 

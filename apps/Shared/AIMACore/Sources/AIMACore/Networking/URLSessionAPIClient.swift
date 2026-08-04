@@ -519,6 +519,16 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         try await send("GET", "/api/workspaces/\(workspaceId)/feedback", envelope: FeedbackListEnvelope.self).feedback
     }
 
+    public func listBetaUsers() async throws -> [AdminBetaUserSummary] {
+        try await send("GET", "/api/admin/beta-users", envelope: AdminBetaUsersEnvelope.self).users
+    }
+
+    public func listAdminFeedback(limit: Int?) async throws -> [AdminFeedbackEntry] {
+        var query: [String: String] = [:]
+        if let limit { query["limit"] = String(limit) }
+        return try await send("GET", "/api/admin/feedback", query: query, envelope: AdminFeedbackEnvelope.self).feedback
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -646,3 +656,5 @@ private struct RetrievedContextEnvelope: Decodable { let context: RetrievedConte
 private struct ReindexResultEnvelope: Decodable { let result: ReindexWorkspaceResult }
 private struct FeedbackEnvelope: Decodable { let feedback: Feedback }
 private struct FeedbackListEnvelope: Decodable { let feedback: [Feedback] }
+private struct AdminBetaUsersEnvelope: Decodable { let users: [AdminBetaUserSummary] }
+private struct AdminFeedbackEnvelope: Decodable { let feedback: [AdminFeedbackEntry] }

@@ -105,4 +105,9 @@ public protocol APIClient: Sendable {
     /// Beta Tester Infrastructure sprint: submit/list feedback, bug reports, and feature requests.
     func submitFeedback(workspaceId: String, request: CreateFeedbackRequest) async throws -> Feedback
     func listFeedback(workspaceId: String) async throws -> [Feedback]
+
+    /// Internal Operator Dashboard sprint: the founder/admin-only surface — the backend 403s any caller not
+    /// on its `ADMIN_USER_IDS` allowlist, or 404s (route not mounted) if no admin is configured at all.
+    func listBetaUsers() async throws -> [AdminBetaUserSummary]
+    func listAdminFeedback(limit: Int?) async throws -> [AdminFeedbackEntry]
 }
