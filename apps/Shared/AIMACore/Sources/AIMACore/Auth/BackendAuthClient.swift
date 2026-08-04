@@ -8,36 +8,53 @@ import FoundationNetworking
 /// its mutable in-memory session is safe to call from Swift concurrency without extra locking, mirroring
 /// `MockAPIClient`'s use of `actor` for the same reason.
 ///
-/// The session lives in memory only: nothing is written to the Keychain or disk here, so signing in again is
-/// required after every relaunch. That is a deliberate scope limit for this foundation, not an oversight —
-/// where and how to persist a refresh token securely is its own decision this sprint didn't make (see the
-/// reported remaining gaps).
+/// The session itself is persisted through the injected `SessionStore` (`KeychainSessionStore` in real app use,
+/// `InMemorySessionStore` by default for tests/previews/Linux) rather than by this type directly — signing in
+/// writes through it, signing out and a rejected refresh clear it, and `currentSession()`/`currentUser()` read
+/// through to it once per process if nothing has been loaded into memory yet. This class has no Keychain code
+/// of its own; it only ever talks to `SessionStore`.
 public actor BackendAuthClient: AuthClient, AccessTokenProviding {
     private let configuration: APIConfiguration
     private let urlSession: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
+    private let sessionStore: SessionStore
 
     private var activeSession: AuthSession?
     private var activeUser: AuthenticatedUser?
+    /// Set the first time this instance has consulted `sessionStore` (whether or not it found anything) — so a
+    /// signed-out process doesn't re-query the store on every single call.
+    private var hasConsultedStore = false
 
-    public init(configuration: APIConfiguration, urlSession: URLSession = .shared) {
+    public init(configuration: APIConfiguration, urlSession: URLSession = .shared, sessionStore: SessionStore = InMemorySessionStore()) {
         self.configuration = configuration
         self.urlSession = urlSession
         self.decoder = JSONDecoder()
         self.encoder = JSONEncoder()
+        self.sessionStore = sessionStore
     }
 
     public func currentSession() async -> AuthSession? {
-        activeSession
+        await restoreFromStoreIfNeeded()
+        return activeSession
     }
 
     public func currentUser() async -> AuthenticatedUser? {
-        activeUser
+        await restoreFromStoreIfNeeded()
+        return activeUser
     }
 
     public func currentAccessToken() async -> String? {
-        activeSession?.accessToken
+        await restoreFromStoreIfNeeded()
+        return activeSession?.accessToken
+    }
+
+    private func restoreFromStoreIfNeeded() async {
+        guard !hasConsultedStore else { return }
+        hasConsultedStore = true
+        guard let persisted = await sessionStore.load() else { return }
+        activeSession = persisted.session
+        activeUser = persisted.user
     }
 
     @discardableResult
@@ -47,12 +64,16 @@ public actor BackendAuthClient: AuthClient, AccessTokenProviding {
             "POST", "/api/auth/login", body: Body(email: email, password: password), authorized: false
         )
         let session = try makeSession(from: response.tokens, userId: response.session.userId)
+        let user = AuthenticatedUser(id: session.userId, email: email, displayName: nil)
         activeSession = session
-        activeUser = AuthenticatedUser(id: session.userId, email: email, displayName: nil)
+        activeUser = user
+        hasConsultedStore = true
+        await sessionStore.save(PersistedSession(session: session, user: user))
         return session
     }
 
     public func signOut() async throws {
+        await restoreFromStoreIfNeeded()
         guard let current = activeSession else {
             throw AuthClientError.noActiveSession
         }
@@ -63,23 +84,39 @@ public actor BackendAuthClient: AuthClient, AccessTokenProviding {
         _ = try? await sendNoContent("POST", "/api/auth/logout", body: Body(refreshToken: current.refreshToken), authorized: true)
         activeSession = nil
         activeUser = nil
+        await sessionStore.clear()
     }
 
     @discardableResult
     public func refreshSession() async throws -> AuthSession {
-        guard let current = activeSession else {
+        await restoreFromStoreIfNeeded()
+        guard let current = activeSession, let currentUser = activeUser else {
             throw AuthClientError.noActiveSession
         }
         struct Body: Encodable { let refreshToken: String }
-        let response: RefreshResponse = try await send(
-            "POST", "/api/auth/refresh", body: Body(refreshToken: current.refreshToken), authorized: false
-        )
-        let session = try makeSession(from: response.tokens, userId: response.session.userId)
-        activeSession = session
-        if let user = activeUser {
-            activeUser = AuthenticatedUser(id: session.userId, email: user.email, displayName: user.displayName)
+        do {
+            let response: RefreshResponse = try await send(
+                "POST", "/api/auth/refresh", body: Body(refreshToken: current.refreshToken), authorized: false
+            )
+            // The backend rotates the refresh token on every use (`SessionService.refresh`, ADR-0022 Decision
+            // 2) — `response.tokens.refreshToken` is a new value, never the one just sent, and it's that new
+            // value (not `current`'s) that gets stored below.
+            let session = try makeSession(from: response.tokens, userId: response.session.userId)
+            let user = AuthenticatedUser(id: session.userId, email: currentUser.email, displayName: currentUser.displayName)
+            activeSession = session
+            activeUser = user
+            await sessionStore.save(PersistedSession(session: session, user: user))
+            return session
+        } catch {
+            // The refresh token the backend just rejected can never succeed on a later retry (rotation means
+            // each one is single-use) — leaving the old session in place would just keep failing the same way
+            // and strand the app in a "looks signed in, isn't" state. Clearing it here is what makes that
+            // failure surface as "you're signed out," which is the only state that's actually true anymore.
+            activeSession = nil
+            activeUser = nil
+            await sessionStore.clear()
+            throw error
         }
-        return session
     }
 
     private func makeSession(from tokens: TokensPayload, userId: String) throws -> AuthSession {

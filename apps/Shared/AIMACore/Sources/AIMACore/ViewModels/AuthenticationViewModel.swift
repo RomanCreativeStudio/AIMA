@@ -30,10 +30,10 @@ public final class AuthenticationViewModel {
         self.authClient = authClient
     }
 
-    /// Checks for an already-active session — call once at launch, before deciding which screen to show. A
-    /// no-op today since no `AuthClient` in this foundation persists a session across relaunches (see
-    /// `BackendAuthClient`'s doc comment), but kept as an explicit, separate step so a future persisted
-    /// implementation only needs to change under `AuthClient`, not here.
+    /// Checks for an already-active session — call once at launch, before deciding which screen to show.
+    /// `BackendAuthClient` transparently restores a persisted session here (via its `SessionStore`) on the
+    /// first call in a process; `MockAuthClient` has nothing to restore, so this stays signed-out for it unless
+    /// a prior `signIn` already ran in the same process.
     public func restoreExistingSession() async {
         let user = await authClient.currentUser()
         currentUser = user

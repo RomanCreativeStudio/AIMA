@@ -34,7 +34,7 @@ final class DependencyContainer {
             self.authClient = mockAuthClient
             self.apiClient = MockAPIClient()
         } else {
-            let backendAuthClient = BackendAuthClient(configuration: configuration)
+            let backendAuthClient = BackendAuthClient(configuration: configuration, sessionStore: Self.sessionStore(for: configuration))
             self.authClient = backendAuthClient
             self.apiClient = URLSessionAPIClient(configuration: configuration, tokenProvider: backendAuthClient)
         }
@@ -45,17 +45,24 @@ final class DependencyContainer {
     /// effect if the app is currently running against the mock client,
     /// since there is no backend connection to change in that mode.
     ///
-    /// Also rebuilds `authClient` against the new address, which drops any current session (a fresh
-    /// `BackendAuthClient` starts with none) — pointing at a different backend mid-session, signed in against
-    /// the old one, has no meaningful "still signed in" state to preserve.
+    /// Also rebuilds `authClient` against the new address. Its `KeychainSessionStore` is keyed by host (see
+    /// `sessionStore(for:)`), so this never reads or overwrites a session that belongs to a different backend —
+    /// pointing at a backend this app hasn't signed into before starts genuinely signed out, and pointing back
+    /// at one it has restores that backend's own session correctly.
     func updateBackendURL(_ url: URL) {
         let newConfiguration = APIConfiguration(baseURL: url, requestTimeout: configuration.requestTimeout)
         configuration = newConfiguration
         if apiClient is URLSessionAPIClient {
-            let newAuthClient = BackendAuthClient(configuration: newConfiguration)
+            let newAuthClient = BackendAuthClient(configuration: newConfiguration, sessionStore: Self.sessionStore(for: newConfiguration))
             authClient = newAuthClient
             apiClient = URLSessionAPIClient(configuration: newConfiguration, tokenProvider: newAuthClient)
         }
+    }
+
+    /// One `KeychainSessionStore` per backend host — so a session issued by one backend (e.g. production) is
+    /// never handed to a different one (e.g. a local dev server) just because the user pointed Settings at it.
+    private static func sessionStore(for configuration: APIConfiguration) -> SessionStore {
+        KeychainSessionStore(account: configuration.baseURL.host ?? configuration.baseURL.absoluteString)
     }
 
     func makeAuthenticationViewModel() -> AuthenticationViewModel {

@@ -19,7 +19,10 @@ public protocol AuthClient: Sendable {
     @discardableResult
     func refreshSession() async throws -> AuthSession
 
-    /// The in-memory session, if any — `nil` before the first successful `signIn` or after `signOut`.
+    /// The current session, if any — `nil` before the first successful `signIn` or after `signOut`. A real
+    /// implementation may transparently restore this from persisted storage (`BackendAuthClient`'s
+    /// `SessionStore`) the first time it's asked, so a caller can rely on this reflecting a session from a
+    /// previous app launch without a separate "restore" step.
     func currentSession() async -> AuthSession?
 
     /// The signed-in identity, if any.
