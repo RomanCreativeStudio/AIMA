@@ -25,7 +25,7 @@ import { WorkflowRegistry } from '../workflows/registry';
 import type { WorkflowKey } from '../workflows/types';
 import { WorkflowService } from '../workflows/workflowService';
 import { WorkspaceService } from '../workspaces/workspaceService';
-import { BriefingService, buildGreeting, needsAttention } from './briefingService';
+import { BriefingService, buildGreeting, isOpenCommitment, needsAttention } from './briefingService';
 
 const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
@@ -119,6 +119,7 @@ test('getDailyBriefing reports zeros and empty lists for a brand-new workspace',
     assert.deepEqual(briefing.priorityTasks, []);
     assert.deepEqual(briefing.recentActivity, []);
     assert.deepEqual(briefing.recentMemories, [], 'recentMemories defaults to [] when memoryService is omitted');
+    assert.deepEqual(briefing.openCommitments, [], 'openCommitments defaults to [] when memoryService is omitted');
     assert.deepEqual(briefing.calendarHighlights, []);
     assert.deepEqual(
       briefing.suggestedNextActions,
@@ -206,6 +207,102 @@ test('getDailyBriefing surfaces recentMemories, scoped to the workspace', async 
     assert.equal(briefing.recentMemories.length, 2);
     assert.ok(briefing.recentMemories.every((memory) => memory.workspaceId === workspaceId));
   });
+});
+
+// Personal Workspace Memory sprint: openCommitments, derived from the same listMemories call as recentMemories.
+
+test('getDailyBriefing surfaces openCommitments from auto-extracted reminder/decision/project_update memories, excluding completed_task', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, memoryService } = buildFullService(client);
+
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: 'Remind me to send the invoice.',
+      source: 'auto_extracted',
+      metadata: { category: 'reminder' },
+    });
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to ship on Friday.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "I've finished the onboarding redesign.",
+      source: 'auto_extracted',
+      metadata: { category: 'completed_task' },
+    });
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: 'A manually saved fact, not an open commitment.',
+    });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.openCommitments.length, 2);
+    assert.ok(briefing.openCommitments.every((m) => m.metadata.category !== 'completed_task'));
+    assert.ok(briefing.openCommitments.some((m) => m.metadata.category === 'reminder'));
+    assert.ok(briefing.openCommitments.some((m) => m.metadata.category === 'decision'));
+  });
+});
+
+test('getDailyBriefing openCommitments is workspace-scoped', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: otherWorkspaceId } = await seedWorkspace(client, 'mfs');
+    const { briefingService, memoryService } = buildFullService(client);
+
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: 'Remind me to send the invoice.',
+      source: 'auto_extracted',
+      metadata: { category: 'reminder' },
+    });
+    await memoryService.createMemory({
+      workspaceId: otherWorkspaceId,
+      scope: 'workspace',
+      content: 'Remind me about the other workspace.',
+      source: 'auto_extracted',
+      metadata: { category: 'reminder' },
+    });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.openCommitments.length, 1);
+    assert.equal(briefing.openCommitments[0].workspaceId, workspaceId);
+  });
+});
+
+test('isOpenCommitment requires source auto_extracted and an open-commitment category', () => {
+  const base = {
+    id: 'm1',
+    workspaceId: 'w1',
+    scope: 'workspace' as const,
+    content: 'x',
+    conversationId: null,
+    projectKey: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    importanceScore: 0.5,
+    confidenceScore: 0.5,
+    memoryType: 'long_term' as const,
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
+  };
+
+  assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: { category: 'reminder' } }), true);
+  assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: { category: 'decision' } }), true);
+  assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: { category: 'project_update' } }), true);
+  assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: { category: 'completed_task' } }), false);
+  assert.equal(isOpenCommitment({ ...base, source: null, metadata: { category: 'reminder' } }), false);
+  assert.equal(isOpenCommitment({ ...base, source: 'auto_extracted', metadata: {} }), false);
 });
 
 test('getDailyBriefing surfaces calendarHighlights only for calendar write action types, from recentActivity', async () => {

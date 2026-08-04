@@ -326,6 +326,19 @@ final class URLSessionAPIClientTests: XCTestCase {
         XCTAssertEqual(briefing.greeting, "Good morning! Here's what's happening in RCS.")
         XCTAssertEqual(briefing.overdueTasks, [])
         XCTAssertEqual(briefing.integrationsNeedingAttention, [])
+        XCTAssertEqual(briefing.openCommitments, [])
+    }
+
+    func testGetDailyBriefingDecodesOpenCommitments() async throws {
+        let body = """
+        {"briefing":{"workspaceId":"w1","workspaceName":"RCS","pendingApprovalCount":0,"pendingApprovals":[],"activeWorkflowCount":0,"activeWorkflows":[],"priorityTasks":[],"recentActivity":[],"greeting":"Good morning! Here's what's happening in RCS.","overdueTasks":[],"integrationsNeedingAttention":[],"openCommitments":[{"id":"m1","workspaceId":"w1","scope":"workspace","content":"Remind me to send the invoice.","source":"auto_extracted","metadata":{"category":"reminder"},"createdAt":"2026-01-01T00:00:00.000Z"}],"generatedAt":"2026-01-01T00:00:00.000Z"}}
+        """.data(using: .utf8)!
+        MockURLProtocol.stubs["GET /api/workspaces/w1/daily-briefing"] = .init(statusCode: 200, body: body)
+
+        let briefing = try await client.getDailyBriefing(workspaceId: "w1")
+        XCTAssertEqual(briefing.openCommitments.count, 1)
+        XCTAssertEqual(briefing.openCommitments[0].content, "Remind me to send the invoice.")
+        XCTAssertEqual(briefing.openCommitments[0].source, "auto_extracted")
     }
 
     func testGetTaskIntelligenceUnwrapsTheTaskIntelligenceEnvelope() async throws {

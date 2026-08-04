@@ -45,6 +45,57 @@ test('extract() returns nothing for ordinary conversational text', () => {
   assert.deepEqual(candidates, []);
 });
 
+test('extract() detects a completed task from "I\'ve finished ..."', () => {
+  const extractor = new RuleBasedMemoryExtractor();
+  const [candidate] = extractor.extract("I've finished the onboarding redesign.");
+
+  assert.equal(candidate.category, 'completed_task');
+  assert.match(candidate.content, /^I've finished the onboarding redesign/i);
+  assert.match(candidate.reason, /finished\/completed/i);
+});
+
+test('extract() detects a completed task from "done with ..."', () => {
+  const extractor = new RuleBasedMemoryExtractor();
+  const [candidate] = extractor.extract('I am done with the client proposal.');
+
+  assert.equal(candidate.category, 'completed_task');
+  assert.match(candidate.reason, /done with/i);
+});
+
+test('extract() detects a decision from "decided to ..."', () => {
+  const extractor = new RuleBasedMemoryExtractor();
+  const [candidate] = extractor.extract("We've decided to ship the beta on Friday.");
+
+  assert.equal(candidate.category, 'decision');
+  assert.match(candidate.content, /^We've decided to ship the beta on Friday/i);
+  assert.match(candidate.reason, /decided to\/that/i);
+});
+
+test('extract() detects a decision from "let\'s go with ..."', () => {
+  const extractor = new RuleBasedMemoryExtractor();
+  const [candidate] = extractor.extract("Let's go with the blue color scheme.");
+
+  assert.equal(candidate.category, 'decision');
+  assert.match(candidate.reason, /let's go with/i);
+});
+
+test('extract() detects a reminder from "remind me to ..."', () => {
+  const extractor = new RuleBasedMemoryExtractor();
+  const [candidate] = extractor.extract('Remind me to send the invoice tomorrow.');
+
+  assert.equal(candidate.category, 'reminder');
+  assert.match(candidate.content, /^Remind me to send the invoice tomorrow/i);
+  assert.match(candidate.reason, /remind me to/i);
+});
+
+test('extract() detects a project update from "project update: ..."', () => {
+  const extractor = new RuleBasedMemoryExtractor();
+  const [candidate] = extractor.extract('Project update: the migration is 80% complete.');
+
+  assert.equal(candidate.category, 'project_update');
+  assert.match(candidate.reason, /project\/status update/i);
+});
+
 test('extract() every candidate reports scores within [0, 1] and a non-empty reason', () => {
   const extractor = new RuleBasedMemoryExtractor();
   const candidates = extractor.extract(

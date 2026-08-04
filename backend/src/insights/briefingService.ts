@@ -3,6 +3,7 @@ import type { ApprovalEngine } from '../approval/approvalEngine';
 import type { IntegrationService } from '../integrations/integrationService';
 import type { WorkspaceIntegration } from '../integrations/types';
 import type { MemoryService } from '../memory/memoryService';
+import type { MemoryRecord } from '../memory/types';
 import type { ProactiveIntelligenceService } from '../proactive/proactiveIntelligenceService';
 import type { TaskService } from '../tasks/taskService';
 import type { WorkflowService } from '../workflows/workflowService';
@@ -14,9 +15,13 @@ const DEFAULT_PRIORITY_TASK_LIMIT = 5;
 const DEFAULT_RECENT_ACTIVITY_LIMIT = 10;
 const DEFAULT_DUE_SOON_WINDOW_MS = 3 * 24 * 60 * 60 * 1000; // 3 days, matching TaskIntelligenceService's default
 const DEFAULT_RECENT_MEMORY_LIMIT = 5;
+/** Personal Workspace Memory sprint: how many memories `getDailyBriefing` fetches in its single `listMemories` call — wide enough that `openCommitments` (derived from the same result set, see `isOpenCommitment`) isn't starved by `recentMemories`' tighter display limit. */
+const DEFAULT_MEMORY_FETCH_LIMIT = 20;
 const DEFAULT_SUGGESTED_ACTION_LIMIT = 3;
 /** Real writes that already went through Tier 3 approval — see `DailyBriefing.calendarHighlights`'s doc comment. */
 const CALENDAR_ACTION_TYPES = new Set(['create_calendar_event', 'update_calendar_event', 'delete_calendar_event']);
+/** Auto-extracted categories (see `ConversationService.AUTO_SAVE_CATEGORIES`) that represent an outcome still open — `completed_task` is deliberately excluded, since a completed task is finished, not "unfinished." */
+const OPEN_COMMITMENT_CATEGORIES = new Set(['reminder', 'decision', 'project_update']);
 
 /**
  * The Daily Briefing (Phase 2.5, item 1): a synchronous, read-only
@@ -46,13 +51,13 @@ export class BriefingService {
   async getDailyBriefing(workspaceId: string): Promise<DailyBriefing> {
     const workspace = await this.workspaceService.getWorkspace(workspaceId);
 
-    const [tasks, pendingApprovals, workflowRuns, recentActivity, recentMemories, suggestions, integrations] =
+    const [tasks, pendingApprovals, workflowRuns, recentActivity, memories, suggestions, integrations] =
       await Promise.all([
         this.taskService.listTasks(workspaceId),
         this.approvalEngine.list(workspaceId, 'pending'),
         this.workflowService.listRuns(workspaceId),
         this.actionLogger.list(workspaceId, DEFAULT_RECENT_ACTIVITY_LIMIT),
-        this.memoryService?.listMemories({ workspaceId, limit: DEFAULT_RECENT_MEMORY_LIMIT }) ?? Promise.resolve([]),
+        this.memoryService?.listMemories({ workspaceId, limit: DEFAULT_MEMORY_FETCH_LIMIT }) ?? Promise.resolve([]),
         this.proactiveIntelligenceService?.getSuggestions(workspaceId) ?? Promise.resolve([]),
         this.integrationService?.listForWorkspace(workspaceId) ?? Promise.resolve([]),
       ]);
@@ -74,12 +79,13 @@ export class BriefingService {
       activeWorkflows,
       priorityTasks,
       recentActivity,
-      recentMemories,
+      recentMemories: memories.slice(0, DEFAULT_RECENT_MEMORY_LIMIT),
       calendarHighlights: recentActivity.filter((entry) => isCalendarActivity(entry)),
       suggestedNextActions: suggestions.slice(0, DEFAULT_SUGGESTED_ACTION_LIMIT),
       greeting: buildGreeting(workspace.name, now),
       overdueTasks: findOverdue(openTasks, now),
       integrationsNeedingAttention: integrations.filter(needsAttention),
+      openCommitments: memories.filter(isOpenCommitment),
       generatedAt: now.toISOString(),
     };
   }
@@ -102,4 +108,11 @@ export function needsAttention(integration: WorkspaceIntegration): boolean {
   if (integration.enabled && integration.status === 'disconnected') return true;
   if (integration.tokenExpiresAt && new Date(integration.tokenExpiresAt).getTime() < Date.now()) return true;
   return false;
+}
+
+/** A `ConversationService`-auto-saved memory whose outcome is still unfinished — see `OPEN_COMMITMENT_CATEGORIES`. Manually-created memories (no `metadata.category`, or `source` other than `'auto_extracted'`) never qualify: this is specifically "commitments AIMA noticed," not every memory. Exported for direct unit testing (see `buildGreeting`'s doc comment). */
+export function isOpenCommitment(memory: MemoryRecord): boolean {
+  if (memory.source !== 'auto_extracted') return false;
+  const category = memory.metadata?.category;
+  return typeof category === 'string' && OPEN_COMMITMENT_CATEGORIES.has(category);
 }

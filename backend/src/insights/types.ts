@@ -54,6 +54,8 @@ export interface DailyBriefing {
   overdueTasks: Task[];
   /** Alpha Daily Briefing sprint: connected integrations whose `status` is `error`, or `disconnected` while still `enabled`, or whose `tokenExpiresAt` has already passed — see `needsAttention` in `briefingService.ts`. Empty when `IntegrationService` isn't supplied. */
   integrationsNeedingAttention: WorkspaceIntegration[];
+  /** Personal Workspace Memory sprint: auto-saved memories (`source: 'auto_extracted'`) whose category is `reminder`, `decision`, or `project_update` — outcomes still open, unlike a `completed_task` — see `isOpenCommitment` in `briefingService.ts`. Drawn from the same `listMemories` call as `recentMemories`, not a second query. */
+  openCommitments: MemoryRecord[];
   generatedAt: string;
 }
 

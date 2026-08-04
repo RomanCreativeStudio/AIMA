@@ -32,6 +32,10 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
     /// Connected integrations that need attention: erroring, enabled-but-disconnected, or an already-expired
     /// token (Alpha Daily Briefing sprint). Empty when the backend's `IntegrationService` isn't configured.
     public let integrationsNeedingAttention: [WorkspaceIntegration]
+    /// Auto-saved memories whose outcome is still open — `reminder`, `decision`, or `project_update`, never
+    /// `completed_task` (Personal Workspace Memory sprint). Drawn from the same fetch as `recentMemories`, not a
+    /// second query — see the backend's `isOpenCommitment` in `briefingService.ts`.
+    public let openCommitments: [MemoryRecord]
     public let generatedAt: String
 
     public init(
@@ -49,6 +53,7 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         greeting: String = "",
         overdueTasks: [TaskItem] = [],
         integrationsNeedingAttention: [WorkspaceIntegration] = [],
+        openCommitments: [MemoryRecord] = [],
         generatedAt: String
     ) {
         self.workspaceId = workspaceId
@@ -65,19 +70,20 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         self.greeting = greeting
         self.overdueTasks = overdueTasks
         self.integrationsNeedingAttention = integrationsNeedingAttention
+        self.openCommitments = openCommitments
         self.generatedAt = generatedAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case workspaceId, workspaceName, pendingApprovalCount, pendingApprovals, activeWorkflowCount, activeWorkflows
         case priorityTasks, recentActivity, recentMemories, calendarHighlights, suggestedNextActions
-        case greeting, overdueTasks, integrationsNeedingAttention, generatedAt
+        case greeting, overdueTasks, integrationsNeedingAttention, openCommitments, generatedAt
     }
 
     /// Custom decode so a payload missing newer fields still decodes, defaulting each to an empty array/string —
     /// the same backward-compatible-decode posture as `SendMessageResult.memorySuggestions`. `greeting`,
-    /// `overdueTasks`, `integrationsNeedingAttention` are Alpha Daily Briefing sprint additions; the rest predate
-    /// Phase 3.5.
+    /// `overdueTasks`, `integrationsNeedingAttention` are Alpha Daily Briefing sprint additions; `openCommitments`
+    /// is a Personal Workspace Memory sprint addition; the rest predate Phase 3.5.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
@@ -94,6 +100,7 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         greeting = try container.decodeIfPresent(String.self, forKey: .greeting) ?? ""
         overdueTasks = try container.decodeIfPresent([TaskItem].self, forKey: .overdueTasks) ?? []
         integrationsNeedingAttention = try container.decodeIfPresent([WorkspaceIntegration].self, forKey: .integrationsNeedingAttention) ?? []
+        openCommitments = try container.decodeIfPresent([MemoryRecord].self, forKey: .openCommitments) ?? []
         generatedAt = try container.decode(String.self, forKey: .generatedAt)
     }
 }

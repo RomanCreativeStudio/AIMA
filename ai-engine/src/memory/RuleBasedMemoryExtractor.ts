@@ -17,6 +17,10 @@ interface ExtractionRule {
 const DEFAULT_IMPORTANCE: Record<MemoryCandidateCategory, number> = {
   fact: 0.7,
   preference: 0.6,
+  completed_task: 0.6,
+  decision: 0.75,
+  reminder: 0.8,
+  project_update: 0.65,
 };
 
 /**
@@ -82,6 +86,45 @@ const RULES: ExtractionRule[] = [
     pattern: /\bi (?:really )?like [^.?!]+/i,
     confidence: 0.55,
     reason: 'Matched "I like ..." preference phrasing',
+  },
+  // Personal Workspace Memory sprint: four new categories, matching the outcomes
+  // ConversationService auto-saves (see its AUTO_SAVE_CATEGORIES) rather than
+  // leaving advisory-only.
+  {
+    category: 'completed_task',
+    pattern: /\bi(?:'ve| have) (?:just )?(?:finished|completed) [^.?!]+/i,
+    confidence: 0.85,
+    reason: 'Matched "I\'ve finished/completed ..." completed-task phrasing',
+  },
+  {
+    category: 'completed_task',
+    pattern: /\bdone with [^.?!]+/i,
+    confidence: 0.7,
+    reason: 'Matched "done with ..." completed-task phrasing',
+  },
+  {
+    category: 'decision',
+    pattern: /\b(?:we|i)(?:'ve| have)? decided (?:to|that) [^.?!]+/i,
+    confidence: 0.85,
+    reason: 'Matched "decided to/that ..." decision phrasing',
+  },
+  {
+    category: 'decision',
+    pattern: /\blet'?s go with [^.?!]+/i,
+    confidence: 0.7,
+    reason: 'Matched "let\'s go with ..." decision phrasing',
+  },
+  {
+    category: 'reminder',
+    pattern: /\bremind me to [^.?!]+/i,
+    confidence: 0.9,
+    reason: 'Matched "remind me to ..." reminder phrasing',
+  },
+  {
+    category: 'project_update',
+    pattern: /\b(?:project|status) update:? [^.?!]+/i,
+    confidence: 0.75,
+    reason: 'Matched "project/status update: ..." phrasing',
   },
 ];
 

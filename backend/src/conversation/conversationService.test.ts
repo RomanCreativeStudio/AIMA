@@ -520,6 +520,102 @@ test('sendMessage leaves memorySuggestions empty for ordinary chat, and never pe
   });
 });
 
+test('sendMessage auto-saves a memory for an eligible category (Personal Workspace Memory sprint)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const { service } = buildService(client, new RecordingAIProvider(), { memoryService });
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Remind me to send the invoice tomorrow.',
+    });
+
+    assert.deepEqual(result.memorySuggestions, [], 'an auto-saved candidate is no longer advisory');
+
+    const memories = await memoryService.listMemories({ workspaceId });
+    assert.equal(memories.length, 1);
+    assert.match(memories[0].content, /^Remind me to send the invoice tomorrow/i);
+    assert.equal(memories[0].source, 'auto_extracted');
+    assert.equal(memories[0].scope, 'conversation');
+    assert.equal(memories[0].conversationId, conversationId);
+    assert.equal(memories[0].metadata.category, 'reminder');
+  });
+});
+
+test('sendMessage never auto-saves a "fact" candidate, even with memoryService wired in', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const { service } = buildService(client, new RecordingAIProvider(), { memoryService });
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'My name is Roman.' });
+
+    assert.equal(result.memorySuggestions.length, 1);
+    assert.equal(result.memorySuggestions[0].category, 'fact');
+
+    const memories = await memoryService.listMemories({ workspaceId });
+    assert.equal(memories.length, 0);
+  });
+});
+
+test('sendMessage does not create a duplicate memory for a repeated eligible outcome', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const { service } = buildService(client, new RecordingAIProvider(), { memoryService });
+
+    await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Remind me to send the invoice tomorrow.',
+    });
+    const second = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Remind me to send the invoice tomorrow.',
+    });
+
+    assert.deepEqual(second.memorySuggestions, []);
+
+    const memories = await memoryService.listMemories({ workspaceId });
+    assert.equal(memories.length, 1, 'the second, identical outcome must not create a second memory');
+  });
+});
+
+test('sendMessage auto-save is isolated per workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId: workspaceA } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: workspaceB } = await seedWorkspace(client, 'development');
+    const conversationA = await seedConversation(client, workspaceA);
+    const conversationB = await seedConversation(client, workspaceB);
+    const memoryService = new MemoryService(client, new MockEmbeddingProvider());
+    const { service } = buildService(client, new RecordingAIProvider(), { memoryService });
+
+    await service.sendMessage({
+      workspaceId: workspaceA,
+      conversationId: conversationA,
+      content: 'Remind me to send the invoice tomorrow.',
+    });
+    await service.sendMessage({
+      workspaceId: workspaceB,
+      conversationId: conversationB,
+      content: 'Remind me to send the invoice tomorrow.',
+    });
+
+    const memoriesA = await memoryService.listMemories({ workspaceId: workspaceA });
+    const memoriesB = await memoryService.listMemories({ workspaceId: workspaceB });
+    assert.equal(memoriesA.length, 1);
+    assert.equal(memoriesB.length, 1);
+    assert.equal(memoriesA[0].workspaceId, workspaceA);
+    assert.equal(memoriesB[0].workspaceId, workspaceB);
+  });
+});
+
 test('sendMessage result matches the full response schema', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');

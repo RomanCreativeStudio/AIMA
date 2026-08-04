@@ -221,6 +221,7 @@ async function main(): Promise<void> {
     workflowIntentMatcher,
     executionIntentMatcher,
     retrievalService,
+    memoryService,
   });
 
   const voiceService = new VoiceService(pool, conversationService, speechToTextProvider, textToSpeechProvider);

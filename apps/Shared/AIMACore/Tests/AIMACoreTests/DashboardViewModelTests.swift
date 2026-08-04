@@ -31,6 +31,17 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(briefing.recentActivity.count, 2)
     }
 
+    func testLoadPopulatesRecentMemoriesAndOpenCommitmentsOnTheDailyBriefing() async {
+        let apiClient = MockAPIClient()
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        let briefing = try! XCTUnwrap(viewModel.dailyBriefing)
+        XCTAssertEqual(briefing.recentMemories.count, 2, "the seeded workspace/user-scope memories surface as recentMemories")
+        XCTAssertEqual(briefing.openCommitments, [], "neither seeded memory is source: auto_extracted, so openCommitments stays empty")
+    }
+
     func testLoadPopulatesTaskIntelligenceRankedByPriority() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)

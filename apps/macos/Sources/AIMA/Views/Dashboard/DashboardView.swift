@@ -339,6 +339,16 @@ struct DashboardView: View {
                         }
                     }
 
+                    if !briefing.openCommitments.isEmpty {
+                        Text("Open Commitments").font(.subheadline).fontWeight(.medium)
+                        ForEach(briefing.openCommitments) { commitment in
+                            Text("• \(commitment.content)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+
                     if !briefing.calendarHighlights.isEmpty {
                         Text("Calendar Highlights").font(.subheadline).fontWeight(.medium)
                         ForEach(briefing.calendarHighlights) { entry in

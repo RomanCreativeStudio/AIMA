@@ -1,9 +1,10 @@
-import type { MemoryExtractor } from '@aima/ai-engine';
+import type { MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from '@aima/ai-engine';
 import { RuleBasedMemoryExtractor } from '@aima/ai-engine';
 import type { ActionLogger } from '../actionLog/logger';
 import type { AimaCoreService } from '../core/aimaCoreService';
 import type { Queryable } from '../db/queryable';
 import type { RetrievalService } from '../embeddings/retrievalService';
+import type { MemoryService } from '../memory/memoryService';
 import type { PermissionEngine } from '../permissions/engine';
 import { isWorkspaceSlug, type WorkspaceSlug } from '../types/workspace';
 import { WorkspaceNotFoundError } from '../types/errors';
@@ -31,6 +32,8 @@ export interface ConversationServiceDependencies {
   memoryExtractor?: MemoryExtractor;
   /** Computes the advisory `retrievedContext` (Phase 3.6) — merged memories/conversations/tasks for this turn. Optional so every pre-existing call site keeps compiling; `retrievedContext` is simply `null` when omitted. Never wired into the AI prompt itself. */
   retrievalService?: RetrievalService;
+  /** Personal Workspace Memory sprint: when provided, `sendMessage` auto-saves extracted candidates whose category is in `AUTO_SAVE_CATEGORIES` via `MemoryService.createMemory` — the same memory pipeline `RetrievalService`/the memory routes already use, not a second one. Optional so every pre-existing call site (which never saw memories auto-created) keeps compiling unchanged; auto-save is simply skipped when omitted. */
+  memoryService?: MemoryService;
   /** Max recent messages sent to the AI provider (a context limit — count-based, not token-based). */
   historyLimit?: number;
   /** Max memory records retrieved per turn (a context limit). */
@@ -52,6 +55,17 @@ export interface ConversationServiceDependencies {
  * conversation.
  */
 export class ConversationService {
+  /** Candidate categories `sendMessage` auto-saves as memories rather than leaving purely advisory — everything else (currently just `fact`) still only ever surfaces as a `memorySuggestions` entry. */
+  private static readonly AUTO_SAVE_CATEGORIES: ReadonlySet<MemoryCandidateCategory> = new Set([
+    'preference',
+    'completed_task',
+    'decision',
+    'reminder',
+    'project_update',
+  ]);
+  /** How many recent memories to check content against before auto-saving, to avoid saving the same outcome twice. */
+  private static readonly DUPLICATE_CHECK_LIMIT = 200;
+
   private readonly db: Queryable;
   private readonly aimaCoreService: AimaCoreService;
   private readonly actionLogger: ActionLogger;
@@ -60,6 +74,7 @@ export class ConversationService {
   private readonly executionIntentMatcher: ExecutionIntentMatcher;
   private readonly memoryExtractor: MemoryExtractor;
   private readonly retrievalService: RetrievalService | null;
+  private readonly memoryService: MemoryService | null;
   private readonly historyLimit: number;
   private readonly memoryLimit: number;
   private readonly documentLimit: number;
@@ -73,6 +88,7 @@ export class ConversationService {
     this.executionIntentMatcher = deps.executionIntentMatcher;
     this.memoryExtractor = deps.memoryExtractor ?? new RuleBasedMemoryExtractor();
     this.retrievalService = deps.retrievalService ?? null;
+    this.memoryService = deps.memoryService ?? null;
     this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
     this.memoryLimit = deps.memoryLimit ?? DEFAULT_MEMORY_LIMIT;
     this.documentLimit = deps.documentLimit ?? DEFAULT_DOCUMENT_LIMIT;
@@ -177,6 +193,9 @@ export class ConversationService {
         result.content,
       );
 
+      const candidates = this.memoryExtractor.extract(input.content);
+      const { advisory } = await this.autoSaveMemories(input.workspaceId, input.conversationId, candidates);
+
       await this.actionLogger.log({
         workspaceId: input.workspaceId,
         tier: this.permissionEngine.resolveTier(GENERATE_RESPONSE_CAPABILITY),
@@ -203,7 +222,7 @@ export class ConversationService {
         approvalDecision: result.approvalDecision,
         workflowSuggestion: this.workflowIntentMatcher.match(input.content),
         executionSuggestion: this.executionIntentMatcher.match(input.content),
-        memorySuggestions: this.memoryExtractor.extract(input.content),
+        memorySuggestions: advisory,
         retrievedContext,
       };
     } catch (error) {
@@ -215,6 +234,65 @@ export class ConversationService {
         outcome: 'failure',
       });
       throw error;
+    }
+  }
+
+  /**
+   * Splits extracted candidates into ones this turn auto-saves as memories
+   * (`AUTO_SAVE_CATEGORIES`) and ones that stay advisory-only (currently just
+   * `fact`), then saves the eligible ones via `MemoryService.createMemory` —
+   * the same memory pipeline every other caller uses, not a second one.
+   * Skips a candidate whose content already matches an existing memory
+   * (case-insensitive, trimmed) to avoid re-saving the same outcome every
+   * turn it's restated. Never throws: a failed auto-save must not fail the
+   * chat turn, so every candidate falls back to advisory on error.
+   */
+  private async autoSaveMemories(
+    workspaceId: string,
+    conversationId: string,
+    candidates: MemoryCandidate[],
+  ): Promise<{ autoSaved: MemoryCandidate[]; advisory: MemoryCandidate[] }> {
+    if (!this.memoryService) {
+      return { autoSaved: [], advisory: candidates };
+    }
+
+    const eligible = candidates.filter((c) => ConversationService.AUTO_SAVE_CATEGORIES.has(c.category));
+    const advisory = candidates.filter((c) => !ConversationService.AUTO_SAVE_CATEGORIES.has(c.category));
+
+    if (eligible.length === 0) {
+      return { autoSaved: [], advisory };
+    }
+
+    try {
+      const existing = await this.memoryService.listMemories({
+        workspaceId,
+        limit: ConversationService.DUPLICATE_CHECK_LIMIT,
+      });
+      const seen = new Set(existing.map((m) => normalizeMemoryContent(m.content)));
+
+      const autoSaved: MemoryCandidate[] = [];
+      for (const candidate of eligible) {
+        const normalized = normalizeMemoryContent(candidate.content);
+        if (seen.has(normalized)) {
+          continue;
+        }
+        await this.memoryService.createMemory({
+          workspaceId,
+          scope: 'conversation',
+          content: candidate.content,
+          source: 'auto_extracted',
+          conversationId,
+          metadata: { category: candidate.category, confidence: candidate.confidence, reason: candidate.reason },
+          importanceScore: candidate.importance,
+          confidenceScore: candidate.confidence,
+        });
+        seen.add(normalized);
+        autoSaved.push(candidate);
+      }
+
+      return { autoSaved, advisory };
+    } catch {
+      return { autoSaved: [], advisory: candidates };
     }
   }
 
@@ -311,4 +389,8 @@ function mapMessageRow(row: MessageRow): Message {
 
 function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : value;
+}
+
+function normalizeMemoryContent(content: string): string {
+  return content.trim().toLowerCase();
 }

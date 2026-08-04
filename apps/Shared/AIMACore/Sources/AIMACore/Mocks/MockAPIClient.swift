@@ -928,6 +928,7 @@ public actor MockAPIClient: APIClient {
             greeting: Self.buildGreeting(workspaceName: workspace.name, now: now),
             overdueTasks: Self.findOverdue(openTasks, now: now),
             integrationsNeedingAttention: (integrationsByWorkspace[workspaceId] ?? []).filter(Self.needsAttention),
+            openCommitments: (memoriesByWorkspace[workspaceId] ?? []).filter(Self.isOpenCommitment),
             generatedAt: ISO8601DateFormatter().string(from: now)
         )
     }
@@ -947,6 +948,13 @@ public actor MockAPIClient: APIClient {
             return true
         }
         return false
+    }
+
+    /// Mirrors the backend's `briefingService.ts#isOpenCommitment` (Personal Workspace Memory sprint).
+    private static func isOpenCommitment(_ memory: MemoryRecord) -> Bool {
+        guard memory.source == "auto_extracted" else { return false }
+        guard case .string(let category)? = memory.metadata["category"] else { return false }
+        return ["reminder", "decision", "project_update"].contains(category)
     }
 
     public func getProactivePatterns(workspaceId: String) async throws -> [Pattern] {
