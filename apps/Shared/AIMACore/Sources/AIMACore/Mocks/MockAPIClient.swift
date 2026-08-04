@@ -275,6 +275,9 @@ public actor MockAPIClient: APIClient {
     public func updateUserProfile(id: String, request: UpdateUserProfileRequest) async throws -> UserProfile {
         try await maybeFail()
         if let displayName = request.displayName { user = withDisplayName(user, displayName) }
+        if let preferences = request.preferences { user = withPreferences(user, preferences) }
+        if let communicationStyle = request.communicationStyle { user = withCommunicationStyle(user, communicationStyle) }
+        if let defaultWorkspaceId = request.defaultWorkspaceId { user = withDefaultWorkspaceId(user, defaultWorkspaceId) }
         return user
     }
 
@@ -1613,6 +1616,33 @@ public actor MockAPIClient: APIClient {
             id: profile.id, email: profile.email, displayName: displayName,
             preferences: profile.preferences, communicationStyle: profile.communicationStyle,
             defaultWorkspaceId: profile.defaultWorkspaceId, createdAt: profile.createdAt,
+            updatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    private func withPreferences(_ profile: UserProfile, _ preferences: [String: JSONValue]) -> UserProfile {
+        UserProfile(
+            id: profile.id, email: profile.email, displayName: profile.displayName,
+            preferences: preferences, communicationStyle: profile.communicationStyle,
+            defaultWorkspaceId: profile.defaultWorkspaceId, createdAt: profile.createdAt,
+            updatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    private func withCommunicationStyle(_ profile: UserProfile, _ communicationStyle: String) -> UserProfile {
+        UserProfile(
+            id: profile.id, email: profile.email, displayName: profile.displayName,
+            preferences: profile.preferences, communicationStyle: communicationStyle,
+            defaultWorkspaceId: profile.defaultWorkspaceId, createdAt: profile.createdAt,
+            updatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    private func withDefaultWorkspaceId(_ profile: UserProfile, _ defaultWorkspaceId: String?) -> UserProfile {
+        UserProfile(
+            id: profile.id, email: profile.email, displayName: profile.displayName,
+            preferences: profile.preferences, communicationStyle: profile.communicationStyle,
+            defaultWorkspaceId: defaultWorkspaceId, createdAt: profile.createdAt,
             updatedAt: ISO8601DateFormatter().string(from: Date())
         )
     }

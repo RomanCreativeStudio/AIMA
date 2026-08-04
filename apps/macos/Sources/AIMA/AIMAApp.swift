@@ -7,6 +7,8 @@ import SwiftUI
 /// while `.signedOut`, a minimal loading indicator while `.loading`,
 /// `RootNavigationView` once `.authenticated` — every view and view model
 /// in the app is reachable from here, nothing is a global singleton.
+/// Once `.authenticated`, a further check on `authenticationManager.hasCompletedOnboarding` (Beta Onboarding
+/// sprint) shows `OnboardingView` first for any session that hasn't completed it yet, before `RootNavigationView`.
 @main
 struct AIMAApp: App {
     @State private var container: DependencyContainer
@@ -46,7 +48,11 @@ struct AIMAApp: App {
         case .signedOut:
             LoginView(manager: authenticationManager)
         case .authenticated:
-            RootNavigationView(container: container, authenticationManager: authenticationManager)
+            if authenticationManager.hasCompletedOnboarding {
+                RootNavigationView(container: container, authenticationManager: authenticationManager)
+            } else {
+                OnboardingView(manager: authenticationManager)
+            }
         }
     }
 }

@@ -42,6 +42,7 @@ struct DashboardView: View {
                 }
                 currentUserSubheader
 
+                getStartedSection
                 quickAccessSection
                 systemStatusSection
                 dailyBriefingSection
@@ -88,6 +89,58 @@ struct DashboardView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    /// Get Started (Beta Onboarding sprint) — guidance for a brand-new, still-empty workspace: reuses
+    /// `viewModel.workspaceInsights` (already fetched for the Workspace Insights section below) as the signal
+    /// for "empty," rather than adding new ViewModel logic. Disappears on its own the moment the workspace has
+    /// any logged activity — no dismiss button or extra state to track.
+    @ViewBuilder
+    private var getStartedSection: some View {
+        if let insights = viewModel.workspaceInsights, insights.activityMetrics.totalActions == 0 {
+            SectionCard(title: "Get Started") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("This workspace doesn't have any activity yet. Here are a few ways to get going.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    VStack(spacing: 4) {
+                        getStartedRow(
+                            "Start a conversation", systemImage: "bubble.left.and.bubble.right", section: .chat,
+                            detail: "Ask AIMA anything — it remembers context as you go."
+                        )
+                        getStartedRow(
+                            "Add a memory", systemImage: "brain", section: .memory,
+                            detail: "Tell AIMA something to remember for later."
+                        )
+                        getStartedRow(
+                            "Connect an integration", systemImage: "puzzlepiece.extension", section: .integrations,
+                            detail: "Link Gmail, GitHub, or Calendar so AIMA can help there too."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private func getStartedRow(_ title: String, systemImage: String, section: AppSection, detail: String) -> some View {
+        Button {
+            onSelectSection(section)
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: systemImage)
+                    .font(.title3)
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).fontWeight(.medium)
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     /// Quick Access (macOS Dashboard Shell sprint) — direct entry points into the screens this app already

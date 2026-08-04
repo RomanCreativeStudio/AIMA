@@ -183,4 +183,60 @@ final class AuthenticationManagerTests: XCTestCase {
         let session = await authClient.currentSession()
         XCTAssertNil(session)
     }
+
+    // MARK: - onboarding (Beta Onboarding sprint)
+
+    func testNewlyAuthenticatedUserHasNotCompletedOnboarding() async {
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: MockAPIClient())
+
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+
+        XCTAssertFalse(manager.hasCompletedOnboarding)
+    }
+
+    func testCompleteOnboardingPersistsAndReflectsImmediately() async {
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: MockAPIClient())
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+        XCTAssertFalse(manager.hasCompletedOnboarding)
+
+        await manager.completeOnboarding()
+
+        XCTAssertTrue(manager.hasCompletedOnboarding)
+        XCTAssertNil(manager.errorMessage)
+    }
+
+    func testExistingUserWithOnboardingAlreadyCompletedSkipsIt() async throws {
+        let apiClient = MockAPIClient()
+        // Simulates an account that completed onboarding in a previous session, before this sign-in even happens.
+        _ = try await apiClient.updateUserProfile(id: "mock-user", request: UpdateUserProfileRequest(preferences: ["onboardingCompleted": .bool(true)]))
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: apiClient)
+
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+
+        XCTAssertTrue(manager.hasCompletedOnboarding)
+    }
+
+    func testOnboardingCompletionSurvivesSignOutAndSignBackIn() async {
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: MockAPIClient())
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+        await manager.completeOnboarding()
+        XCTAssertTrue(manager.hasCompletedOnboarding)
+
+        await manager.signOut()
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+
+        XCTAssertTrue(manager.hasCompletedOnboarding)
+    }
+
+    func testCompleteOnboardingPreservesOtherPreferences() async throws {
+        let apiClient = MockAPIClient()
+        _ = try await apiClient.updateUserProfile(id: "mock-user", request: UpdateUserProfileRequest(preferences: ["theme": .string("dark")]))
+        let manager = AuthenticationManager(authClient: MockAuthClient(), apiClient: apiClient)
+        await manager.signIn(email: MockAuthClient.seededEmail, password: MockAuthClient.seededPassword)
+
+        await manager.completeOnboarding()
+
+        XCTAssertTrue(manager.hasCompletedOnboarding)
+        XCTAssertEqual(manager.currentUser?.preferences["theme"], .string("dark"))
+    }
 }

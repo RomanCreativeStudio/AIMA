@@ -52,6 +52,19 @@ public final class AuthenticationManager {
         workspaces.first { $0.id == activeWorkspaceId }
     }
 
+    /// Beta Onboarding sprint: reuses `UserProfile.preferences` (the existing generic JSONB blob, already
+    /// round-tripped via `apiClient.updateUserProfile`) instead of a new state manager or a new column — the
+    /// task's own instruction was "use existing architecture... do not create another state manager." `false`
+    /// for a signed-out session, a freshly-provisioned account with no preferences yet, or any existing account
+    /// that predates this flag (there is no reliable signal to distinguish "old existing account" from "genuinely
+    /// new" retroactively, so this never shows onboarding to an account that's already been using AIMA).
+    public var hasCompletedOnboarding: Bool {
+        if case .bool(true) = currentUser?.preferences["onboardingCompleted"] {
+            return true
+        }
+        return false
+    }
+
     /// Startup flow: restore session → validate/refresh if needed → fetch user → fetch workspaces →
     /// `.authenticated`. Call once at launch, before deciding which screen to show (`AIMAApp` does exactly
     /// that: `.task { await authenticationManager.restoreSession() }`, gating `rootContent` on `state`).
@@ -113,6 +126,29 @@ public final class AuthenticationManager {
     public func switchWorkspace(to workspaceId: String) {
         guard workspaces.contains(where: { $0.id == workspaceId }) else { return }
         activeWorkspaceId = workspaceId
+    }
+
+    /// Marks onboarding complete for the signed-in user, persisting it via the existing `updateUserProfile`
+    /// endpoint so it survives sign-out/sign-in and future launches. Merges into `currentUser.preferences`
+    /// rather than replacing it — other preference keys (e.g. `set_preference`-written ones) are untouched.
+    /// A no-op if called while not authenticated.
+    public func completeOnboarding() async {
+        guard let user = currentUser else { return }
+
+        var preferences = user.preferences
+        preferences["onboardingCompleted"] = .bool(true)
+
+        do {
+            let updated = try await apiClient.updateUserProfile(
+                id: user.id,
+                request: UpdateUserProfileRequest(preferences: preferences)
+            )
+            state = .authenticated(updated)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 
     private func loadAuthenticatedContext(userId: String) async {
