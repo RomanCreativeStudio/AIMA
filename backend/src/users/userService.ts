@@ -1,7 +1,14 @@
 import type { Queryable } from '../db/queryable';
 import { WorkspaceNotFoundError } from '../types/errors';
+import type { WorkspaceSlug } from '../types/workspace';
+import { WorkspaceAlreadyExistsError } from '../workspaces/errors';
+import type { Workspace } from '../workspaces/types';
+import { WorkspaceService } from '../workspaces/workspaceService';
 import { UserNotFoundError } from './errors';
 import type { CreateUserInput, UpdateUserProfileInput, UserProfile } from './types';
+
+/** The slug `getOrProvisionFromAuth` creates a brand-new profile's one default workspace with. */
+const DEFAULT_WORKSPACE_SLUG: WorkspaceSlug = 'personal';
 
 /**
  * The User Profile System (Phase 1.8): a single account's identity and
@@ -37,16 +44,39 @@ export class UserService {
    * yet (first login) gets one created transparently instead of failing
    * with `UserNotFoundError`.
    *
-   * Idempotent and race-safe: `ON CONFLICT (id) DO NOTHING` means two
-   * concurrent first logins for the same brand-new subject can't both
-   * insert a row (one wins, the other affects zero rows); the loser then
-   * reads back the winner's row via `getUser` rather than erroring, so
-   * every caller — first or racing-second — gets the same profile back.
-   * An already-existing profile is never modified here (its `email`/
-   * `display_name` are left exactly as they are), matching "if found,
-   * continue exactly as today."
+   * Also ensures the profile has at least one workspace: a profile with
+   * zero workspaces (a brand-new one, or one left behind by a provisioning
+   * attempt that created the user row but failed before creating a
+   * workspace) gets a single default workspace created and set as
+   * `defaultWorkspaceId`. A profile that already has at least one
+   * workspace is never touched by this step — existing accounts are not
+   * affected, and nothing here ever overwrites an already-set default.
+   * Race-safe the same way the user-row insert above is: the workspace's
+   * `(user_id, slug)` uniqueness constraint lets only one concurrent
+   * provisioning attempt actually insert, and the loser reads back the
+   * winner's workspace instead of erroring.
+   *
+   * Not atomic across the user-row insert and the workspace insert — this
+   * codebase has no cross-statement transaction wrapper, and none was
+   * introduced for this. If the process dies in between, the next call for
+   * the same `id` finds the user row already there, sees zero workspaces,
+   * and finishes the job — self-healing on retry rather than leaving a
+   * permanently broken account.
    */
   async getOrProvisionFromAuth(id: string, email: string): Promise<UserProfile> {
+    const user = await this.getOrInsertUserRow(id, email);
+
+    const workspaceService = new WorkspaceService(this.db);
+    const workspaces = await workspaceService.listWorkspaces(user.id);
+    if (workspaces.length > 0) {
+      return user;
+    }
+
+    const workspace = await this.provisionDefaultWorkspace(workspaceService, user.id);
+    return this.updateProfile(user.id, { defaultWorkspaceId: workspace.id });
+  }
+
+  private async getOrInsertUserRow(id: string, email: string): Promise<UserProfile> {
     try {
       return await this.getUser(id);
     } catch (error) {
@@ -69,6 +99,20 @@ export class UserService {
     // our getUser() check and this insert. Its row is now the true state;
     // read it back instead of treating the conflict as an error.
     return this.getUser(id);
+  }
+
+  private async provisionDefaultWorkspace(workspaceService: WorkspaceService, userId: string): Promise<Workspace> {
+    try {
+      return await workspaceService.createWorkspace({ userId, slug: DEFAULT_WORKSPACE_SLUG, name: 'Personal' });
+    } catch (error) {
+      if (!(error instanceof WorkspaceAlreadyExistsError)) throw error;
+
+      // Lost the race — a concurrent provisioning attempt for the same user already created this workspace.
+      const workspaces = await workspaceService.listWorkspaces(userId);
+      const existing = workspaces.find((workspace) => workspace.slug === DEFAULT_WORKSPACE_SLUG);
+      if (!existing) throw error;
+      return existing;
+    }
   }
 
   async getUser(userId: string): Promise<UserProfile> {

@@ -85,6 +85,90 @@ test('getOrProvisionFromAuth returns an already-existing profile untouched — n
   });
 });
 
+// Default workspace provisioning (Workspace Provisioning sprint) — getOrProvisionFromAuth also ensures the
+// profile has at least one workspace, closing the beta-blocking gap where a brand-new account got a users row
+// but no workspace and no way to get one.
+
+test('getOrProvisionFromAuth creates a default workspace for a brand-new profile and links it via defaultWorkspaceId', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new UserService(client);
+    const id = randomUUID();
+    const email = `${randomUUID()}@example.com`;
+
+    const user = await service.getOrProvisionFromAuth(id, email);
+
+    assert.ok(user.defaultWorkspaceId, 'a brand-new profile must come back with a default workspace already set');
+
+    const rows = await client.query('SELECT id, user_id, slug, name FROM workspaces WHERE user_id = $1', [id]);
+    assert.equal(rows.rows.length, 1);
+    assert.equal(rows.rows[0].id, user.defaultWorkspaceId);
+    assert.equal(rows.rows[0].slug, 'personal');
+  });
+});
+
+test('getOrProvisionFromAuth does not create a second workspace on a repeated call for the same new user', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new UserService(client);
+    const id = randomUUID();
+    const email = `${randomUUID()}@example.com`;
+
+    const first = await service.getOrProvisionFromAuth(id, email);
+    const second = await service.getOrProvisionFromAuth(id, email);
+
+    assert.equal(second.defaultWorkspaceId, first.defaultWorkspaceId);
+    const rows = await client.query('SELECT count(*)::int AS count FROM workspaces WHERE user_id = $1', [id]);
+    assert.equal(rows.rows[0].count, 1);
+  });
+});
+
+test('getOrProvisionFromAuth never creates a workspace for an existing user who already has one', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId } = await seedWorkspace(client, 'rcs');
+    const service = new UserService(client);
+
+    const result = await service.getOrProvisionFromAuth(userId, 'ignored@example.com');
+
+    // seedWorkspace does not itself set default_workspace_id — provisioning must not backfill it for an
+    // account that already had a workspace before this call; only first-time provisioning ever sets it.
+    assert.equal(result.defaultWorkspaceId, null);
+    const rows = await client.query('SELECT count(*)::int AS count FROM workspaces WHERE user_id = $1', [userId]);
+    assert.equal(rows.rows[0].count, 1);
+  });
+});
+
+test('the auto-provisioned workspace belongs only to the provisioned user', async () => {
+  await withTestTransaction(async (client) => {
+    const other = await seedWorkspace(client, 'rcs');
+    const service = new UserService(client);
+    const id = randomUUID();
+
+    const user = await service.getOrProvisionFromAuth(id, `${randomUUID()}@example.com`);
+
+    const rows = await client.query<{ user_id: string }>('SELECT user_id FROM workspaces WHERE id = $1', [
+      user.defaultWorkspaceId,
+    ]);
+    assert.equal(rows.rows[0].user_id, id);
+    assert.notEqual(rows.rows[0].user_id, other.userId);
+  });
+});
+
+test('getOrProvisionFromAuth recovers a user row left with zero workspaces by a prior incomplete provisioning attempt', async () => {
+  await withTestTransaction(async (client) => {
+    // Simulates a process that inserted the users row but died before ever creating a workspace — the exact
+    // state the old getOrProvisionFromAuth (before this sprint) always left a brand-new account in.
+    const id = randomUUID();
+    const email = `${randomUUID()}@example.com`;
+    await client.query('INSERT INTO users (id, email) VALUES ($1, $2)', [id, email]);
+    const service = new UserService(client);
+
+    const recovered = await service.getOrProvisionFromAuth(id, email);
+
+    assert.ok(recovered.defaultWorkspaceId, 'a subsequent call must finish the interrupted provisioning, not leave the account stuck');
+    const rows = await client.query('SELECT count(*)::int AS count FROM workspaces WHERE user_id = $1', [id]);
+    assert.equal(rows.rows[0].count, 1);
+  });
+});
+
 test('updateProfile updates only the provided fields', async () => {
   await withTestTransaction(async (client) => {
     const { userId } = await seedWorkspace(client, 'rcs');
