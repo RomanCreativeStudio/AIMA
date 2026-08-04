@@ -122,19 +122,55 @@ struct AdminView: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
                 Text(entry.type.displayName).font(.caption).fontWeight(.medium)
-                Text(entry.status.displayName)
-                    .font(.caption2)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.quaternary, in: Capsule())
+                statusBadge(entry.status)
                 Spacer()
                 Text(entry.createdAt).font(.caption).foregroundStyle(.secondary)
             }
             Text(entry.message)
-            Text("\(entry.userEmail) · \(entry.workspaceName)")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("\(entry.userEmail) · \(entry.workspaceName)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                triageActions(entry)
+            }
         }
+    }
+
+    private func statusBadge(_ status: FeedbackStatus) -> some View {
+        Text(status.displayName)
+            .font(.caption2)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(statusColor(status).opacity(0.2), in: Capsule())
+            .foregroundStyle(statusColor(status))
+    }
+
+    private func statusColor(_ status: FeedbackStatus) -> Color {
+        switch status {
+        case .new: return .orange
+        case .reviewed: return .blue
+        case .resolved: return .green
+        }
+    }
+
+    /// Review (new -> reviewed) and Resolve (reviewed -> resolved) buttons — each disabled unless the row is
+    /// currently in the status it advances from, so an invalid transition can't even be tapped, mirroring the
+    /// backend's `ALLOWED_STATUS_TRANSITIONS` rather than duplicating that rule client-side.
+    private func triageActions(_ entry: AdminFeedbackEntry) -> some View {
+        HStack(spacing: 8) {
+            Button("Review") {
+                Task { await viewModel.markReviewed(entry.id) }
+            }
+            .disabled(entry.status != .new)
+
+            Button("Resolve") {
+                Task { await viewModel.markResolved(entry.id) }
+            }
+            .disabled(entry.status != .reviewed)
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
     }
 }
 

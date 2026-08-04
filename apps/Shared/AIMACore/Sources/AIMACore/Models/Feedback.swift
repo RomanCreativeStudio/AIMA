@@ -18,8 +18,9 @@ public enum FeedbackType: String, Codable, CaseIterable, Identifiable, Sendable 
     }
 }
 
-/// Mirrors `backend/src/feedback/types.ts#FeedbackStatus` (Internal Operator Dashboard sprint) — display-only
-/// this sprint (no client mutation path yet); every submission starts, and currently stays, `.new`.
+/// Mirrors `backend/src/feedback/types.ts#FeedbackStatus`. Every submission starts `.new`; the Feedback
+/// Triage Workflow sprint added `APIClient.updateFeedbackStatus` to advance it one step at a time
+/// (new -> reviewed -> resolved).
 public enum FeedbackStatus: String, Codable, CaseIterable, Identifiable, Sendable {
     case new
     case reviewed
@@ -67,5 +68,14 @@ public struct CreateFeedbackRequest: Encodable, Sendable {
     public init(type: FeedbackType? = nil, message: String) {
         self.type = type
         self.message = message
+    }
+}
+
+/// Mirrors the PATCH `/api/admin/feedback/:id` body — the only field this route accepts.
+public struct UpdateFeedbackStatusRequest: Encodable, Sendable {
+    public var status: FeedbackStatus
+
+    public init(status: FeedbackStatus) {
+        self.status = status
     }
 }

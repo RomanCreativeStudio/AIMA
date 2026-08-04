@@ -529,6 +529,15 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         return try await send("GET", "/api/admin/feedback", query: query, envelope: AdminFeedbackEnvelope.self).feedback
     }
 
+    public func updateFeedbackStatus(feedbackId: String, status: FeedbackStatus) async throws -> AdminFeedbackEntry {
+        try await send(
+            "PATCH",
+            "/api/admin/feedback/\(feedbackId)",
+            body: UpdateFeedbackStatusRequest(status: status),
+            envelope: AdminFeedbackEntryEnvelope.self
+        ).feedback
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -658,3 +667,4 @@ private struct FeedbackEnvelope: Decodable { let feedback: Feedback }
 private struct FeedbackListEnvelope: Decodable { let feedback: [Feedback] }
 private struct AdminBetaUsersEnvelope: Decodable { let users: [AdminBetaUserSummary] }
 private struct AdminFeedbackEnvelope: Decodable { let feedback: [AdminFeedbackEntry] }
+private struct AdminFeedbackEntryEnvelope: Decodable { let feedback: AdminFeedbackEntry }

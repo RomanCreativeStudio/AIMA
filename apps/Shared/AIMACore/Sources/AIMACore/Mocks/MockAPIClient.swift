@@ -1043,6 +1043,36 @@ public actor MockAPIClient: APIClient {
         }
     }
 
+    /// Mirrors `FeedbackService.updateStatus`'s allowed-transition rules and error cases (404 for an unknown
+    /// id, 409 for a transition other than new -> reviewed -> resolved) so the mock behaves like the real
+    /// backend for `AdminViewModel.markReviewed`/`markResolved`.
+    public func updateFeedbackStatus(feedbackId: String, status: FeedbackStatus) async throws -> AdminFeedbackEntry {
+        try await maybeFail()
+        guard let workspaceId = feedbackByWorkspace.first(where: { $0.value.contains { $0.id == feedbackId } })?.key,
+              let index = feedbackByWorkspace[workspaceId]?.firstIndex(where: { $0.id == feedbackId }) else {
+            throw APIError.server(statusCode: 404, message: "Feedback \(feedbackId) was not found")
+        }
+
+        let current = feedbackByWorkspace[workspaceId]![index]
+        let allowed: [FeedbackStatus: [FeedbackStatus]] = [.new: [.reviewed], .reviewed: [.resolved], .resolved: []]
+        guard allowed[current.status]?.contains(status) == true else {
+            throw APIError.server(statusCode: 409, message: "Cannot transition feedback from \"\(current.status.rawValue)\" to \"\(status.rawValue)\"")
+        }
+
+        let updated = Feedback(
+            id: current.id, workspaceId: current.workspaceId, userId: current.userId,
+            type: current.type, status: status, message: current.message, createdAt: current.createdAt
+        )
+        feedbackByWorkspace[workspaceId]![index] = updated
+
+        let workspaceName = workspaces.first { $0.id == workspaceId }?.name ?? "Unknown Workspace"
+        return AdminFeedbackEntry(
+            id: updated.id, workspaceId: updated.workspaceId, userId: updated.userId,
+            type: updated.type, status: updated.status, message: updated.message, createdAt: updated.createdAt,
+            userEmail: user.email, workspaceName: workspaceName
+        )
+    }
+
     private func aggregateUsage() -> AdminUsageSummary {
         var total = AdminUsageSummary(conversationsCreated: 0, messagesSent: 0, memoriesCreated: 0, integrationsConnected: 0, approvalsUsed: 0, executionsUsed: 0)
         for workspace in workspaces {

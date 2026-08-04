@@ -110,4 +110,7 @@ public protocol APIClient: Sendable {
     /// on its `ADMIN_USER_IDS` allowlist, or 404s (route not mounted) if no admin is configured at all.
     func listBetaUsers() async throws -> [AdminBetaUserSummary]
     func listAdminFeedback(limit: Int?) async throws -> [AdminFeedbackEntry]
+    /// Feedback Triage Workflow sprint: advances a submission one step along new -> reviewed -> resolved.
+    /// The backend rejects any other transition with a 409, and an unknown `feedbackId` with a 404.
+    func updateFeedbackStatus(feedbackId: String, status: FeedbackStatus) async throws -> AdminFeedbackEntry
 }

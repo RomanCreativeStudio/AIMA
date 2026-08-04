@@ -307,6 +307,131 @@ test('GET /api/admin/beta-users and /api/admin/feedback succeed for a properly c
   });
 });
 
+test('PATCH /api/admin/feedback/:id advances the status for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      const feedback = await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'needs review',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback/${feedback.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reviewed' }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { feedback: { status: string; userEmail: string } };
+      assert.equal(body.feedback.status, 'reviewed');
+      assert.ok(body.feedback.userEmail);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects an invalid transition with 409', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      const feedback = await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'x',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback/${feedback.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved' }),
+      });
+
+      assert.equal(response.status, 409);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects an unknown feedback id with 404', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/feedback/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reviewed' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects an invalid status value with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      const feedback = await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'x',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback/${feedback.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'archived' }),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/feedback/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reviewed' }),
+      });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
 test('GET /api/admin/feedback respects the limit query parameter', async () => {
   const pool = new Pool({ connectionString: TEST_DATABASE_URL });
   const adminSeed = await seedWorkspace(pool);

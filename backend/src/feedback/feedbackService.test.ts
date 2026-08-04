@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { WorkspaceNotFoundError } from '../types/errors';
+import { FeedbackNotFoundError, InvalidFeedbackStatusTransitionError } from './errors';
 import { FeedbackService } from './feedbackService';
 
 test('createFeedback stores a submission scoped to the workspace and the submitting user', async () => {
@@ -93,6 +94,85 @@ test('listFeedback rejects an unknown workspaceId with WorkspaceNotFoundError', 
     await assert.rejects(
       () => service.listFeedback('00000000-0000-0000-0000-000000000000'),
       WorkspaceNotFoundError,
+    );
+  });
+});
+
+test('updateStatus advances new -> reviewed', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId, workspaceId } = await seedWorkspace(client, 'personal');
+    const service = new FeedbackService(client);
+    const feedback = await service.createFeedback({ workspaceId, userId, message: 'x' });
+
+    const updated = await service.updateStatus(feedback.id, 'reviewed');
+
+    assert.equal(updated.status, 'reviewed');
+    assert.equal(updated.id, feedback.id);
+  });
+});
+
+test('updateStatus advances reviewed -> resolved', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId, workspaceId } = await seedWorkspace(client, 'rcs');
+    const service = new FeedbackService(client);
+    const feedback = await service.createFeedback({ workspaceId, userId, message: 'x' });
+    await service.updateStatus(feedback.id, 'reviewed');
+
+    const updated = await service.updateStatus(feedback.id, 'resolved');
+
+    assert.equal(updated.status, 'resolved');
+  });
+});
+
+test('updateStatus rejects skipping a step (new -> resolved)', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId, workspaceId } = await seedWorkspace(client, 'mfs');
+    const service = new FeedbackService(client);
+    const feedback = await service.createFeedback({ workspaceId, userId, message: 'x' });
+
+    await assert.rejects(
+      () => service.updateStatus(feedback.id, 'resolved'),
+      InvalidFeedbackStatusTransitionError,
+    );
+  });
+});
+
+test('updateStatus rejects moving backward (reviewed -> new)', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId, workspaceId } = await seedWorkspace(client, 'personal');
+    const service = new FeedbackService(client);
+    const feedback = await service.createFeedback({ workspaceId, userId, message: 'x' });
+    await service.updateStatus(feedback.id, 'reviewed');
+
+    await assert.rejects(
+      () => service.updateStatus(feedback.id, 'new'),
+      InvalidFeedbackStatusTransitionError,
+    );
+  });
+});
+
+test('updateStatus rejects any transition once resolved is terminal', async () => {
+  await withTestTransaction(async (client) => {
+    const { userId, workspaceId } = await seedWorkspace(client, 'rcs');
+    const service = new FeedbackService(client);
+    const feedback = await service.createFeedback({ workspaceId, userId, message: 'x' });
+    await service.updateStatus(feedback.id, 'reviewed');
+    await service.updateStatus(feedback.id, 'resolved');
+
+    await assert.rejects(
+      () => service.updateStatus(feedback.id, 'reviewed'),
+      InvalidFeedbackStatusTransitionError,
+    );
+  });
+});
+
+test('updateStatus rejects an unknown feedbackId with FeedbackNotFoundError', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new FeedbackService(client);
+
+    await assert.rejects(
+      () => service.updateStatus('00000000-0000-0000-0000-000000000000', 'reviewed'),
+      FeedbackNotFoundError,
     );
   });
 });

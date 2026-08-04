@@ -59,6 +59,43 @@ final class AdminViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.recentFeedback.allSatisfy { !$0.userEmail.isEmpty && !$0.workspaceName.isEmpty })
     }
 
+    func testMarkReviewedAdvancesStatusAndPatchesTheRowInPlace() async throws {
+        let apiClient = MockAPIClient()
+        let submitted = try await apiClient.submitFeedback(workspaceId: "mock-ws-rcs", request: CreateFeedbackRequest(message: "needs review"))
+        let viewModel = AdminViewModel(apiClient: apiClient)
+        await viewModel.load()
+        XCTAssertEqual(viewModel.recentFeedback.count, 1)
+
+        await viewModel.markReviewed(submitted.id)
+
+        XCTAssertEqual(viewModel.recentFeedback.first?.status, .reviewed)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testMarkResolvedAdvancesStatusAfterReviewed() async throws {
+        let apiClient = MockAPIClient()
+        let submitted = try await apiClient.submitFeedback(workspaceId: "mock-ws-rcs", request: CreateFeedbackRequest(message: "x"))
+        let viewModel = AdminViewModel(apiClient: apiClient)
+        await viewModel.load()
+        await viewModel.markReviewed(submitted.id)
+
+        await viewModel.markResolved(submitted.id)
+
+        XCTAssertEqual(viewModel.recentFeedback.first?.status, .resolved)
+    }
+
+    func testMarkResolvedFromNewSurfacesAnErrorAndLeavesTheRowUnchanged() async throws {
+        let apiClient = MockAPIClient()
+        let submitted = try await apiClient.submitFeedback(workspaceId: "mock-ws-rcs", request: CreateFeedbackRequest(message: "x"))
+        let viewModel = AdminViewModel(apiClient: apiClient)
+        await viewModel.load()
+
+        await viewModel.markResolved(submitted.id)
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertEqual(viewModel.recentFeedback.first?.status, .new)
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)

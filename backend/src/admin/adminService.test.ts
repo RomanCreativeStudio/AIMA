@@ -228,6 +228,30 @@ test('listRecentFeedback returns submissions across every workspace, newest firs
   });
 });
 
+test('updateFeedbackStatus advances the status and re-enriches with submitter/workspace context', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, feedbackService } = buildService(client);
+    const { userId, workspaceId } = await seedWorkspace(client, 'personal');
+    const feedback = await feedbackService.createFeedback({ workspaceId, userId, message: 'needs review' });
+
+    const updated = await adminService.updateFeedbackStatus(feedback.id, 'reviewed');
+
+    assert.equal(updated.status, 'reviewed');
+    assert.ok(updated.userEmail);
+    assert.ok(updated.workspaceName);
+  });
+});
+
+test('updateFeedbackStatus rejects an invalid transition', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, feedbackService } = buildService(client);
+    const { userId, workspaceId } = await seedWorkspace(client, 'rcs');
+    const feedback = await feedbackService.createFeedback({ workspaceId, userId, message: 'x' });
+
+    await assert.rejects(() => adminService.updateFeedbackStatus(feedback.id, 'resolved'));
+  });
+});
+
 test('listRecentFeedback respects the limit parameter', async () => {
   await withTestTransaction(async (client) => {
     const { adminService, feedbackService } = buildService(client);

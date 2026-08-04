@@ -1,4 +1,5 @@
 import type { ExecutionService } from '../execution/executionService';
+import type { FeedbackStatus } from '../feedback/types';
 import type { FeedbackService } from '../feedback/feedbackService';
 import type { SessionService } from '../auth/sessionService';
 import type { UsageMetricsService } from '../insights/usageMetricsService';
@@ -55,6 +56,16 @@ export class AdminService {
         return { ...entry, userEmail: user.email, workspaceName: workspace.name };
       }),
     );
+  }
+
+  /** Feedback Triage Workflow sprint: advances a submission's status (delegates the transition rules entirely to `FeedbackService.updateStatus`) and re-enriches it with submitter/workspace context, mirroring `listRecentFeedback`'s shape so the dashboard can patch a single row in place. */
+  async updateFeedbackStatus(feedbackId: string, status: FeedbackStatus): Promise<AdminFeedbackEntry> {
+    const updated = await this.feedbackService.updateStatus(feedbackId, status);
+    const [user, workspace] = await Promise.all([
+      this.userService.getUser(updated.userId),
+      this.workspaceService.getWorkspace(updated.workspaceId),
+    ]);
+    return { ...updated, userEmail: user.email, workspaceName: workspace.name };
   }
 
   private async summarizeUser(user: UserProfile): Promise<AdminBetaUserSummary> {

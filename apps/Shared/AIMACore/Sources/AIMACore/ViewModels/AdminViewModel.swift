@@ -42,4 +42,30 @@ public final class AdminViewModel {
             recentFeedback = []
         }
     }
+
+    /// Advances a submission new -> reviewed. On success, patches `recentFeedback` in place with the
+    /// server's response rather than re-running `load()` — an optimistic-refresh of just the one row that
+    /// changed, not a full reload of the dashboard.
+    public func markReviewed(_ feedbackId: String) async {
+        await updateStatus(feedbackId, to: .reviewed)
+    }
+
+    /// Advances a submission reviewed -> resolved. Same one-row refresh as `markReviewed`.
+    public func markResolved(_ feedbackId: String) async {
+        await updateStatus(feedbackId, to: .resolved)
+    }
+
+    private func updateStatus(_ feedbackId: String, to status: FeedbackStatus) async {
+        errorMessage = nil
+        do {
+            let updated = try await apiClient.updateFeedbackStatus(feedbackId: feedbackId, status: status)
+            if let index = recentFeedback.firstIndex(where: { $0.id == feedbackId }) {
+                recentFeedback[index] = updated
+            }
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
 }

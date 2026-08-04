@@ -1,6 +1,14 @@
 import type { Queryable } from '../db/queryable';
 import { WorkspaceNotFoundError } from '../types/errors';
+import { FeedbackNotFoundError, InvalidFeedbackStatusTransitionError } from './errors';
 import type { CreateFeedbackInput, Feedback, FeedbackStatus, FeedbackType } from './types';
+
+/** The only forward steps `updateStatus` allows — mirrors the workflow/voice modules' allowed-transition maps. `resolved` is terminal. */
+const ALLOWED_STATUS_TRANSITIONS: Record<FeedbackStatus, readonly FeedbackStatus[]> = {
+  new: ['reviewed'],
+  reviewed: ['resolved'],
+  resolved: [],
+};
 
 /**
  * Beta Tester Infrastructure sprint: the minimum storage needed to collect feedback/bug reports/feature
@@ -58,6 +66,32 @@ export class FeedbackService {
       [limit],
     );
     return result.rows.map(mapFeedbackRow);
+  }
+
+  /** Feedback Triage Workflow sprint: advances a submission one step along new -> reviewed -> resolved. Rejects any other transition (skipping a step, going backward, or moving off `resolved`) with `InvalidFeedbackStatusTransitionError`. */
+  async updateStatus(feedbackId: string, targetStatus: FeedbackStatus): Promise<Feedback> {
+    const current = await this.getFeedbackById(feedbackId);
+    if (!ALLOWED_STATUS_TRANSITIONS[current.status].includes(targetStatus)) {
+      throw new InvalidFeedbackStatusTransitionError(current.status, targetStatus);
+    }
+
+    const result = await this.db.query(
+      `UPDATE feedback SET status = $2 WHERE id = $1
+       RETURNING id, workspace_id, user_id, type, status, message, created_at`,
+      [feedbackId, targetStatus],
+    );
+    return mapFeedbackRow(result.rows[0]);
+  }
+
+  private async getFeedbackById(feedbackId: string): Promise<Feedback> {
+    const result = await this.db.query(
+      `SELECT id, workspace_id, user_id, type, status, message, created_at FROM feedback WHERE id = $1`,
+      [feedbackId],
+    );
+    if (result.rows.length === 0) {
+      throw new FeedbackNotFoundError(feedbackId);
+    }
+    return mapFeedbackRow(result.rows[0]);
   }
 
   private async assertWorkspaceExists(workspaceId: string): Promise<void> {
