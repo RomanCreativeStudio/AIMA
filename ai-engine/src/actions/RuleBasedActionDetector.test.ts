@@ -51,6 +51,54 @@ test('detect() finds a meeting from "let\'s meet ..."', () => {
   assert.match(candidate.reason, /let's meet/i);
 });
 
+test('detect() finds a blocked item from "blocked on ..."', () => {
+  const detector = new RuleBasedActionDetector();
+  const [candidate] = detector.detect('Blocked on the design review before I can ship.');
+
+  assert.equal(candidate.category, 'blocked');
+  assert.match(candidate.content, /^Blocked on the design review/i);
+});
+
+test('detect() finds a blocked item from "stuck on ..."', () => {
+  const detector = new RuleBasedActionDetector();
+  const [candidate] = detector.detect('Stuck on the API integration.');
+
+  assert.equal(candidate.category, 'blocked');
+  assert.match(candidate.reason, /stuck on/i);
+});
+
+test('detect() finds a postponed item from "postponing ..."', () => {
+  const detector = new RuleBasedActionDetector();
+  const [candidate] = detector.detect('Postponing the launch until next quarter.');
+
+  assert.equal(candidate.category, 'postponed');
+  assert.match(candidate.content, /^Postponing the launch until next quarter/i);
+});
+
+test('detect() finds a postponed item from "push back ..."', () => {
+  const detector = new RuleBasedActionDetector();
+  const [candidate] = detector.detect('Push back the proposal deadline.');
+
+  assert.equal(candidate.category, 'postponed');
+  assert.match(candidate.reason, /push back/i);
+});
+
+test('detect() finds a delegated item from "delegated ... to ..."', () => {
+  const detector = new RuleBasedActionDetector();
+  const [candidate] = detector.detect('Delegated the client follow-up to Sam.');
+
+  assert.equal(candidate.category, 'delegated');
+  assert.match(candidate.content, /^Delegated the client follow-up to Sam/i);
+});
+
+test('detect() finds a delegated item from "hand off ..."', () => {
+  const detector = new RuleBasedActionDetector();
+  const [candidate] = detector.detect('Handing off the onboarding doc.');
+
+  assert.equal(candidate.category, 'delegated');
+  assert.match(candidate.reason, /hand off/i);
+});
+
 test('detect() returns nothing for ordinary conversational text', () => {
   const detector = new RuleBasedActionDetector();
   const candidates = detector.detect('What time is the meeting tomorrow?');

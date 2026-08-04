@@ -37,4 +37,6 @@ export interface UpdateTaskInput {
   status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string | null;
+  /** Executive Assistant Loop sprint: replaces `metadata` wholesale when provided (mirrors `MemoryService.updateMemory`'s "replace, don't merge" semantics) — how Accepting a blocked/postponed/delegated suggestion tags `metadata.category` without touching `status`/`dueDate`. */
+  metadata?: Record<string, unknown>;
 }

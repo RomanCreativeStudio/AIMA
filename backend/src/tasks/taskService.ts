@@ -86,6 +86,10 @@ export class TaskService {
     if (updates.status !== undefined) set('status', updates.status);
     if (updates.priority !== undefined) set('priority', updates.priority);
     if (updates.dueDate !== undefined) set('due_date', updates.dueDate);
+    if (updates.metadata !== undefined) {
+      params.push(JSON.stringify(updates.metadata));
+      fields.push(`metadata = $${params.length}::jsonb`);
+    }
 
     if (fields.length === 0) {
       return this.getTask(workspaceId, taskId);

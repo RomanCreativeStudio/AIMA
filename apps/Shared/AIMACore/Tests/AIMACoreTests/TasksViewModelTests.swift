@@ -35,6 +35,25 @@ final class TasksViewModelTests: XCTestCase {
         XCTAssertTrue(viewModel.tasks.contains { $0.priority == .medium })
     }
 
+    func testTasksCarryMetadataTaggedByExecutiveAssistantLoopAcceptActions() async {
+        // Audit finding (Executive Assistant Loop sprint): TasksViewModel needs no code changes — it's a plain
+        // pass-through of TaskItem, which already carries `metadata`. This regression-checks that a task tagged
+        // via `updateTask` (the same call `ChatViewModel.blockActionSuggestion` makes) still surfaces correctly.
+        let apiClient = MockAPIClient()
+        let task = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Design review"))
+        _ = try! await apiClient.updateTask(workspaceId: "mock-ws-rcs", taskId: task.id, request: UpdateTaskRequest(metadata: ["category": .string("blocked")]))
+        let viewModel = TasksViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+
+        await viewModel.load()
+
+        let blocked = viewModel.tasks.first { $0.id == task.id }
+        if case .string(let category)? = blocked?.metadata["category"] {
+            XCTAssertEqual(category, "blocked")
+        } else {
+            XCTFail("expected the tagged task's metadata to survive TasksViewModel.load()")
+        }
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)

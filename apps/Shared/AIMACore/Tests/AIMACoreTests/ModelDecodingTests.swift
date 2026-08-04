@@ -135,6 +135,35 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(task.priority, .high)
     }
 
+    func testDecodesActionSuggestionWithMatchedTaskId() throws {
+        let json = """
+        {"content":"Blocked on the design review","category":"blocked","confidence":0.8,"reason":"test","matchedTaskId":"t1"}
+        """.data(using: .utf8)!
+
+        let suggestion = try decoder.decode(ActionSuggestion.self, from: json)
+        XCTAssertEqual(suggestion.category, .blocked)
+        XCTAssertEqual(suggestion.matchedTaskId, "t1")
+    }
+
+    func testDecodesActionSuggestionDefaultsMatchedTaskIdToNilWhenAbsent() throws {
+        // Pre-Executive-Assistant-Loop payload — no matchedTaskId key at all — still decodes.
+        let json = """
+        {"content":"I need to email the client","category":"todo","confidence":0.7,"reason":"test"}
+        """.data(using: .utf8)!
+
+        let suggestion = try decoder.decode(ActionSuggestion.self, from: json)
+        XCTAssertEqual(suggestion.category, .todo)
+        XCTAssertNil(suggestion.matchedTaskId)
+    }
+
+    func testActionSuggestionCategoryRawValuesMatchBackendEnum() {
+        // backend/src/conversation/actionSuggestions.ts#ActionSuggestionCategory (Executive Assistant Loop sprint additions).
+        XCTAssertEqual(ActionSuggestionCategory.completedTask.rawValue, "completed_task")
+        XCTAssertEqual(ActionSuggestionCategory.blocked.rawValue, "blocked")
+        XCTAssertEqual(ActionSuggestionCategory.postponed.rawValue, "postponed")
+        XCTAssertEqual(ActionSuggestionCategory.delegated.rawValue, "delegated")
+    }
+
     func testApprovalStatusRawValuesMatchBackendEnum() {
         // backend/src/approval/types.ts#ApprovalStatus (Phase 1.7).
         XCTAssertEqual(ApprovalStatus.pending.rawValue, "pending")
@@ -511,6 +540,40 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(briefing.recentMemories, [])
         XCTAssertEqual(briefing.calendarHighlights, [])
         XCTAssertEqual(briefing.suggestedNextActions, [])
+        // Pre-Executive-Assistant-Loop payload — no completedYesterday/blockedItems/postponedItems — still decodes.
+        XCTAssertEqual(briefing.completedYesterday, [])
+        XCTAssertEqual(briefing.blockedItems, [])
+        XCTAssertEqual(briefing.postponedItems, [])
+    }
+
+    func testDecodesDailyBriefingWithExecutiveAssistantLoopFields() throws {
+        let json = """
+        {
+          "workspaceId":"w1","workspaceName":"Roman Creative Studio",
+          "pendingApprovalCount":0,"pendingApprovals":[],
+          "activeWorkflowCount":0,"activeWorkflows":[],
+          "priorityTasks":[],"recentActivity":[],
+          "completedYesterday":[
+            {"id":"t1","workspaceId":"w1","title":"Ship it","description":null,"status":"done","priority":"high",
+             "dueDate":null,"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}
+          ],
+          "blockedItems":[
+            {"id":"t2","workspaceId":"w1","title":"Design review","description":null,"status":"todo","priority":"medium",
+             "dueDate":null,"metadata":{"category":"blocked"},"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}
+          ],
+          "postponedItems":[
+            {"id":"t3","workspaceId":"w1","title":"Launch","description":null,"status":"todo","priority":"medium",
+             "dueDate":null,"metadata":{"category":"postponed"},"createdAt":"2026-01-01T00:00:00.000Z","updatedAt":"2026-01-01T00:00:00.000Z"}
+          ],
+          "generatedAt":"2026-01-01T00:00:00.000Z"
+        }
+        """.data(using: .utf8)!
+
+        let briefing = try decoder.decode(DailyBriefing.self, from: json)
+        XCTAssertEqual(briefing.completedYesterday.count, 1)
+        XCTAssertEqual(briefing.completedYesterday[0].status, .done)
+        XCTAssertEqual(briefing.blockedItems.count, 1)
+        XCTAssertEqual(briefing.postponedItems.count, 1)
     }
 
     func testDecodesDailyBriefingWithPhase35ProactiveFields() throws {

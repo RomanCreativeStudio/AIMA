@@ -62,6 +62,12 @@ export interface DailyBriefing {
   unresolvedFollowUps: Task[];
   /** Conversation → Action sprint: auto-extracted memories (`source: 'auto_extracted'`) whose category is `decision` — the same auto-save pipeline `openCommitments` draws from, filtered down to just decisions. */
   recentDecisions: MemoryRecord[];
+  /** Executive Assistant Loop sprint: tasks marked `done` within the last 24h — see `taskAnalysis.ts#findCompletedRecently`. Drawn from the same `listTasks` call `priorityTasks`/`acceptedTasks` already use, not a second query. */
+  completedYesterday: Task[];
+  /** Executive Assistant Loop sprint: open tasks tagged `metadata.category === 'blocked'` by an accepted Chat suggestion — see `isBlockedTask` in `briefingService.ts`. */
+  blockedItems: Task[];
+  /** Executive Assistant Loop sprint: open tasks tagged `metadata.category === 'postponed'` by an accepted Chat suggestion — see `isPostponedTask` in `briefingService.ts`. */
+  postponedItems: Task[];
   generatedAt: string;
 }
 

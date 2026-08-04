@@ -9,7 +9,7 @@ import type { Task } from '../tasks/types';
 import type { TaskService } from '../tasks/taskService';
 import type { WorkflowService } from '../workflows/workflowService';
 import type { WorkspaceService } from '../workspaces/workspaceService';
-import { findOverdue, isOpenTask, rankTasksByPriority } from './taskAnalysis';
+import { findCompletedRecently, findOverdue, isOpenTask, rankTasksByPriority } from './taskAnalysis';
 import { ACTIVE_WORKFLOW_RUN_STATUSES, type DailyBriefing } from './types';
 
 const DEFAULT_PRIORITY_TASK_LIMIT = 5;
@@ -27,6 +27,8 @@ const CALENDAR_ACTION_TYPES = new Set(['create_calendar_event', 'update_calendar
 const OPEN_COMMITMENT_CATEGORIES = new Set(['reminder', 'decision', 'project_update']);
 /** Conversation → Action sprint: how a task accepted from a Chat suggestion records where it came from — see `backend/src/tasks/types.ts#Task.source`. */
 const CONVERSATION_SUGGESTION_SOURCE = 'conversation_suggestion';
+/** Executive Assistant Loop sprint: the "completed yesterday" rolling window — 24h back from `now`, avoiding calendar-day/timezone complexity (matches `findCompletedRecently`'s doc comment). */
+const DEFAULT_COMPLETED_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * The Daily Briefing (Phase 2.5, item 1): a synchronous, read-only
@@ -95,6 +97,9 @@ export class BriefingService {
       acceptedTasks: acceptedTasksAll.slice(0, DEFAULT_ACCEPTED_TASK_LIMIT),
       unresolvedFollowUps: acceptedTasksAll.filter(isUnresolvedFollowUp).slice(0, DEFAULT_ACCEPTED_TASK_LIMIT),
       recentDecisions: memories.filter(isRecentDecision).slice(0, DEFAULT_RECENT_MEMORY_LIMIT),
+      completedYesterday: findCompletedRecently(tasks, now, DEFAULT_COMPLETED_WINDOW_MS),
+      blockedItems: tasks.filter(isBlockedTask),
+      postponedItems: tasks.filter(isPostponedTask),
       generatedAt: now.toISOString(),
     };
   }
@@ -134,4 +139,14 @@ export function isUnresolvedFollowUp(task: Task): boolean {
 /** Conversation → Action sprint: an auto-extracted memory whose category is `decision` — the same auto-save pipeline `isOpenCommitment` reads from, filtered to just decisions rather than every open-commitment category. Exported for direct unit testing. */
 export function isRecentDecision(memory: MemoryRecord): boolean {
   return memory.source === 'auto_extracted' && memory.metadata?.category === 'decision';
+}
+
+/** Executive Assistant Loop sprint: an open task tagged `metadata.category === 'blocked'` by an accepted Chat suggestion — see `TaskService.updateTask`'s `metadata` support. Exported for direct unit testing. */
+export function isBlockedTask(task: Task): boolean {
+  return isOpenTask(task) && task.metadata?.category === 'blocked';
+}
+
+/** Executive Assistant Loop sprint: an open task tagged `metadata.category === 'postponed'` by an accepted Chat suggestion. Exported for direct unit testing. */
+export function isPostponedTask(task: Task): boolean {
+  return isOpenTask(task) && task.metadata?.category === 'postponed';
 }

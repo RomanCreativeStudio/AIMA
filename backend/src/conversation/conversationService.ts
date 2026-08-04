@@ -1,11 +1,14 @@
-import type { ActionDetector, MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from '@aima/ai-engine';
+import type { ActionCandidateCategory, ActionDetector, MemoryCandidate, MemoryCandidateCategory, MemoryExtractor } from '@aima/ai-engine';
 import { RuleBasedActionDetector, RuleBasedMemoryExtractor } from '@aima/ai-engine';
 import type { ActionLogger } from '../actionLog/logger';
 import type { AimaCoreService } from '../core/aimaCoreService';
 import type { Queryable } from '../db/queryable';
 import type { RetrievalService } from '../embeddings/retrievalService';
+import { isOpenTask } from '../insights/taskAnalysis';
 import type { MemoryService } from '../memory/memoryService';
 import type { PermissionEngine } from '../permissions/engine';
+import type { TaskService } from '../tasks/taskService';
+import type { Task } from '../tasks/types';
 import { isWorkspaceSlug, type WorkspaceSlug } from '../types/workspace';
 import { WorkspaceNotFoundError } from '../types/errors';
 import type { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
@@ -37,6 +40,8 @@ export interface ConversationServiceDependencies {
   retrievalService?: RetrievalService;
   /** Personal Workspace Memory sprint: when provided, `sendMessage` auto-saves extracted candidates whose category is in `AUTO_SAVE_CATEGORIES` via `MemoryService.createMemory` — the same memory pipeline `RetrievalService`/the memory routes already use, not a second one. Optional so every pre-existing call site (which never saw memories auto-created) keeps compiling unchanged; auto-save is simply skipped when omitted. */
   memoryService?: MemoryService;
+  /** Executive Assistant Loop sprint: when provided, `sendMessage` fetches this workspace's open tasks (via `TaskService.listTasks`, filtered by the already-exported `isOpenTask`) so `buildActionSuggestions` can resolve `matchedTaskId` for completed/blocked/postponed/delegated candidates — the same `TaskService` every other task read/write already uses, not a second one. Fetched only when a candidate actually needs matching, so an ordinary chat turn never pays for the extra query. Optional so every pre-existing call site keeps compiling; `matchedTaskId` is simply always `null` when omitted. */
+  taskService?: TaskService;
   /** Max recent messages sent to the AI provider (a context limit — count-based, not token-based). */
   historyLimit?: number;
   /** Max memory records retrieved per turn (a context limit). */
@@ -68,6 +73,12 @@ export class ConversationService {
   ]);
   /** How many recent memories to check content against before auto-saving, to avoid saving the same outcome twice. */
   private static readonly DUPLICATE_CHECK_LIMIT = 200;
+  /** `ActionCandidate` categories that reference an existing open task — see `taskService`'s doc comment. */
+  private static readonly TASK_REFERENCING_ACTION_CATEGORIES: ReadonlySet<ActionCandidateCategory> = new Set([
+    'blocked',
+    'postponed',
+    'delegated',
+  ]);
 
   private readonly db: Queryable;
   private readonly aimaCoreService: AimaCoreService;
@@ -79,6 +90,7 @@ export class ConversationService {
   private readonly actionDetector: ActionDetector;
   private readonly retrievalService: RetrievalService | null;
   private readonly memoryService: MemoryService | null;
+  private readonly taskService: TaskService | null;
   private readonly historyLimit: number;
   private readonly memoryLimit: number;
   private readonly documentLimit: number;
@@ -94,6 +106,7 @@ export class ConversationService {
     this.actionDetector = deps.actionDetector ?? new RuleBasedActionDetector();
     this.retrievalService = deps.retrievalService ?? null;
     this.memoryService = deps.memoryService ?? null;
+    this.taskService = deps.taskService ?? null;
     this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
     this.memoryLimit = deps.memoryLimit ?? DEFAULT_MEMORY_LIMIT;
     this.documentLimit = deps.documentLimit ?? DEFAULT_DOCUMENT_LIMIT;
@@ -201,7 +214,8 @@ export class ConversationService {
       const candidates = this.memoryExtractor.extract(input.content);
       const { advisory } = await this.autoSaveMemories(input.workspaceId, input.conversationId, candidates);
       const actionCandidates = this.actionDetector.detect(input.content);
-      const actionSuggestions = buildActionSuggestions(actionCandidates, candidates);
+      const openTasks = await this.loadOpenTasksIfNeeded(input.workspaceId, actionCandidates, candidates);
+      const actionSuggestions = buildActionSuggestions(actionCandidates, candidates, openTasks);
 
       await this.actionLogger.log({
         workspaceId: input.workspaceId,
@@ -301,6 +315,39 @@ export class ConversationService {
       return { autoSaved, advisory };
     } catch {
       return { autoSaved: [], advisory: candidates };
+    }
+  }
+
+  /**
+   * Fetches this turn's open tasks for `buildActionSuggestions`'
+   * `matchedTaskId` resolution — but only when at least one candidate
+   * actually needs it (a task-referencing `ActionCandidate` category, or a
+   * `completed_task` `MemoryCandidate`), so an ordinary chat turn with no
+   * such candidate never pays for the extra query. Never throws: a failed
+   * fetch degrades to no matching rather than failing the chat turn.
+   */
+  private async loadOpenTasksIfNeeded(
+    workspaceId: string,
+    actionCandidates: readonly { category: ActionCandidateCategory }[],
+    memoryCandidates: readonly MemoryCandidate[],
+  ): Promise<Task[]> {
+    if (!this.taskService) {
+      return [];
+    }
+
+    const needsTaskMatch =
+      actionCandidates.some((c) => ConversationService.TASK_REFERENCING_ACTION_CATEGORIES.has(c.category)) ||
+      memoryCandidates.some((c) => c.category === 'completed_task');
+
+    if (!needsTaskMatch) {
+      return [];
+    }
+
+    try {
+      const tasks = await this.taskService.listTasks(workspaceId);
+      return tasks.filter(isOpenTask);
+    } catch {
+      return [];
     }
   }
 

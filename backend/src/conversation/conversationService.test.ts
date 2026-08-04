@@ -23,6 +23,7 @@ import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
 import { ExecutionRegistry } from '../execution/registry';
 import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExecutor';
 import { StubGmailConnector } from '../integrations/connectors/gmailConnector';
+import { TaskService } from '../tasks/taskService';
 import { ConversationService, type ConversationServiceDependencies } from './conversationService';
 import { WorkspaceNotFoundError } from '../types/errors';
 import { ConversationNotFoundError } from './errors';
@@ -64,6 +65,7 @@ function buildService(
   const executionIntentMatcher = new ExecutionIntentMatcher(
     new ExecutionRegistry([new GmailSendEmailExecutor(new StubGmailConnector())]),
   );
+  const taskService = new TaskService(client);
 
   const service = new ConversationService({
     db: client,
@@ -72,10 +74,11 @@ function buildService(
     permissionEngine,
     workflowIntentMatcher,
     executionIntentMatcher,
+    taskService,
     ...overrides,
   });
 
-  return { service, memoryService, documentService };
+  return { service, memoryService, documentService, taskService };
 }
 
 test('sendMessage runs the full pipeline: saves both messages and logs the generation', async () => {
@@ -668,6 +671,86 @@ test('sendMessage does not report the same actionSuggestion twice for overlappin
 
     const contents = result.actionSuggestions.map((s) => s.content.trim().toLowerCase());
     assert.equal(new Set(contents).size, contents.length, 'no duplicate content across actionSuggestions');
+  });
+});
+
+test('sendMessage attaches actionSuggestions for completed_task/blocked/postponed/delegated phrasing (Executive Assistant Loop sprint)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content:
+        "I've finished the client proposal. Blocked on the design review. " +
+        'Postponing the launch until next quarter. Delegated the onboarding doc to Sam.',
+    });
+
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'completed_task'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'blocked'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'postponed'));
+    assert.ok(result.actionSuggestions.some((s) => s.category === 'delegated'));
+  });
+});
+
+test('sendMessage resolves matchedTaskId for a task-referencing suggestion via keyword overlap with an open task', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service, taskService } = buildService(client, new RecordingAIProvider());
+
+    const openTask = await taskService.createTask({ workspaceId, title: 'Design review for the onboarding flow' });
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'Blocked on the design review.',
+    });
+
+    const blocked = result.actionSuggestions.find((s) => s.category === 'blocked');
+    assert.ok(blocked, 'expected a blocked suggestion');
+    assert.equal(blocked!.matchedTaskId, openTask.id);
+  });
+});
+
+test('sendMessage leaves matchedTaskId null for todo/follow_up/meeting/reminder/decision, and when no open task shares a keyword', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service } = buildService(client, new RecordingAIProvider());
+
+    const result = await service.sendMessage({
+      workspaceId,
+      conversationId,
+      content: 'I need to email the client. Blocked on something nobody has a task for.',
+    });
+
+    const todo = result.actionSuggestions.find((s) => s.category === 'todo');
+    const blocked = result.actionSuggestions.find((s) => s.category === 'blocked');
+    assert.equal(todo!.matchedTaskId, null, 'todo never references an existing task');
+    assert.equal(blocked!.matchedTaskId, null, 'no open task shares a keyword with this candidate');
+  });
+});
+
+test('sendMessage never resolves matchedTaskId to a task in a different workspace (isolation)', async () => {
+  await withTestTransaction(async (client) => {
+    const rcs = await seedWorkspace(client, 'rcs');
+    const mfs = await seedWorkspace(client, 'mfs');
+    const conversationId = await seedConversation(client, rcs.workspaceId);
+    const { service, taskService } = buildService(client, new RecordingAIProvider());
+
+    await taskService.createTask({ workspaceId: mfs.workspaceId, title: 'Design review for the onboarding flow' });
+
+    const result = await service.sendMessage({
+      workspaceId: rcs.workspaceId,
+      conversationId,
+      content: 'Blocked on the design review.',
+    });
+
+    const blocked = result.actionSuggestions.find((s) => s.category === 'blocked');
+    assert.equal(blocked!.matchedTaskId, null, 'must never match a task from a different workspace');
   });
 });
 

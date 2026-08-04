@@ -96,6 +96,32 @@ test('updateTask updates only the provided fields', async () => {
   });
 });
 
+test('updateTask replaces metadata wholesale when provided, without touching status/dueDate', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const service = new TaskService(client);
+
+    const task = await service.createTask({ workspaceId, title: 'Design review', metadata: { category: 'todo' } });
+    const updated = await service.updateTask(workspaceId, task.id, { metadata: { category: 'blocked' } });
+
+    assert.deepEqual(updated.metadata, { category: 'blocked' });
+    assert.equal(updated.status, 'todo');
+    assert.equal(updated.dueDate, null);
+  });
+});
+
+test('updateTask leaves metadata untouched when not provided', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'development');
+    const service = new TaskService(client);
+
+    const task = await service.createTask({ workspaceId, title: 'Design review', metadata: { category: 'blocked' } });
+    const updated = await service.updateTask(workspaceId, task.id, { status: 'in_progress' });
+
+    assert.deepEqual(updated.metadata, { category: 'blocked' });
+  });
+});
+
 test('updateTask throws TaskNotFoundError for a cross-workspace id', async () => {
   await withTestTransaction(async (client) => {
     const a = await seedWorkspace(client, 'rcs');

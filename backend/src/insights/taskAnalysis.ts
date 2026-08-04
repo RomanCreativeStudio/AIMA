@@ -75,6 +75,59 @@ export function extractKeywords(title: string): string[] {
 }
 
 /**
+ * Executive Assistant Loop sprint: which open task a free-text conversation
+ * candidate (completed_task/blocked/postponed/delegated) most likely refers
+ * to — reuses `extractKeywords` (the same keyword-overlap heuristic
+ * `groupRelatedTasks` already uses for task-to-task matching), not a new
+ * fuzzy/AI matcher. Returns the open task whose title shares the most
+ * keywords with `content`, or `null` if no open task shares a single
+ * keyword. Ties break on `createdAt` (most recently created wins) — the
+ * newest matching task is more likely to be the one just discussed.
+ */
+export function matchOpenTask(content: string, openTasks: readonly Task[]): Task | null {
+  const contentKeywords = new Set(extractKeywords(content));
+  if (contentKeywords.size === 0) {
+    return null;
+  }
+
+  let best: Task | null = null;
+  let bestOverlap = 0;
+
+  for (const task of openTasks) {
+    const overlap = extractKeywords(task.title).filter((keyword) => contentKeywords.has(keyword)).length;
+    if (overlap === 0) {
+      continue;
+    }
+    const isBetter =
+      overlap > bestOverlap ||
+      (overlap === bestOverlap && best !== null && new Date(task.createdAt).getTime() > new Date(best.createdAt).getTime());
+    if (isBetter) {
+      best = task;
+      bestOverlap = overlap;
+    }
+  }
+
+  return best;
+}
+
+/**
+ * Tasks marked `done` within the last `windowMs` from `now` — the "completed
+ * yesterday" rolling 24h window `BriefingService` uses, mirroring
+ * `findOverdue`'s pure-filter style. Uses `updatedAt` since tasks have no
+ * separate `completedAt` column — `TaskService.updateTask` already bumps
+ * `updated_at` on every status change, including the transition to `done`.
+ */
+export function findCompletedRecently(tasks: readonly Task[], now: Date, windowMs: number): Task[] {
+  return tasks.filter((task) => {
+    if (task.status !== 'done') {
+      return false;
+    }
+    const msSinceUpdate = now.getTime() - new Date(task.updatedAt).getTime();
+    return msSinceUpdate >= 0 && msSinceUpdate <= windowMs;
+  });
+}
+
+/**
  * Deterministic "related tasks" grouping (Phase 2.5, item 2): two open
  * tasks are related if their titles share a significant keyword. No
  * semantic/embedding similarity — this reuses only the title text already

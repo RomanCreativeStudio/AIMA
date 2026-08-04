@@ -460,6 +460,55 @@ test('PATCH .../tasks/:id updates status; 404s across workspaces', async () => {
   });
 });
 
+test('PATCH .../tasks/:id updates metadata without touching status (Executive Assistant Loop sprint: blocked/postponed accept)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'Design review' }),
+      });
+      const { task } = (await createResponse.json()) as { task: { id: string } };
+
+      const updateResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ metadata: { category: 'blocked' } }),
+      });
+      assert.equal(updateResponse.status, 200);
+      const updated = (await updateResponse.json()) as { task: { status: string; metadata: Record<string, unknown> } };
+      assert.equal(updated.task.status, 'todo', 'tagging metadata must not change status');
+      assert.equal(updated.task.metadata.category, 'blocked');
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH .../tasks/:id rejects a non-object metadata', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { userId, workspaceId } = await seedWorkspace(pool);
+    try {
+      const createResponse = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ title: 'Design review' }),
+      });
+      const { task } = (await createResponse.json()) as { task: { id: string } };
+
+      const response = await fetch(`${baseUrl}/api/workspaces/${workspaceId}/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...authHeader(userId) },
+        body: JSON.stringify({ metadata: 'not an object' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
 test('DELETE .../tasks/:id removes the task', async () => {
   await withTestServer(async (baseUrl, pool) => {
     const { userId, workspaceId } = await seedWorkspace(pool);

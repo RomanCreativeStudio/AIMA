@@ -259,6 +259,114 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertEqual(tasksBefore.count, tasksAfter.count, "dismiss must never persist anything")
     }
 
+    func testCompleteActionSuggestionClosesTheMatchedTaskAndRemovesTheCard() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let task = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Ship the release"))
+        let suggestion = ActionSuggestion(
+            content: "I've finished the release", category: .completedTask, confidence: 0.8, reason: "test", matchedTaskId: task.id
+        )
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "I've finished the release"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.completeActionSuggestion(suggestion)
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty, "accepting removes the card")
+        let updated = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil).first { $0.id == task.id }
+        XCTAssertEqual(updated?.status, .done)
+    }
+
+    func testPostponeActionSuggestionPushesTheDueDateAndTagsMetadata() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let task = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Launch"))
+        let suggestion = ActionSuggestion(
+            content: "Postponing the launch", category: .postponed, confidence: 0.8, reason: "test", matchedTaskId: task.id
+        )
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "Postponing the launch"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.postponeActionSuggestion(suggestion)
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty)
+        let updated = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil).first { $0.id == task.id }
+        XCTAssertNotNil(updated?.dueDate, "postponing must set a new due date")
+        if case .string(let category)? = updated?.metadata["category"] {
+            XCTAssertEqual(category, "postponed")
+        } else {
+            XCTFail("expected metadata.category to be tagged postponed")
+        }
+    }
+
+    func testBlockActionSuggestionTagsMetadataWithoutTouchingStatus() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let task = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Design review"))
+        let suggestion = ActionSuggestion(
+            content: "Blocked on the design review", category: .blocked, confidence: 0.8, reason: "test", matchedTaskId: task.id
+        )
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "Blocked on the design review"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.blockActionSuggestion(suggestion)
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty)
+        let updated = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil).first { $0.id == task.id }
+        XCTAssertEqual(updated?.status, .todo, "tagging metadata must not change status")
+        if case .string(let category)? = updated?.metadata["category"] {
+            XCTAssertEqual(category, "blocked")
+        } else {
+            XCTFail("expected metadata.category to be tagged blocked")
+        }
+    }
+
+    func testDelegateActionSuggestionTagsMetadataWithoutTouchingStatus() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let task = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Onboarding doc"))
+        let suggestion = ActionSuggestion(
+            content: "Delegated the onboarding doc to Sam", category: .delegated, confidence: 0.8, reason: "test", matchedTaskId: task.id
+        )
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "Delegated the onboarding doc to Sam"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.delegateActionSuggestion(suggestion)
+
+        XCTAssertTrue(viewModel.lastActionSuggestions.isEmpty)
+        let updated = try! await apiClient.listTasks(workspaceId: "mock-ws-rcs", status: nil).first { $0.id == task.id }
+        XCTAssertEqual(updated?.status, .todo, "tagging metadata must not change status")
+        if case .string(let category)? = updated?.metadata["category"] {
+            XCTAssertEqual(category, "delegated")
+        } else {
+            XCTFail("expected metadata.category to be tagged delegated")
+        }
+    }
+
+    func testCompleteActionSuggestionWithNoMatchedTaskReportsAnErrorAndKeepsTheCard() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        let suggestion = ActionSuggestion(
+            content: "Blocked on something nobody tracked", category: .blocked, confidence: 0.8, reason: "test", matchedTaskId: nil
+        )
+        await apiClient.forceNextMessageToSuggestActions([suggestion])
+        viewModel.draftMessage = "Blocked on something nobody tracked"
+        await viewModel.sendDraftMessage()
+
+        await viewModel.blockActionSuggestion(suggestion)
+
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.lastActionSuggestions.isEmpty, "no matching task means nothing to accept — the card stays")
+    }
+
     func testSelectingAConversationClearsStaleExecutionSuggestion() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

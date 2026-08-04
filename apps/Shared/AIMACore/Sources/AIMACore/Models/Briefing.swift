@@ -45,6 +45,15 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
     /// Auto-extracted memories whose category is `decision` — the same auto-save pipeline `openCommitments`
     /// draws from, filtered to just decisions.
     public let recentDecisions: [MemoryRecord]
+    /// Executive Assistant Loop sprint: tasks marked done within the last 24h. Drawn from the same fetch as
+    /// `priorityTasks`/`acceptedTasks`, not a second query.
+    public let completedYesterday: [TaskItem]
+    /// Executive Assistant Loop sprint: open tasks tagged `metadata.category == "blocked"` by an accepted Chat
+    /// suggestion.
+    public let blockedItems: [TaskItem]
+    /// Executive Assistant Loop sprint: open tasks tagged `metadata.category == "postponed"` by an accepted
+    /// Chat suggestion.
+    public let postponedItems: [TaskItem]
     public let generatedAt: String
 
     public init(
@@ -66,6 +75,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         acceptedTasks: [TaskItem] = [],
         unresolvedFollowUps: [TaskItem] = [],
         recentDecisions: [MemoryRecord] = [],
+        completedYesterday: [TaskItem] = [],
+        blockedItems: [TaskItem] = [],
+        postponedItems: [TaskItem] = [],
         generatedAt: String
     ) {
         self.workspaceId = workspaceId
@@ -86,6 +98,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         self.acceptedTasks = acceptedTasks
         self.unresolvedFollowUps = unresolvedFollowUps
         self.recentDecisions = recentDecisions
+        self.completedYesterday = completedYesterday
+        self.blockedItems = blockedItems
+        self.postponedItems = postponedItems
         self.generatedAt = generatedAt
     }
 
@@ -93,14 +108,16 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         case workspaceId, workspaceName, pendingApprovalCount, pendingApprovals, activeWorkflowCount, activeWorkflows
         case priorityTasks, recentActivity, recentMemories, calendarHighlights, suggestedNextActions
         case greeting, overdueTasks, integrationsNeedingAttention, openCommitments
-        case acceptedTasks, unresolvedFollowUps, recentDecisions, generatedAt
+        case acceptedTasks, unresolvedFollowUps, recentDecisions
+        case completedYesterday, blockedItems, postponedItems, generatedAt
     }
 
     /// Custom decode so a payload missing newer fields still decodes, defaulting each to an empty array/string —
     /// the same backward-compatible-decode posture as `SendMessageResult.memorySuggestions`. `greeting`,
     /// `overdueTasks`, `integrationsNeedingAttention` are Alpha Daily Briefing sprint additions; `openCommitments`
     /// is a Personal Workspace Memory sprint addition; `acceptedTasks`/`unresolvedFollowUps`/`recentDecisions` are
-    /// Conversation → Action sprint additions; the rest predate Phase 3.5.
+    /// Conversation → Action sprint additions; `completedYesterday`/`blockedItems`/`postponedItems` are
+    /// Executive Assistant Loop sprint additions; the rest predate Phase 3.5.
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         workspaceId = try container.decode(String.self, forKey: .workspaceId)
@@ -121,6 +138,9 @@ public struct DailyBriefing: Codable, Equatable, Sendable {
         acceptedTasks = try container.decodeIfPresent([TaskItem].self, forKey: .acceptedTasks) ?? []
         unresolvedFollowUps = try container.decodeIfPresent([TaskItem].self, forKey: .unresolvedFollowUps) ?? []
         recentDecisions = try container.decodeIfPresent([MemoryRecord].self, forKey: .recentDecisions) ?? []
+        completedYesterday = try container.decodeIfPresent([TaskItem].self, forKey: .completedYesterday) ?? []
+        blockedItems = try container.decodeIfPresent([TaskItem].self, forKey: .blockedItems) ?? []
+        postponedItems = try container.decodeIfPresent([TaskItem].self, forKey: .postponedItems) ?? []
         generatedAt = try container.decode(String.self, forKey: .generatedAt)
     }
 }

@@ -6,10 +6,13 @@
  * `MemoryExtractor` and, for a wired-in `MemoryService`, already silently
  * auto-saved (Personal Workspace Memory sprint) — the backend's
  * `buildActionSuggestions` reuses those candidates rather than re-detecting
- * the same phrasing here. This detector only covers the three genuinely new
- * categories.
+ * the same phrasing here. `completed_task` is the same story (also
+ * `MemoryExtractor`, also reused, not re-detected). This detector only
+ * covers genuinely new categories: `todo`/`follow_up`/`meeting` (Conversation
+ * → Action sprint) and `blocked`/`postponed`/`delegated` (Executive Assistant
+ * Loop sprint) — task-status transitions with no existing detector to reuse.
  */
-export type ActionCandidateCategory = 'todo' | 'follow_up' | 'meeting';
+export type ActionCandidateCategory = 'todo' | 'follow_up' | 'meeting' | 'blocked' | 'postponed' | 'delegated';
 
 export interface ActionCandidate {
   /** The text to offer as a candidate action — not rewritten from the source, so a user can see exactly why it was suggested. */

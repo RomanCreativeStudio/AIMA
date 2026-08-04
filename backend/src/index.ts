@@ -222,6 +222,7 @@ async function main(): Promise<void> {
     executionIntentMatcher,
     retrievalService,
     memoryService,
+    taskService,
   });
 
   const voiceService = new VoiceService(pool, conversationService, speechToTextProvider, textToSpeechProvider);

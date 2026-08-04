@@ -375,6 +375,27 @@ struct DashboardView: View {
                         }
                     }
 
+                    if !briefing.completedYesterday.isEmpty {
+                        Text("Yesterday Completed").font(.subheadline).fontWeight(.medium).foregroundStyle(.green)
+                        ForEach(briefing.completedYesterday) { task in
+                            Text("• \(task.title)").font(.callout)
+                        }
+                    }
+
+                    if !briefing.blockedItems.isEmpty {
+                        Text("Blocked").font(.subheadline).fontWeight(.medium).foregroundStyle(.red)
+                        ForEach(briefing.blockedItems) { task in
+                            Text("• \(task.title)").font(.callout)
+                        }
+                    }
+
+                    if !briefing.postponedItems.isEmpty {
+                        Text("Postponed").font(.subheadline).fontWeight(.medium).foregroundStyle(.orange)
+                        ForEach(briefing.postponedItems) { task in
+                            Text("• \(task.title)").font(.callout)
+                        }
+                    }
+
                     if !briefing.calendarHighlights.isEmpty {
                         Text("Calendar Highlights").font(.subheadline).fontWeight(.medium)
                         ForEach(briefing.calendarHighlights) { entry in

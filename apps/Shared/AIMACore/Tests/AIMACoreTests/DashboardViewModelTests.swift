@@ -60,6 +60,27 @@ final class DashboardViewModelTests: XCTestCase {
         XCTAssertEqual(briefing.recentDecisions, [], "no seeded auto_extracted decision memories in this workspace")
     }
 
+    func testLoadPopulatesCompletedYesterdayBlockedItemsAndPostponedItems() async {
+        let apiClient = MockAPIClient()
+        let done = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Ship it"))
+        _ = try! await apiClient.updateTask(workspaceId: "mock-ws-rcs", taskId: done.id, request: UpdateTaskRequest(status: .done))
+        let blocked = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Design review"))
+        _ = try! await apiClient.updateTask(workspaceId: "mock-ws-rcs", taskId: blocked.id, request: UpdateTaskRequest(metadata: ["category": .string("blocked")]))
+        let postponed = try! await apiClient.createTask(workspaceId: "mock-ws-rcs", request: CreateTaskRequest(title: "Launch"))
+        _ = try! await apiClient.updateTask(workspaceId: "mock-ws-rcs", taskId: postponed.id, request: UpdateTaskRequest(metadata: ["category": .string("postponed")]))
+        let viewModel = DashboardViewModel(apiClient: apiClient)
+
+        await viewModel.load(workspaceId: "mock-ws-rcs")
+
+        let briefing = try! XCTUnwrap(viewModel.dailyBriefing)
+        XCTAssertEqual(briefing.completedYesterday.count, 1)
+        XCTAssertEqual(briefing.completedYesterday[0].id, done.id)
+        XCTAssertEqual(briefing.blockedItems.count, 1)
+        XCTAssertEqual(briefing.blockedItems[0].id, blocked.id)
+        XCTAssertEqual(briefing.postponedItems.count, 1)
+        XCTAssertEqual(briefing.postponedItems[0].id, postponed.id)
+    }
+
     func testLoadPopulatesTaskIntelligenceRankedByPriority() async {
         let apiClient = MockAPIClient()
         let viewModel = DashboardViewModel(apiClient: apiClient)

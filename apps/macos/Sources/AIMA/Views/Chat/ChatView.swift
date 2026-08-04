@@ -57,6 +57,10 @@ struct ChatView: View {
                     ActionSuggestionCardView(
                         suggestion: suggestion,
                         onAccept: { Task { await viewModel.acceptActionSuggestion(suggestion) } },
+                        onComplete: { Task { await viewModel.completeActionSuggestion(suggestion) } },
+                        onPostpone: { Task { await viewModel.postponeActionSuggestion(suggestion) } },
+                        onBlock: { Task { await viewModel.blockActionSuggestion(suggestion) } },
+                        onDelegate: { Task { await viewModel.delegateActionSuggestion(suggestion) } },
                         onDismiss: { viewModel.dismissActionSuggestion(suggestion) }
                     )
                 }

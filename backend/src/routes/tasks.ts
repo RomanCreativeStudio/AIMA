@@ -136,7 +136,7 @@ export function tasksRouter(deps: TasksRouterDependencies): Router {
         return;
       }
 
-      const { title, description, status, priority, dueDate } = req.body ?? {};
+      const { title, description, status, priority, dueDate, metadata } = req.body ?? {};
 
       if (title !== undefined && (typeof title !== 'string' || title.trim().length === 0)) {
         res.status(400).json({ error: 'title must be a non-empty string if provided' });
@@ -150,6 +150,10 @@ export function tasksRouter(deps: TasksRouterDependencies): Router {
         res.status(400).json({ error: `priority must be one of: ${TASK_PRIORITIES.join(', ')}` });
         return;
       }
+      if (metadata !== undefined && (typeof metadata !== 'object' || metadata === null || Array.isArray(metadata))) {
+        res.status(400).json({ error: 'metadata must be an object if provided' });
+        return;
+      }
 
       const task = await deps.taskService.updateTask(workspaceId, taskId, {
         title,
@@ -157,6 +161,7 @@ export function tasksRouter(deps: TasksRouterDependencies): Router {
         status,
         priority,
         dueDate,
+        metadata,
       });
 
       res.json({ task });

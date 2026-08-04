@@ -58,6 +58,42 @@ const RULES: DetectionRule[] = [
     confidence: 0.7,
     reason: 'Matched "let\'s meet ..." phrasing',
   },
+  {
+    category: 'blocked',
+    pattern: /\bblocked on [^.?!]+/i,
+    confidence: 0.8,
+    reason: 'Matched "blocked on ..." phrasing',
+  },
+  {
+    category: 'blocked',
+    pattern: /\bstuck on [^.?!]+/i,
+    confidence: 0.7,
+    reason: 'Matched "stuck on ..." phrasing',
+  },
+  {
+    category: 'postponed',
+    pattern: /\bpostpon(?:e|ing) [^.?!]+/i,
+    confidence: 0.8,
+    reason: 'Matched "postpone/postponing ..." phrasing',
+  },
+  {
+    category: 'postponed',
+    pattern: /\bpush(?:ing)? back [^.?!]+/i,
+    confidence: 0.7,
+    reason: 'Matched "push back ..." phrasing',
+  },
+  {
+    category: 'delegated',
+    pattern: /\b(?:delegat(?:ed|ing)|assign(?:ed|ing)) [^.?!]+ to [^.?!]+/i,
+    confidence: 0.8,
+    reason: 'Matched "delegated/assigned ... to ..." phrasing',
+  },
+  {
+    category: 'delegated',
+    pattern: /\bhand(?:ed|ing) off [^.?!]+/i,
+    confidence: 0.7,
+    reason: 'Matched "hand off ..." phrasing',
+  },
 ];
 
 export class RuleBasedActionDetector implements ActionDetector {

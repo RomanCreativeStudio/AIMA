@@ -1,7 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Task } from '../tasks/types';
-import { extractKeywords, findDueSoon, findOverdue, groupRelatedTasks, isOpenTask, rankTasksByPriority, scoreTaskPriority } from './taskAnalysis';
+import {
+  extractKeywords,
+  findCompletedRecently,
+  findDueSoon,
+  findOverdue,
+  groupRelatedTasks,
+  isOpenTask,
+  matchOpenTask,
+  rankTasksByPriority,
+  scoreTaskPriority,
+} from './taskAnalysis';
 
 const NOW = new Date('2026-07-28T12:00:00.000Z');
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -122,4 +132,46 @@ test('groupRelatedTasks returns no groups when no keyword is shared by more than
   const b = makeTask({ title: 'Schedule dentist appointment' });
 
   assert.deepEqual(groupRelatedTasks([a, b]), []);
+});
+
+test('matchOpenTask returns the open task with the highest keyword overlap', () => {
+  const weak = makeTask({ id: 'weak', title: 'Acme kickoff notes' });
+  const strong = makeTask({ id: 'strong', title: 'Acme contract proposal review' });
+
+  const result = matchOpenTask('Blocked on the Acme contract proposal', [weak, strong]);
+
+  assert.equal(result?.id, 'strong');
+});
+
+test('matchOpenTask returns null when no open task shares a keyword', () => {
+  const unrelated = makeTask({ title: 'Buy coffee filters' });
+  assert.equal(matchOpenTask('Blocked on the Acme contract', [unrelated]), null);
+});
+
+test('matchOpenTask returns null for content with no significant keywords', () => {
+  const candidate = makeTask({ title: 'Acme contract' });
+  assert.equal(matchOpenTask('ok', [candidate]), null);
+});
+
+test('matchOpenTask breaks ties by most recently created', () => {
+  const older = makeTask({ id: 'older', title: 'Acme contract', createdAt: '2026-01-01T00:00:00.000Z' });
+  const newer = makeTask({ id: 'newer', title: 'Acme contract', createdAt: '2026-06-01T00:00:00.000Z' });
+
+  const result = matchOpenTask('Blocked on the Acme contract', [older, newer]);
+
+  assert.equal(result?.id, 'newer');
+});
+
+test('findCompletedRecently returns only done tasks updated within the window', () => {
+  const recentlyDone = makeTask({
+    id: 'recent',
+    status: 'done',
+    updatedAt: new Date(NOW.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+  });
+  const staleDone = makeTask({ id: 'stale', status: 'done', updatedAt: new Date(NOW.getTime() - 2 * DAY_MS).toISOString() });
+  const stillOpen = makeTask({ id: 'open', status: 'todo', updatedAt: new Date(NOW.getTime() - 60 * 1000).toISOString() });
+
+  const result = findCompletedRecently([recentlyDone, staleDone, stillOpen], NOW, DAY_MS);
+
+  assert.deepEqual(result.map((task) => task.id), ['recent']);
 });

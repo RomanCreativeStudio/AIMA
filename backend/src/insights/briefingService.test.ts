@@ -25,7 +25,16 @@ import { WorkflowRegistry } from '../workflows/registry';
 import type { WorkflowKey } from '../workflows/types';
 import { WorkflowService } from '../workflows/workflowService';
 import { WorkspaceService } from '../workspaces/workspaceService';
-import { BriefingService, buildGreeting, isOpenCommitment, isRecentDecision, isUnresolvedFollowUp, needsAttention } from './briefingService';
+import {
+  BriefingService,
+  buildGreeting,
+  isBlockedTask,
+  isOpenCommitment,
+  isPostponedTask,
+  isRecentDecision,
+  isUnresolvedFollowUp,
+  needsAttention,
+} from './briefingService';
 
 const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
 
@@ -123,6 +132,9 @@ test('getDailyBriefing reports zeros and empty lists for a brand-new workspace',
     assert.deepEqual(briefing.acceptedTasks, []);
     assert.deepEqual(briefing.unresolvedFollowUps, []);
     assert.deepEqual(briefing.recentDecisions, [], 'recentDecisions defaults to [] when memoryService is omitted');
+    assert.deepEqual(briefing.completedYesterday, []);
+    assert.deepEqual(briefing.blockedItems, []);
+    assert.deepEqual(briefing.postponedItems, []);
     assert.deepEqual(briefing.calendarHighlights, []);
     assert.deepEqual(
       briefing.suggestedNextActions,
@@ -601,6 +613,114 @@ test('getDailyBriefing does not flag a connected integration with no expiry or a
 
     assert.deepEqual(briefing.integrationsNeedingAttention, []);
   });
+});
+
+// Executive Assistant Loop sprint: completedYesterday, blockedItems, postponedItems.
+
+test('getDailyBriefing surfaces completedYesterday for a task just marked done, workspace-scoped', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: otherWorkspaceId } = await seedWorkspace(client, 'mfs');
+    const { briefingService, taskService } = buildService(client);
+
+    const done = await taskService.createTask({ workspaceId, title: 'Ship the release' });
+    await taskService.updateTask(workspaceId, done.id, { status: 'done' });
+    const otherDone = await taskService.createTask({ workspaceId: otherWorkspaceId, title: 'Other workspace task' });
+    await taskService.updateTask(otherWorkspaceId, otherDone.id, { status: 'done' });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.completedYesterday.length, 1);
+    assert.equal(briefing.completedYesterday[0].id, done.id);
+  });
+});
+
+test('getDailyBriefing excludes tasks completed more than 24h ago from completedYesterday', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, taskService } = buildService(client);
+
+    const stale = await taskService.createTask({ workspaceId, title: 'Shipped a while ago' });
+    await taskService.updateTask(workspaceId, stale.id, { status: 'done' });
+    await client.query('UPDATE tasks SET updated_at = now() - interval \'2 days\' WHERE id = $1', [stale.id]);
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.deepEqual(briefing.completedYesterday, []);
+  });
+});
+
+test('getDailyBriefing surfaces blockedItems/postponedItems from open tasks tagged via metadata.category, workspace-scoped', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { workspaceId: otherWorkspaceId } = await seedWorkspace(client, 'mfs');
+    const { briefingService, taskService } = buildService(client);
+
+    const blocked = await taskService.createTask({ workspaceId, title: 'Design review' });
+    await taskService.updateTask(workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+    const postponed = await taskService.createTask({ workspaceId, title: 'Launch' });
+    await taskService.updateTask(workspaceId, postponed.id, { metadata: { category: 'postponed' } });
+    const otherBlocked = await taskService.createTask({ workspaceId: otherWorkspaceId, title: 'Other workspace blocked' });
+    await taskService.updateTask(otherWorkspaceId, otherBlocked.id, { metadata: { category: 'blocked' } });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.equal(briefing.blockedItems.length, 1);
+    assert.equal(briefing.blockedItems[0].id, blocked.id);
+    assert.equal(briefing.postponedItems.length, 1);
+    assert.equal(briefing.postponedItems[0].id, postponed.id);
+  });
+});
+
+test('getDailyBriefing blockedItems/postponedItems exclude a task once it is marked done', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const { briefingService, taskService } = buildService(client);
+
+    const blocked = await taskService.createTask({ workspaceId, title: 'Design review' });
+    await taskService.updateTask(workspaceId, blocked.id, { metadata: { category: 'blocked' } });
+    await taskService.updateTask(workspaceId, blocked.id, { status: 'done' });
+
+    const briefing = await briefingService.getDailyBriefing(workspaceId);
+
+    assert.deepEqual(briefing.blockedItems, []);
+  });
+});
+
+test('isBlockedTask requires an open task with metadata.category === blocked', () => {
+  const base = {
+    id: 't1',
+    workspaceId: 'w1',
+    title: 'x',
+    description: null,
+    priority: 'medium' as const,
+    dueDate: null,
+    source: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  assert.equal(isBlockedTask({ ...base, status: 'todo', metadata: { category: 'blocked' } }), true);
+  assert.equal(isBlockedTask({ ...base, status: 'done', metadata: { category: 'blocked' } }), false);
+  assert.equal(isBlockedTask({ ...base, status: 'todo', metadata: { category: 'postponed' } }), false);
+});
+
+test('isPostponedTask requires an open task with metadata.category === postponed', () => {
+  const base = {
+    id: 't1',
+    workspaceId: 'w1',
+    title: 'x',
+    description: null,
+    priority: 'medium' as const,
+    dueDate: null,
+    source: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+  };
+
+  assert.equal(isPostponedTask({ ...base, status: 'todo', metadata: { category: 'postponed' } }), true);
+  assert.equal(isPostponedTask({ ...base, status: 'done', metadata: { category: 'postponed' } }), false);
+  assert.equal(isPostponedTask({ ...base, status: 'todo', metadata: { category: 'blocked' } }), false);
 });
 
 test('buildGreeting mentions the workspace name and picks a time-of-day salutation', () => {

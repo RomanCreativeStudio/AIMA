@@ -128,18 +128,23 @@ public struct UpdateTaskRequest: Encodable, Sendable {
     public var status: TaskStatus?
     public var priority: TaskPriority?
     public var dueDate: String?
+    /// Executive Assistant Loop sprint: replaces `metadata` wholesale when provided — how Accepting a
+    /// blocked/postponed/delegated suggestion tags `metadata.category` without touching `status`/`dueDate`.
+    public var metadata: [String: JSONValue]?
 
     public init(
         title: String? = nil,
         description: String? = nil,
         status: TaskStatus? = nil,
         priority: TaskPriority? = nil,
-        dueDate: String? = nil
+        dueDate: String? = nil,
+        metadata: [String: JSONValue]? = nil
     ) {
         self.title = title
         self.description = description
         self.status = status
         self.priority = priority
         self.dueDate = dueDate
+        self.metadata = metadata
     }
 }

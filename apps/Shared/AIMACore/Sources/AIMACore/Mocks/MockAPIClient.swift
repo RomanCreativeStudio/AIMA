@@ -485,7 +485,8 @@ public actor MockAPIClient: APIClient {
             id: existing.id, workspaceId: existing.workspaceId,
             title: request.title ?? existing.title, description: request.description ?? existing.description,
             status: request.status ?? existing.status, priority: request.priority ?? existing.priority,
-            dueDate: request.dueDate ?? existing.dueDate, createdAt: existing.createdAt,
+            dueDate: request.dueDate ?? existing.dueDate, source: existing.source,
+            metadata: request.metadata ?? existing.metadata, createdAt: existing.createdAt,
             updatedAt: ISO8601DateFormatter().string(from: Date())
         )
         tasks[index] = updated
@@ -954,6 +955,9 @@ public actor MockAPIClient: APIClient {
             acceptedTasks: acceptedTasks,
             unresolvedFollowUps: acceptedTasks.filter(Self.isUnresolvedFollowUp),
             recentDecisions: (memoriesByWorkspace[workspaceId] ?? []).filter(Self.isRecentDecision),
+            completedYesterday: Self.findCompletedRecently(allTasks, now: now, window: 24 * 60 * 60),
+            blockedItems: allTasks.filter(Self.isBlockedTask),
+            postponedItems: allTasks.filter(Self.isPostponedTask),
             generatedAt: ISO8601DateFormatter().string(from: now)
         )
     }
@@ -994,6 +998,30 @@ public actor MockAPIClient: APIClient {
         guard memory.source == "auto_extracted" else { return false }
         guard case .string(let category)? = memory.metadata["category"] else { return false }
         return category == "decision"
+    }
+
+    /// Mirrors the backend's `taskAnalysis.ts#findCompletedRecently` (Executive Assistant Loop sprint).
+    private static func findCompletedRecently(_ tasks: [TaskItem], now: Date, window: TimeInterval) -> [TaskItem] {
+        let formatter = ISO8601DateFormatter()
+        return tasks.filter { task in
+            guard task.status == .done, let updatedAt = formatter.date(from: task.updatedAt) else { return false }
+            let secondsSinceUpdate = now.timeIntervalSince(updatedAt)
+            return secondsSinceUpdate >= 0 && secondsSinceUpdate <= window
+        }
+    }
+
+    /// Mirrors the backend's `briefingService.ts#isBlockedTask` (Executive Assistant Loop sprint).
+    private static func isBlockedTask(_ task: TaskItem) -> Bool {
+        guard isOpenTask(task) else { return false }
+        guard case .string(let category)? = task.metadata["category"] else { return false }
+        return category == "blocked"
+    }
+
+    /// Mirrors the backend's `briefingService.ts#isPostponedTask` (Executive Assistant Loop sprint).
+    private static func isPostponedTask(_ task: TaskItem) -> Bool {
+        guard isOpenTask(task) else { return false }
+        guard case .string(let category)? = task.metadata["category"] else { return false }
+        return category == "postponed"
     }
 
     public func getProactivePatterns(workspaceId: String) async throws -> [Pattern] {

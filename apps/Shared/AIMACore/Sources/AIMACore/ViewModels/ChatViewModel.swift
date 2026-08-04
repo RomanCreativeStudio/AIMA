@@ -179,6 +179,54 @@ public final class ChatViewModel {
         lastActionSuggestions.removeAll { $0 == suggestion }
     }
 
+    /// Accept a "completed" suggestion (Executive Assistant Loop sprint): closes the matched task via the
+    /// existing `updateTask` API call — the same route the Tasks screen's status picker uses. No duplicate
+    /// task-closing logic.
+    public func completeActionSuggestion(_ suggestion: ActionSuggestion) async {
+        await applyTaskUpdate(for: suggestion, request: UpdateTaskRequest(status: .done))
+    }
+
+    /// Accept a "postponed" suggestion: pushes the matched task's due date out by a fixed 7 days (client-side
+    /// default — no date-parsing needed on either side) via `updateTask`, and tags `metadata.category` so
+    /// `DailyBriefing.postponedItems` can surface it later.
+    public func postponeActionSuggestion(_ suggestion: ActionSuggestion) async {
+        let newDueDate = ISO8601DateFormatter().string(from: Date().addingTimeInterval(7 * 24 * 60 * 60))
+        await applyTaskUpdate(
+            for: suggestion,
+            request: UpdateTaskRequest(dueDate: newDueDate, metadata: ["category": .string("postponed")])
+        )
+    }
+
+    /// Accept a "blocked" suggestion: metadata only — tags `metadata.category` on the matched task via
+    /// `updateTask`, without touching `status`/`dueDate`.
+    public func blockActionSuggestion(_ suggestion: ActionSuggestion) async {
+        await applyTaskUpdate(for: suggestion, request: UpdateTaskRequest(metadata: ["category": .string("blocked")]))
+    }
+
+    /// Accept a "delegated" suggestion: metadata only — tags `metadata.category` on the matched task via
+    /// `updateTask`, without touching `status`/`dueDate`.
+    public func delegateActionSuggestion(_ suggestion: ActionSuggestion) async {
+        await applyTaskUpdate(for: suggestion, request: UpdateTaskRequest(metadata: ["category": .string("delegated")]))
+    }
+
+    /// Shared plumbing for the 4 task-referencing accept actions above: resolves `suggestion.matchedTaskId`,
+    /// calls `updateTask`, and removes the card from `lastActionSuggestions` on success.
+    private func applyTaskUpdate(for suggestion: ActionSuggestion, request: UpdateTaskRequest) async {
+        errorMessage = nil
+        guard let taskId = suggestion.matchedTaskId else {
+            errorMessage = "No matching task found for this suggestion."
+            return
+        }
+        do {
+            _ = try await apiClient.updateTask(workspaceId: workspaceId, taskId: taskId, request: request)
+            lastActionSuggestions.removeAll { $0 == suggestion }
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
     /// Resolves the chat approval card (Phase 2.2, item 3) in place — the
     /// same action the Approvals/Dashboard screens perform, just reachable
     /// without leaving the conversation.
