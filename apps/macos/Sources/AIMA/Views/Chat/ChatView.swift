@@ -73,6 +73,16 @@ struct ChatView: View {
                     RetrievedContextCardView(context: context)
                 }
 
+                #if DEBUG
+                if viewModel.selectedConversationId != nil {
+                    ContextUsedDebugView(
+                        memoriesUsed: viewModel.lastContextMemoriesUsedCount,
+                        tasksUsed: viewModel.lastContextTasksUsedCount,
+                        decisionsUsed: viewModel.lastContextDecisionsUsedCount
+                    )
+                }
+                #endif
+
                 if !viewModel.workspaceSuggestions.isEmpty {
                     RecommendationsCardView(suggestions: viewModel.workspaceSuggestions)
                 }

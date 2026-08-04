@@ -48,6 +48,10 @@ export interface ConversationServiceDependencies {
   memoryLimit?: number;
   /** Max document chunks retrieved per turn (a context limit). */
   documentLimit?: number;
+  /** Context Assembly Engine sprint: max ranked open tasks injected into a turn's system prompt (a context limit) — passed straight through to `ContextManager.gatherContext`. */
+  taskLimit?: number;
+  /** Context Assembly Engine sprint: max recent-decision memories injected into a turn's system prompt (a context limit) — passed straight through to `ContextManager.gatherContext`. */
+  decisionLimit?: number;
 }
 
 /**
@@ -94,6 +98,9 @@ export class ConversationService {
   private readonly historyLimit: number;
   private readonly memoryLimit: number;
   private readonly documentLimit: number;
+  /** Left `undefined` when not overridden so `ContextManager.gatherContext`'s own defaults apply — mirrors `memoryLimit`/`documentLimit`'s role but without duplicating the default value here too. */
+  private readonly taskLimit?: number;
+  private readonly decisionLimit?: number;
 
   constructor(deps: ConversationServiceDependencies) {
     this.db = deps.db;
@@ -110,6 +117,8 @@ export class ConversationService {
     this.historyLimit = deps.historyLimit ?? DEFAULT_HISTORY_LIMIT;
     this.memoryLimit = deps.memoryLimit ?? DEFAULT_MEMORY_LIMIT;
     this.documentLimit = deps.documentLimit ?? DEFAULT_DOCUMENT_LIMIT;
+    this.taskLimit = deps.taskLimit;
+    this.decisionLimit = deps.decisionLimit;
   }
 
   async createConversation(workspaceId: string, title?: string): Promise<Conversation> {
@@ -201,7 +210,12 @@ export class ConversationService {
         workspaceSlug,
         query: input.content,
         history,
-        limits: { memoryLimit: this.memoryLimit, documentLimit: this.documentLimit },
+        limits: {
+          memoryLimit: this.memoryLimit,
+          documentLimit: this.documentLimit,
+          taskLimit: this.taskLimit,
+          decisionLimit: this.decisionLimit,
+        },
       });
 
       const assistantMessage = await this.saveMessage(
@@ -246,6 +260,8 @@ export class ConversationService {
         memorySuggestions: advisory,
         actionSuggestions,
         retrievedContext,
+        contextTasks: result.context.tasks,
+        contextDecisions: result.context.decisions,
       };
     } catch (error) {
       await this.actionLogger.log({

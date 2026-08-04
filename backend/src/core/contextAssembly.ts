@@ -1,6 +1,7 @@
 import type { RankedDocumentChunkResult } from '../knowledge/types';
-import type { RankedMemoryResult } from '../memory/types';
+import type { MemoryRecord, RankedMemoryResult } from '../memory/types';
 import type { Preference } from '../preferences/types';
+import type { Task } from '../tasks/types';
 import type { AssistantProfile } from './assistantProfiles';
 
 /** Per-snippet cap so a single long memory or document chunk can't dominate the prompt. */
@@ -27,6 +28,8 @@ export function buildSystemPrompt(
   memories: RankedMemoryResult[],
   documentChunks: RankedDocumentChunkResult[] = [],
   preferences: Preference[] = [],
+  tasks: Task[] = [],
+  decisions: MemoryRecord[] = [],
 ): string {
   const workspaceLine = `You are currently operating in ${profile.description} ${profile.responseInstructions}`;
 
@@ -54,7 +57,21 @@ export function buildSystemPrompt(
           })
           .join('\n')}`;
 
-  return [IDENTITY, workspaceLine, preferenceSection, memorySection, documentSection]
+  const taskSection =
+    tasks.length === 0
+      ? null
+      : `Open tasks for this workspace (overdue ones ranked first):\n${tasks
+          .map((task, index) => `${index + 1}. [${task.priority}] ${task.title}${task.dueDate ? ` (due ${task.dueDate})` : ''}`)
+          .join('\n')}`;
+
+  const decisionSection =
+    decisions.length === 0
+      ? null
+      : `Recent decisions for this workspace:\n${decisions
+          .map((decision, index) => `${index + 1}. ${truncate(decision.content, MAX_SNIPPET_CHARS)}`)
+          .join('\n')}`;
+
+  return [IDENTITY, workspaceLine, preferenceSection, memorySection, documentSection, taskSection, decisionSection]
     .filter((section) => section !== null)
     .join('\n\n');
 }

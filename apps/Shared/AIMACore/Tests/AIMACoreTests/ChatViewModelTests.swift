@@ -367,6 +367,36 @@ final class ChatViewModelTests: XCTestCase {
         XCTAssertFalse(viewModel.lastActionSuggestions.isEmpty, "no matching task means nothing to accept — the card stays")
     }
 
+    func testSendDraftMessagePopulatesContextUsageCounts() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await apiClient.forceNextMessageToUseContext(memories: 3, tasks: 2, decisions: 1)
+
+        viewModel.draftMessage = "What should I work on?"
+        await viewModel.sendDraftMessage()
+
+        XCTAssertEqual(viewModel.lastContextMemoriesUsedCount, 3)
+        XCTAssertEqual(viewModel.lastContextTasksUsedCount, 2)
+        XCTAssertEqual(viewModel.lastContextDecisionsUsedCount, 1)
+    }
+
+    func testSelectingAConversationClearsStaleContextUsageCounts() async {
+        let apiClient = MockAPIClient()
+        let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")
+        await viewModel.loadConversations()
+        await apiClient.forceNextMessageToUseContext(memories: 3, tasks: 2, decisions: 1)
+        viewModel.draftMessage = "What should I work on?"
+        await viewModel.sendDraftMessage()
+        precondition(viewModel.lastContextTasksUsedCount > 0, "sanity check: counts exist before switching")
+
+        await viewModel.startNewConversation(title: "New")
+
+        XCTAssertEqual(viewModel.lastContextMemoriesUsedCount, 0)
+        XCTAssertEqual(viewModel.lastContextTasksUsedCount, 0)
+        XCTAssertEqual(viewModel.lastContextDecisionsUsedCount, 0)
+    }
+
     func testSelectingAConversationClearsStaleExecutionSuggestion() async {
         let apiClient = MockAPIClient()
         let viewModel = ChatViewModel(apiClient: apiClient, workspaceId: "mock-ws-rcs")

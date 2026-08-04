@@ -81,7 +81,14 @@ export class AimaCoreService {
     ]);
 
     const profile = buildEffectiveProfile(workspace);
-    const systemPrompt = buildSystemPrompt(profile, context.memories, context.documentChunks, context.preferences);
+    const systemPrompt = buildSystemPrompt(
+      profile,
+      context.memories,
+      context.documentChunks,
+      context.preferences,
+      context.tasks,
+      context.decisions,
+    );
     const capability = INTENT_CAPABILITY_MAP[intent.intent];
 
     const [completion, approvalDecision] = await Promise.all([

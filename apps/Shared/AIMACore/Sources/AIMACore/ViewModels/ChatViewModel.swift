@@ -49,6 +49,13 @@ public final class ChatViewModel {
     /// the backend has no `RetrievalService` configured. Reset on `selectConversation` like the other
     /// per-turn advisory fields.
     public private(set) var lastRetrievedContext: RetrievedContext?
+    /// Context Assembly Engine sprint: how many memories/tasks/decisions were actually injected into the most
+    /// recent reply's system prompt — counts only (`SendMessageResult.retrievedMemories`/`contextTasks`/
+    /// `contextDecisions` are loosely-typed `[JSONValue]`, so `.count` is all this phase's UI needs). Backs the
+    /// debug-only "Context Used" section; reset on `selectConversation` like the other per-turn advisory fields.
+    public private(set) var lastContextMemoriesUsedCount = 0
+    public private(set) var lastContextTasksUsedCount = 0
+    public private(set) var lastContextDecisionsUsedCount = 0
 
     private let apiClient: APIClient
     private let workspaceId: String
@@ -101,6 +108,9 @@ public final class ChatViewModel {
         lastActionSuggestions = []
         conversationIntelligence = nil
         lastRetrievedContext = nil
+        lastContextMemoriesUsedCount = 0
+        lastContextTasksUsedCount = 0
+        lastContextDecisionsUsedCount = 0
         do {
             messages = try await apiClient.listMessages(workspaceId: workspaceId, conversationId: conversationId, limit: nil)
         } catch let error as APIError {
@@ -128,6 +138,9 @@ public final class ChatViewModel {
             lastExecutionSuggestion = result.executionSuggestion
             lastActionSuggestions = result.actionSuggestions
             lastRetrievedContext = result.retrievedContext
+            lastContextMemoriesUsedCount = result.retrievedMemories.count
+            lastContextTasksUsedCount = result.contextTasks.count
+            lastContextDecisionsUsedCount = result.contextDecisions.count
             if let approvalId = result.approvalDecision.pendingApprovalId {
                 lastPendingApproval = try? await apiClient.getApproval(workspaceId: workspaceId, approvalId: approvalId)
             }

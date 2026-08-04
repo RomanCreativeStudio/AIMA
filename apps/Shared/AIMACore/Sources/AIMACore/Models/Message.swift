@@ -91,6 +91,13 @@ public struct SendMessageResult: Codable, Sendable {
     /// (Phase 3.6). Purely advisory: never wired into the AI prompt itself, never writes anything. `nil` when
     /// no `RetrievalService` was configured server-side.
     public let retrievedContext: RetrievedContext?
+    /// Context Assembly Engine sprint: the ranked open tasks actually injected into this turn's system prompt —
+    /// kept loosely typed like `retrievedMemories`/`retrievedDocumentChunks` above, for the same reason (this
+    /// phase's UI only needs a count for the debug "Context Used" section, not the full `TaskItem` shape).
+    public let contextTasks: [JSONValue]
+    /// Context Assembly Engine sprint: the recent-decision memories actually injected into this turn's system
+    /// prompt, after server-side deduplication against `retrievedMemories`.
+    public let contextDecisions: [JSONValue]
 
     public init(
         userMessage: Message,
@@ -103,7 +110,9 @@ public struct SendMessageResult: Codable, Sendable {
         executionSuggestion: ExecutionSuggestion?,
         memorySuggestions: [MemorySuggestion] = [],
         actionSuggestions: [ActionSuggestion] = [],
-        retrievedContext: RetrievedContext? = nil
+        retrievedContext: RetrievedContext? = nil,
+        contextTasks: [JSONValue] = [],
+        contextDecisions: [JSONValue] = []
     ) {
         self.userMessage = userMessage
         self.assistantMessage = assistantMessage
@@ -116,17 +125,21 @@ public struct SendMessageResult: Codable, Sendable {
         self.memorySuggestions = memorySuggestions
         self.actionSuggestions = actionSuggestions
         self.retrievedContext = retrievedContext
+        self.contextTasks = contextTasks
+        self.contextDecisions = contextDecisions
     }
 
     private enum CodingKeys: String, CodingKey {
         case userMessage, assistantMessage, retrievedMemories, retrievedDocumentChunks, intent, approvalDecision
         case workflowSuggestion, executionSuggestion, memorySuggestions, actionSuggestions, retrievedContext
+        case contextTasks, contextDecisions
     }
 
     /// Custom decode so a payload from before Phase 3.4 (missing `memorySuggestions` entirely) still decodes,
     /// defaulting to an empty array — the same backward-compatible-decode posture as `MemoryRecord`'s new fields.
     /// `retrievedContext` (Phase 3.6) is similarly optional, decoding to `nil` when absent. `actionSuggestions`
-    /// (Conversation → Action sprint) follows the same empty-array default.
+    /// (Conversation → Action sprint) follows the same empty-array default, as do `contextTasks`/
+    /// `contextDecisions` (Context Assembly Engine sprint).
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         userMessage = try container.decode(Message.self, forKey: .userMessage)
@@ -140,5 +153,7 @@ public struct SendMessageResult: Codable, Sendable {
         memorySuggestions = try container.decodeIfPresent([MemorySuggestion].self, forKey: .memorySuggestions) ?? []
         actionSuggestions = try container.decodeIfPresent([ActionSuggestion].self, forKey: .actionSuggestions) ?? []
         retrievedContext = try container.decodeIfPresent(RetrievedContext.self, forKey: .retrievedContext)
+        contextTasks = try container.decodeIfPresent([JSONValue].self, forKey: .contextTasks) ?? []
+        contextDecisions = try container.decodeIfPresent([JSONValue].self, forKey: .contextDecisions) ?? []
     }
 }

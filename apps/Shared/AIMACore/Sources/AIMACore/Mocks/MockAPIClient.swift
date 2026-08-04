@@ -67,6 +67,11 @@ public actor MockAPIClient: APIClient {
     /// trigger phrases.
     private var forcedNextActionSuggestions: [ActionSuggestion]?
 
+    /// Set by `forceNextMessageToUseContext`, consumed by the next `sendMessage` call — lets tests/previews
+    /// exercise the Chat screen's debug-only "Context Used" section (Context Assembly Engine sprint) without
+    /// needing a real `ContextManager` behind the mock.
+    private var forcedNextContextUsage: (memories: Int, tasks: Int, decisions: Int)?
+
     /// Mirrors `backend/src/permissions/registry.ts`: all four built-in execution action types are permanently
     /// tier-locked at Tier 3 (`execute_with_approval`) — none of them auto-execute.
     private static let executionTier = "execute_with_approval"
@@ -387,6 +392,12 @@ public actor MockAPIClient: APIClient {
         let actionSuggestions = forcedNextActionSuggestions ?? []
         forcedNextActionSuggestions = nil
 
+        let contextUsage = forcedNextContextUsage
+        forcedNextContextUsage = nil
+        let retrievedMemories: [JSONValue] = Array(repeating: .null, count: contextUsage?.memories ?? 0)
+        let contextTasks: [JSONValue] = Array(repeating: .null, count: contextUsage?.tasks ?? 0)
+        let contextDecisions: [JSONValue] = Array(repeating: .null, count: contextUsage?.decisions ?? 0)
+
         // Mirrors the backend's advisory retrievedContext (Phase 3.6) — populated whenever a workspace has
         // seeded searchable content, nil otherwise, the same "only present when configured" shape as the
         // real RetrievalService-optional ConversationService.
@@ -397,14 +408,16 @@ public actor MockAPIClient: APIClient {
         return SendMessageResult(
             userMessage: userMessage,
             assistantMessage: assistantMessage,
-            retrievedMemories: [],
+            retrievedMemories: retrievedMemories,
             retrievedDocumentChunks: [],
             intent: intent,
             approvalDecision: approvalDecision,
             workflowSuggestion: workflowSuggestion,
             executionSuggestion: executionSuggestion,
             actionSuggestions: actionSuggestions,
-            retrievedContext: retrievedContext
+            retrievedContext: retrievedContext,
+            contextTasks: contextTasks,
+            contextDecisions: contextDecisions
         )
     }
 
@@ -445,6 +458,14 @@ public actor MockAPIClient: APIClient {
     /// to type an exact trigger phrase.
     public func forceNextMessageToSuggestActions(_ suggestions: [ActionSuggestion]) {
         forcedNextActionSuggestions = suggestions
+    }
+
+    /// Test hook (Context Assembly Engine sprint): makes the next `sendMessage` call report the given
+    /// memories/tasks/decisions counts on `SendMessageResult.retrievedMemories`/`contextTasks`/
+    /// `contextDecisions` — simulating `ContextManager.gatherContext` having actually injected that much
+    /// context, without needing a real backend behind the mock.
+    public func forceNextMessageToUseContext(memories: Int, tasks: Int, decisions: Int) {
+        forcedNextContextUsage = (memories, tasks, decisions)
     }
 
     /// Test hook (Phase 3.3): makes the next `submitVoiceRequest` call fail

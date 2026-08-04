@@ -162,7 +162,7 @@ async function main(): Promise<void> {
     speechToText: speechToTextProvider.name,
     textToSpeech: textToSpeechProvider.name,
   });
-  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService, taskService);
   const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
 
   const workflowRegistry = new WorkflowRegistry();

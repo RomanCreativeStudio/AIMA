@@ -2,8 +2,9 @@ import type { MemoryCandidate } from '@aima/ai-engine';
 import type { ApprovalDecision } from '../approval/types';
 import type { RetrievedContext } from '../embeddings/types';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
-import type { RankedMemoryResult } from '../memory/types';
+import type { MemoryRecord, RankedMemoryResult } from '../memory/types';
 import type { IntentAnalysis } from '../intent/types';
+import type { Task } from '../tasks/types';
 import type { WorkflowSuggestion } from '../workflows/types';
 import type { ExecutionSuggestion } from '../execution/types';
 import type { ActionSuggestion } from './actionSuggestions';
@@ -54,4 +55,8 @@ export interface SendMessageResult {
   actionSuggestions: ActionSuggestion[];
   /** Semantically retrieved context for this turn — merged memories, related conversations, and related tasks (Phase 3.6, docs/decisions/0021-semantic-search-and-context-retrieval.md). Purely advisory: never wired into the AI prompt itself, never writes anything. `null` when no RetrievalService was configured. */
   retrievedContext: RetrievedContext | null;
+  /** Context Assembly Engine sprint: the ranked open tasks actually injected into this turn's system prompt (`ContextManager.gatherContext`'s `tasks`) — surfaced for the same transparency reason as `retrievedMemories`/`retrievedDocumentChunks`. Empty when no `taskService` was configured. */
+  contextTasks: Task[];
+  /** Context Assembly Engine sprint: the recent-decision memories actually injected into this turn's system prompt, after deduplication against `retrievedMemories` — same transparency reason as `contextTasks`. */
+  contextDecisions: MemoryRecord[];
 }

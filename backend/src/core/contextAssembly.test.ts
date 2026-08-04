@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { buildSystemPrompt } from './contextAssembly';
 import { buildEffectiveProfile, getAssistantProfile } from './assistantProfiles';
 import type { RankedDocumentChunkResult } from '../knowledge/types';
-import type { RankedMemoryResult } from '../memory/types';
+import type { MemoryRecord, RankedMemoryResult } from '../memory/types';
 import type { Preference } from '../preferences/types';
+import type { Task } from '../tasks/types';
 import type { Workspace } from '../workspaces/types';
 
 function preference(overrides: Partial<Preference> = {}): Preference {
@@ -54,6 +55,44 @@ function memory(overrides: Partial<RankedMemoryResult> = {}): RankedMemoryResult
     expiresAt: null,
     archivedAt: null,
     score: 0.9,
+    ...overrides,
+  };
+}
+
+function task(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'task-1',
+    workspaceId: 'ws-1',
+    title: 'Ship the release',
+    description: null,
+    status: 'todo',
+    priority: 'high',
+    dueDate: null,
+    source: null,
+    metadata: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function decision(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
+  return {
+    id: 'mem-decision-1',
+    workspaceId: 'ws-1',
+    scope: 'workspace',
+    content: "We've decided to ship on Friday.",
+    source: 'auto_extracted',
+    conversationId: null,
+    projectKey: null,
+    metadata: { category: 'decision' },
+    createdAt: new Date().toISOString(),
+    importanceScore: 0.5,
+    confidenceScore: 1,
+    memoryType: 'long_term',
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
     ...overrides,
   };
 }
@@ -154,6 +193,47 @@ test('buildSystemPrompt includes preferences by category and key/value', () => {
 
   assert.match(prompt, /Workspace preferences to follow/);
   assert.match(prompt, /\[writing_style\] tone: formal/);
+});
+
+test('buildSystemPrompt omits the tasks/decisions sections when there are none', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [], []);
+  assert.doesNotMatch(prompt, /Open tasks for this workspace/);
+  assert.doesNotMatch(prompt, /Recent decisions for this workspace/);
+});
+
+test('buildSystemPrompt includes open tasks with priority and due date', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [],
+    [],
+    [],
+    [task({ title: 'Ship the release', priority: 'high', dueDate: '2026-01-01T00:00:00.000Z' })],
+  );
+
+  assert.match(prompt, /Open tasks for this workspace/);
+  assert.match(prompt, /1\. \[high\] Ship the release \(due 2026-01-01T00:00:00\.000Z\)/);
+});
+
+test('buildSystemPrompt includes recent decisions', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [],
+    [],
+    [],
+    [],
+    [decision({ content: "We've decided to ship on Friday." })],
+  );
+
+  assert.match(prompt, /Recent decisions for this workspace/);
+  assert.match(prompt, /1\. We've decided to ship on Friday\./);
+});
+
+test('buildSystemPrompt truncates an overly long decision snippet', () => {
+  const longContent = 'z'.repeat(1000);
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [], [], [], [decision({ content: longContent })]);
+
+  assert.ok(!prompt.includes(longContent));
+  assert.match(prompt, /z{500}…/);
 });
 
 test('buildEffectiveProfile keeps the static base instructions when the workspace has no overrides', () => {

@@ -59,13 +59,13 @@ function buildService(
   const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
   const approvalEngine = new ApprovalEngine(client, permissionEngine);
   const workspaceService = new WorkspaceService(client);
-  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+  const taskService = new TaskService(client);
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService, taskService);
   const aimaCoreService = new AimaCoreService(contextManager, provider, intentEngine, approvalEngine, workspaceService);
   const workflowIntentMatcher = new WorkflowIntentMatcher(new WorkflowRegistry());
   const executionIntentMatcher = new ExecutionIntentMatcher(
     new ExecutionRegistry([new GmailSendEmailExecutor(new StubGmailConnector())]),
   );
-  const taskService = new TaskService(client);
 
   const service = new ConversationService({
     db: client,
@@ -754,6 +754,69 @@ test('sendMessage never resolves matchedTaskId to a task in a different workspac
   });
 });
 
+test('sendMessage attaches contextTasks: the ranked open tasks actually injected into the system prompt (Context Assembly Engine sprint)', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    const { service, taskService } = buildService(client, new RecordingAIProvider());
+
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const overdue = await taskService.createTask({ workspaceId, title: 'Overdue task', dueDate: yesterday });
+    await taskService.createTask({ workspaceId, title: 'No due date task' });
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'What should I work on?' });
+
+    assert.ok(result.contextTasks.length >= 2);
+    assert.equal(result.contextTasks[0].id, overdue.id, 'overdue task ranks first');
+  });
+});
+
+test('sendMessage attaches contextDecisions: recent auto-extracted decisions, deduplicated against retrievedMemories', async () => {
+  await withTestTransaction(async (client) => {
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    const conversationId = await seedConversation(client, workspaceId);
+    // memoryLimit: 0 isolates this test to contextDecisions' own sourcing/surfacing, independent of
+    // MockEmbeddingProvider's relevance ranking — the actual dedup-against-memories logic is covered directly
+    // by contextManager.test.ts's deduplicateDecisions unit tests.
+    const { service, memoryService } = buildService(client, new RecordingAIProvider(), { memoryLimit: 0 });
+
+    await memoryService.createMemory({
+      workspaceId,
+      scope: 'workspace',
+      content: "We've decided to ship on Friday.",
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const result = await service.sendMessage({ workspaceId, conversationId, content: 'What was decided?' });
+
+    assert.ok(result.contextDecisions.some((d) => d.content === "We've decided to ship on Friday."));
+  });
+});
+
+test('sendMessage contextTasks/contextDecisions are workspace-isolated', async () => {
+  await withTestTransaction(async (client) => {
+    const rcs = await seedWorkspace(client, 'rcs');
+    const mfs = await seedWorkspace(client, 'mfs');
+    const conversationId = await seedConversation(client, rcs.workspaceId);
+    const { service, taskService, memoryService } = buildService(client, new RecordingAIProvider());
+
+    await taskService.createTask({ workspaceId: mfs.workspaceId, title: 'Other workspace task' });
+    await memoryService.createMemory({
+      workspaceId: mfs.workspaceId,
+      scope: 'workspace',
+      content: 'A decision in the other workspace.',
+      source: 'auto_extracted',
+      metadata: { category: 'decision' },
+    });
+
+    const result = await service.sendMessage({ workspaceId: rcs.workspaceId, conversationId, content: 'anything' });
+
+    assert.deepEqual(result.contextTasks, []);
+    assert.deepEqual(result.contextDecisions, []);
+  });
+});
+
 test('sendMessage result matches the full response schema', async () => {
   await withTestTransaction(async (client) => {
     const { workspaceId } = await seedWorkspace(client, 'personal');
@@ -766,6 +829,8 @@ test('sendMessage result matches the full response schema', async () => {
       'actionSuggestions',
       'approvalDecision',
       'assistantMessage',
+      'contextDecisions',
+      'contextTasks',
       'executionSuggestion',
       'intent',
       'memorySuggestions',

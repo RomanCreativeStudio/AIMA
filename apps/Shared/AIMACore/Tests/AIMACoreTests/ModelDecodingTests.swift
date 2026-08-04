@@ -164,6 +164,43 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(ActionSuggestionCategory.delegated.rawValue, "delegated")
     }
 
+    func testDecodesSendMessageResultWithContextTasksAndDecisions() throws {
+        let json = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"hi","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"hello","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [{"id":"m1"}],
+          "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"No action needed."},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null},
+          "contextTasks": [{"id":"t1"}, {"id":"t2"}],
+          "contextDecisions": [{"id":"d1"}]
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SendMessageResult.self, from: json)
+        XCTAssertEqual(result.contextTasks.count, 2)
+        XCTAssertEqual(result.contextDecisions.count, 1)
+    }
+
+    func testSendMessageResultDefaultsContextTasksAndDecisionsToEmptyWhenMissing() throws {
+        // Pre-Context-Assembly-Engine payload — no contextTasks/contextDecisions keys at all — still decodes.
+        let json = """
+        {
+          "userMessage": {"id":"m1","conversationId":"c1","workspaceId":"w1","role":"user","content":"hi","createdAt":"2026-01-01T00:00:00.000Z"},
+          "assistantMessage": {"id":"m2","conversationId":"c1","workspaceId":"w1","role":"assistant","content":"hello","createdAt":"2026-01-01T00:00:00.000Z"},
+          "retrievedMemories": [],
+          "retrievedDocumentChunks": [],
+          "intent": {"intent":"chat","confidence":0.5,"parameters":{},"approval":"no_approval_needed","suggestedNextAction":"No action needed."},
+          "approvalDecision": {"state":"no_approval_needed","pendingApprovalId":null}
+        }
+        """.data(using: .utf8)!
+
+        let result = try decoder.decode(SendMessageResult.self, from: json)
+        XCTAssertEqual(result.contextTasks, [])
+        XCTAssertEqual(result.contextDecisions, [])
+    }
+
     func testApprovalStatusRawValuesMatchBackendEnum() {
         // backend/src/approval/types.ts#ApprovalStatus (Phase 1.7).
         XCTAssertEqual(ApprovalStatus.pending.rawValue, "pending")
