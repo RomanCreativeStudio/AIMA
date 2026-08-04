@@ -91,6 +91,16 @@ export function adminRouter(deps: AdminRouterDependencies): Router {
     }
   });
 
+  /** Founder Analytics Dashboard sprint: platform-wide totals for the founder dashboard's metric cards. */
+  router.get('/admin/analytics', async (req, res, next) => {
+    try {
+      const analytics = await deps.adminService.getPlatformAnalytics();
+      res.json({ analytics });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.get('/admin/feedback', async (req, res, next) => {
     try {
       const rawLimit = req.query.limit;

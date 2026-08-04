@@ -146,6 +146,33 @@ final class AdminViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.allUsers.first?.adminTags, ["design-partner"])
     }
 
+    func testLoadFetchesPlatformAnalyticsAlongsideBetaUsersAndFeedback() async throws {
+        let apiClient = MockAPIClient()
+        _ = try await apiClient.updateUserProfile(id: "mock-user", request: UpdateUserProfileRequest(preferences: ["betaTester": .bool(true)]))
+        _ = try await apiClient.submitFeedback(workspaceId: "mock-ws-rcs", request: CreateFeedbackRequest(message: "x"))
+        let viewModel = AdminViewModel(apiClient: apiClient)
+
+        await viewModel.load()
+
+        XCTAssertEqual(viewModel.analytics?.totalUsers, 1)
+        XCTAssertEqual(viewModel.analytics?.betaUsers, 1)
+        XCTAssertEqual(viewModel.analytics?.activeUsers24h, 1)
+        XCTAssertEqual(viewModel.analytics?.totalFeedback, 1)
+        XCTAssertEqual(viewModel.analytics?.pendingFeedback, 1)
+        XCTAssertNotNil(viewModel.analytics?.generatedAt)
+    }
+
+    func testLoadClearsAnalyticsOnAPIError() async {
+        let apiClient = MockAPIClient()
+        await apiClient.setShouldFail(true)
+        let viewModel = AdminViewModel(apiClient: apiClient)
+
+        await viewModel.load()
+
+        XCTAssertNil(viewModel.analytics)
+        XCTAssertNotNil(viewModel.errorMessage)
+    }
+
     func testLoadSurfacesAPIErrorsAsUserFacingMessages() async {
         let apiClient = MockAPIClient()
         await apiClient.setShouldFail(true)

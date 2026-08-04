@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Client } from 'pg';
 import { MockEmbeddingProvider, RuleBasedIntentClassifier, createAIProvider } from '@aima/ai-engine';
-import { seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
+import { seedCapabilities, seedConversation, seedWorkspace, withTestTransaction } from '../testUtils/db';
 import { ActionLogger } from '../actionLog/logger';
 import { ApprovalEngine } from '../approval/approvalEngine';
 import { MockAuthProvider } from '../auth/mockAuthProvider';
@@ -96,7 +96,16 @@ function buildService(client: Client) {
     sessionService,
   );
 
-  return { adminService, userService, feedbackService };
+  return {
+    adminService,
+    userService,
+    feedbackService,
+    workspaceService,
+    sessionService,
+    approvalEngine,
+    executionService,
+    integrationService,
+  };
 }
 
 async function markAsBetaTester(userService: UserService, userId: string): Promise<void> {
@@ -370,5 +379,119 @@ test('listRecentFeedback respects the limit parameter', async () => {
 
     assert.equal(entries.length, 1);
     assert.equal(entries[0].message, 'three');
+  });
+});
+
+test('getPlatformAnalytics returns a well-formed shape with non-negative totals', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService } = buildService(client);
+
+    const analytics = await adminService.getPlatformAnalytics();
+
+    for (const value of Object.values(analytics)) {
+      if (typeof value === 'number') assert.ok(value >= 0, `expected non-negative, got ${value}`);
+    }
+    assert.ok(analytics.generatedAt);
+  });
+});
+
+// The test database may carry committed rows left over from other test files (route tests use a real Pool,
+// not a rolled-back transaction), and — because these read global, unscoped tables (every user, every
+// workspace) rather than one seeded workspaceId — even a rolled-back transaction can observe concurrent
+// commits *and deletes* from those other files mid-run (plain READ COMMITTED, not a snapshot isolation
+// level), so a "before vs. after" delta can drift in either direction from unrelated activity alone. These
+// assert absolute lower bounds on rows this test itself creates instead — safe because nothing outside this
+// test knows this test's randomly-generated ids, so nothing else can delete them mid-test.
+test('getPlatformAnalytics counts total and beta users', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, userService } = buildService(client);
+    const a = await seedWorkspace(client, 'rcs');
+    await seedWorkspace(client, 'mfs');
+    await markAsBetaTester(userService, a.userId);
+
+    const analytics = await adminService.getPlatformAnalytics();
+
+    assert.ok(analytics.totalUsers >= 2);
+    assert.ok(analytics.betaUsers >= 1);
+    assert.ok(analytics.totalWorkspaces >= 2);
+  });
+});
+
+test('getPlatformAnalytics counts a user as active within 24h and 7d, but not once older than 7d', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, sessionService } = buildService(client);
+    const recent = await seedWorkspace(client, 'rcs');
+    const stale = await seedWorkspace(client, 'mfs');
+    await sessionService.createSession(recent.userId, 'refresh-recent');
+    await sessionService.createSession(stale.userId, 'refresh-stale');
+    await client.query(`UPDATE auth_sessions SET last_seen_at = now() - interval '10 days' WHERE user_id = $1`, [
+      stale.userId,
+    ]);
+
+    const analytics = await adminService.getPlatformAnalytics();
+
+    assert.ok(analytics.activeUsers24h >= 1);
+    assert.ok(analytics.activeUsers7d >= 1);
+  });
+});
+
+test('getPlatformAnalytics sums conversations, messages, and memories across every workspace', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService } = buildService(client);
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+    await seedConversation(client, a.workspaceId);
+    await seedConversation(client, b.workspaceId);
+    await client.query(`INSERT INTO memory_records (workspace_id, content) VALUES ($1, 'remember this')`, [
+      a.workspaceId,
+    ]);
+
+    const analytics = await adminService.getPlatformAnalytics();
+
+    assert.ok(analytics.totalConversations >= 2);
+    assert.ok(analytics.totalMemories >= 1);
+  });
+});
+
+test('getPlatformAnalytics breaks feedback down by status', async () => {
+  await withTestTransaction(async (client) => {
+    const { adminService, feedbackService } = buildService(client);
+    const { userId, workspaceId } = await seedWorkspace(client, 'personal');
+    const f1 = await feedbackService.createFeedback({ workspaceId, userId, message: 'one' });
+    await feedbackService.createFeedback({ workspaceId, userId, message: 'two' });
+    await feedbackService.updateStatus(f1.id, 'reviewed');
+
+    const analytics = await adminService.getPlatformAnalytics();
+
+    assert.ok(analytics.totalFeedback >= 2);
+    assert.ok(analytics.pendingFeedback >= 1);
+    assert.ok(analytics.reviewedFeedback >= 1);
+  });
+});
+
+test('getPlatformAnalytics counts approvals created/completed and executions completed', async () => {
+  await withTestTransaction(async (client) => {
+    await seedCapabilities(client);
+    const { adminService, approvalEngine, executionService, integrationService } = buildService(client);
+    const { workspaceId } = await seedWorkspace(client, 'rcs');
+    await integrationService.connect({
+      workspaceId,
+      provider: 'gmail',
+      credentials: { accessToken: 'a', refreshToken: 'b' },
+    });
+
+    const execution = await executionService.createExecutionRequest({
+      workspaceId,
+      actionType: 'send_email',
+      payload: { to: 'client@example.com', subject: 'Hi', body: 'Hello' },
+    });
+    await approvalEngine.approve(workspaceId, execution.pendingApprovalId!);
+    await executionService.execute(workspaceId, execution.id);
+
+    const analytics = await adminService.getPlatformAnalytics();
+
+    assert.ok(analytics.approvalsCreated >= 1);
+    assert.ok(analytics.approvalsCompleted >= 1);
+    assert.ok(analytics.executionsCompleted >= 1);
   });
 });

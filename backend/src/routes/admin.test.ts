@@ -647,3 +647,61 @@ test('PATCH /api/admin/users/:id rejects a non-admin caller with 403', async () 
     }
   });
 });
+
+test('GET /api/admin/analytics is not mounted at all when no admin is configured', async () => {
+  await withTestServer(undefined, async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/analytics`, { headers: authHeader(userId) });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/analytics rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/analytics`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/analytics returns platform totals for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'x',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/analytics`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { analytics: { totalUsers: number; totalFeedback: number; generatedAt: string } };
+      // An absolute lower bound, not a before/after delta: other test files run concurrently against the
+      // same real database via their own Pools (not a rolled-back transaction) and both create *and delete*
+      // rows, so a "before" snapshot isn't a stable baseline to diff against — it can end up higher than
+      // "after" purely from unrelated concurrent cleanup. The one row this test itself just created can't be
+      // touched by anything else (nothing else knows its randomly-generated id), so its presence is safe to
+      // assert directly.
+      assert.ok(body.analytics.totalFeedback >= 1);
+      assert.ok(body.analytics.totalUsers >= 1);
+      assert.ok(body.analytics.generatedAt);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});

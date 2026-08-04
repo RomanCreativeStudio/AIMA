@@ -176,3 +176,24 @@ test('updateStatus rejects an unknown feedbackId with FeedbackNotFoundError', as
     );
   });
 });
+
+test('countByStatus tallies every submission across every workspace by its status', async () => {
+  await withTestTransaction(async (client) => {
+    const service = new FeedbackService(client);
+    const a = await seedWorkspace(client, 'rcs');
+    const b = await seedWorkspace(client, 'mfs');
+
+    const f1 = await service.createFeedback({ workspaceId: a.workspaceId, userId: a.userId, message: 'one' });
+    await service.createFeedback({ workspaceId: b.workspaceId, userId: b.userId, message: 'two' });
+    const f3 = await service.createFeedback({ workspaceId: a.workspaceId, userId: a.userId, message: 'three' });
+    await service.updateStatus(f1.id, 'reviewed');
+    await service.updateStatus(f3.id, 'reviewed');
+    await service.updateStatus(f3.id, 'resolved');
+
+    const counts = await service.countByStatus();
+
+    assert.equal(counts.new, 1);
+    assert.equal(counts.reviewed, 1);
+    assert.equal(counts.resolved, 1);
+  });
+});

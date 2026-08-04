@@ -555,6 +555,10 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         ).user
     }
 
+    public func fetchAdminAnalytics() async throws -> AdminAnalytics {
+        try await send("GET", "/api/admin/analytics", envelope: AdminAnalyticsEnvelope.self).analytics
+    }
+
     // MARK: - Core request plumbing
 
     private func send<Response: Decodable>(
@@ -687,3 +691,4 @@ private struct AdminFeedbackEnvelope: Decodable { let feedback: [AdminFeedbackEn
 private struct AdminFeedbackEntryEnvelope: Decodable { let feedback: AdminFeedbackEntry }
 private struct AdminUsersEnvelope: Decodable { let users: [AdminUserSummary] }
 private struct AdminUserEnvelope: Decodable { let user: AdminUserSummary }
+private struct AdminAnalyticsEnvelope: Decodable { let analytics: AdminAnalytics }

@@ -66,3 +66,33 @@ export interface AdminFeedbackEntry extends Feedback {
   userEmail: string;
   workspaceName: string;
 }
+
+/**
+ * Founder Analytics Dashboard sprint: platform-wide totals, composed entirely from already-existing
+ * services (`UserService`, `WorkspaceService`, `SessionService`, `UsageMetricsService`,
+ * `WorkspaceInsightsService`, `ExecutionService`, `FeedbackService`) — no new aggregate storage. Distinct
+ * from `AdminUsageSummary` (one account's usage) and `AdminBetaUserSummary` (one beta tester's row): this is
+ * the sum across every account/workspace on the platform, not any single one.
+ */
+export interface AdminAnalytics {
+  totalUsers: number;
+  betaUsers: number;
+  /** An account counts as active if its most recent session's `lastSeenAt` falls within the window — the same signal `AdminBetaUserSummary.lastActiveAt` already surfaces per-account. */
+  activeUsers24h: number;
+  activeUsers7d: number;
+  totalWorkspaces: number;
+  totalConversations: number;
+  totalMessages: number;
+  totalMemories: number;
+  totalFeedback: number;
+  pendingFeedback: number;
+  reviewedFeedback: number;
+  resolvedFeedback: number;
+  /** `WorkspaceInsights.approvalMetrics.total`, summed across every workspace. */
+  approvalsCreated: number;
+  /** Approvals no longer `pending` (approved, rejected, or expired), summed across every workspace. */
+  approvalsCompleted: number;
+  /** Executions with status `succeeded`, summed across every workspace. */
+  executionsCompleted: number;
+  generatedAt: string;
+}

@@ -6,9 +6,11 @@ import type { UsageMetricsService } from '../insights/usageMetricsService';
 import type { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
 import type { UserService } from '../users/userService';
 import type { UserProfile } from '../users/types';
+import { WorkspaceNotFoundError } from '../types/errors';
 import type { Workspace } from '../workspaces/types';
 import type { WorkspaceService } from '../workspaces/workspaceService';
 import type {
+  AdminAnalytics,
   AdminBetaUserSummary,
   AdminFeedbackEntry,
   AdminUsageSummary,
@@ -23,6 +25,26 @@ const ZERO_USAGE: AdminUsageSummary = {
   integrationsConnected: 0,
   approvalsUsed: 0,
   executionsUsed: 0,
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface PlatformActivity {
+  conversationsCreated: number;
+  messagesSent: number;
+  memoriesCreated: number;
+  approvalsCreated: number;
+  approvalsCompleted: number;
+  executionsCompleted: number;
+}
+
+const ZERO_ACTIVITY: PlatformActivity = {
+  conversationsCreated: 0,
+  messagesSent: 0,
+  memoriesCreated: 0,
+  approvalsCreated: 0,
+  approvalsCompleted: 0,
+  executionsCompleted: 0,
 };
 
 /**
@@ -99,6 +121,101 @@ export class AdminService {
       this.workspaceService.getWorkspace(updated.workspaceId),
     ]);
     return { ...updated, userEmail: user.email, workspaceName: workspace.name };
+  }
+
+  /**
+   * Founder Analytics Dashboard sprint: platform-wide totals — every account, every workspace, summed.
+   * Composed entirely from already-existing services, reusing the same per-workspace reads
+   * `aggregateUsage` already makes (`UsageMetricsService.getUsageMetrics`, `WorkspaceInsightsService.getInsights`,
+   * `ExecutionService.listHistory`), just projected into a different shape (totals + approval/execution
+   * breakdowns `aggregateUsage` doesn't need for the per-account dashboard).
+   */
+  async getPlatformAnalytics(): Promise<AdminAnalytics> {
+    const users = await this.userService.listUsers();
+    const betaUsers = users.filter((user) => user.preferences.betaTester === true).length;
+
+    const perUser = await Promise.all(
+      users.map(async (user) => {
+        const [workspaces, sessions] = await Promise.all([
+          this.workspaceService.listWorkspaces(user.id),
+          this.sessionService.listSessions(user.id),
+        ]);
+        // listSessions orders newest last_seen_at first (SessionService's own doc comment).
+        return { workspaces, lastActiveAt: sessions[0]?.lastSeenAt ?? null };
+      }),
+    );
+
+    const now = Date.now();
+    const activeSince = (windowMs: number) =>
+      perUser.filter((u) => u.lastActiveAt !== null && now - new Date(u.lastActiveAt).getTime() <= windowMs).length;
+
+    const allWorkspaces = perUser.flatMap((u) => u.workspaces);
+    const [activity, feedbackCounts] = await Promise.all([
+      this.aggregatePlatformActivity(allWorkspaces),
+      this.feedbackService.countByStatus(),
+    ]);
+
+    return {
+      totalUsers: users.length,
+      betaUsers,
+      activeUsers24h: activeSince(DAY_MS),
+      activeUsers7d: activeSince(7 * DAY_MS),
+      totalWorkspaces: allWorkspaces.length,
+      totalConversations: activity.conversationsCreated,
+      totalMessages: activity.messagesSent,
+      totalMemories: activity.memoriesCreated,
+      totalFeedback: feedbackCounts.new + feedbackCounts.reviewed + feedbackCounts.resolved,
+      pendingFeedback: feedbackCounts.new,
+      reviewedFeedback: feedbackCounts.reviewed,
+      resolvedFeedback: feedbackCounts.resolved,
+      approvalsCreated: activity.approvalsCreated,
+      approvalsCompleted: activity.approvalsCompleted,
+      executionsCompleted: activity.executionsCompleted,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
+  private async aggregatePlatformActivity(workspaces: readonly Workspace[]): Promise<PlatformActivity> {
+    if (workspaces.length === 0) return ZERO_ACTIVITY;
+
+    const perWorkspace = await Promise.all(
+      workspaces.map(async (workspace) => {
+        try {
+          const [usage, insights, executions] = await Promise.all([
+            this.usageMetricsService.getUsageMetrics(workspace.id),
+            this.workspaceInsightsService.getInsights(workspace.id),
+            this.executionService.listHistory(workspace.id),
+          ]);
+          return {
+            conversationsCreated: usage.conversationsCreated,
+            messagesSent: usage.messagesSent,
+            memoriesCreated: usage.memoriesCreated,
+            approvalsCreated: insights.approvalMetrics.total,
+            approvalsCompleted: insights.approvalMetrics.total - insights.approvalMetrics.pending,
+            executionsCompleted: executions.filter((execution) => execution.status === 'succeeded').length,
+          };
+        } catch (error) {
+          // A platform-wide scan reads a snapshot of workspace ids, then queries each individually — a
+          // workspace deleted in between (a real possibility, not just a test-concurrency artifact) makes
+          // this specific lookup 404 instead of the whole analytics response 500ing. Any other error still
+          // propagates; only "this workspace is already gone" is treated as "contributes nothing."
+          if (error instanceof WorkspaceNotFoundError) return ZERO_ACTIVITY;
+          throw error;
+        }
+      }),
+    );
+
+    return perWorkspace.reduce(
+      (total, current) => ({
+        conversationsCreated: total.conversationsCreated + current.conversationsCreated,
+        messagesSent: total.messagesSent + current.messagesSent,
+        memoriesCreated: total.memoriesCreated + current.memoriesCreated,
+        approvalsCreated: total.approvalsCreated + current.approvalsCreated,
+        approvalsCompleted: total.approvalsCompleted + current.approvalsCompleted,
+        executionsCompleted: total.executionsCompleted + current.executionsCompleted,
+      }),
+      ZERO_ACTIVITY,
+    );
   }
 
   private async summarizeUser(user: UserProfile): Promise<AdminBetaUserSummary> {

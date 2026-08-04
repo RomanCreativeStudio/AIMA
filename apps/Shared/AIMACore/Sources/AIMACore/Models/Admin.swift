@@ -149,3 +149,61 @@ public struct AdminFeedbackEntry: Codable, Identifiable, Equatable, Sendable {
         self.workspaceName = workspaceName
     }
 }
+
+/// Mirrors `backend/src/admin/types.ts#AdminAnalytics` (Founder Analytics Dashboard sprint) — platform-wide
+/// totals composed entirely from already-existing backend aggregation (`UsageMetricsService`,
+/// `WorkspaceInsightsService`, `ExecutionService`, `FeedbackService`), not any new client-side computation.
+public struct AdminAnalytics: Codable, Equatable, Sendable {
+    public let totalUsers: Int
+    public let betaUsers: Int
+    public let activeUsers24h: Int
+    public let activeUsers7d: Int
+    public let totalWorkspaces: Int
+    public let totalConversations: Int
+    public let totalMessages: Int
+    public let totalMemories: Int
+    public let totalFeedback: Int
+    public let pendingFeedback: Int
+    public let reviewedFeedback: Int
+    public let resolvedFeedback: Int
+    public let approvalsCreated: Int
+    public let approvalsCompleted: Int
+    public let executionsCompleted: Int
+    public let generatedAt: String
+
+    public init(
+        totalUsers: Int,
+        betaUsers: Int,
+        activeUsers24h: Int,
+        activeUsers7d: Int,
+        totalWorkspaces: Int,
+        totalConversations: Int,
+        totalMessages: Int,
+        totalMemories: Int,
+        totalFeedback: Int,
+        pendingFeedback: Int,
+        reviewedFeedback: Int,
+        resolvedFeedback: Int,
+        approvalsCreated: Int,
+        approvalsCompleted: Int,
+        executionsCompleted: Int,
+        generatedAt: String
+    ) {
+        self.totalUsers = totalUsers
+        self.betaUsers = betaUsers
+        self.activeUsers24h = activeUsers24h
+        self.activeUsers7d = activeUsers7d
+        self.totalWorkspaces = totalWorkspaces
+        self.totalConversations = totalConversations
+        self.totalMessages = totalMessages
+        self.totalMemories = totalMemories
+        self.totalFeedback = totalFeedback
+        self.pendingFeedback = pendingFeedback
+        self.reviewedFeedback = reviewedFeedback
+        self.resolvedFeedback = resolvedFeedback
+        self.approvalsCreated = approvalsCreated
+        self.approvalsCompleted = approvalsCompleted
+        self.executionsCompleted = executionsCompleted
+        self.generatedAt = generatedAt
+    }
+}

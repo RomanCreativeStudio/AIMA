@@ -12,6 +12,10 @@ import Observation
 public final class AdminViewModel {
     public private(set) var betaUsers: [AdminBetaUserSummary] = []
     public private(set) var recentFeedback: [AdminFeedbackEntry] = []
+    /// Founder Analytics Dashboard sprint: platform-wide totals for the metric cards at the top of the
+    /// screen. Loaded alongside `betaUsers`/`recentFeedback` in `load()` — nil only before the first load
+    /// completes, or after a failed one.
+    public private(set) var analytics: AdminAnalytics?
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
 
@@ -39,17 +43,21 @@ public final class AdminViewModel {
         do {
             async let usersResult = apiClient.listBetaUsers(query: nil)
             async let feedbackResult = apiClient.listAdminFeedback(limit: nil)
-            let (users, feedback) = try await (usersResult, feedbackResult)
+            async let analyticsResult = apiClient.fetchAdminAnalytics()
+            let (users, feedback, analyticsValue) = try await (usersResult, feedbackResult, analyticsResult)
             betaUsers = users
             recentFeedback = feedback
+            analytics = analyticsValue
         } catch let error as APIError {
             errorMessage = error.userMessage
             betaUsers = []
             recentFeedback = []
+            analytics = nil
         } catch {
             errorMessage = error.localizedDescription
             betaUsers = []
             recentFeedback = []
+            analytics = nil
         }
     }
 

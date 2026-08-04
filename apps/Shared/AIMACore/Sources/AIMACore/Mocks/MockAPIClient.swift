@@ -1128,6 +1128,53 @@ public actor MockAPIClient: APIClient {
         )
     }
 
+    /// Founder Analytics Dashboard sprint: `MockAPIClient` only ever seeds one account, so totals are always
+    /// that account's own numbers — `totalUsers`/`activeUsers24h`/`activeUsers7d` are always 1 (the mock has
+    /// no session concept to backdate, unlike the real backend's `SessionService`-driven activity window).
+    /// Conversations/messages/memories reuse `aggregateUsage()`'s per-workspace sums rather than recomputing
+    /// them a second way.
+    public func fetchAdminAnalytics() async throws -> AdminAnalytics {
+        try await maybeFail()
+        let usage = aggregateUsage()
+        let activity = aggregatePlatformActivity()
+        let allFeedback = feedbackByWorkspace.values.flatMap { $0 }
+        let isBetaTester: Bool = { if case .bool(true) = user.preferences["betaTester"] { return true }; return false }()
+
+        return AdminAnalytics(
+            totalUsers: 1,
+            betaUsers: isBetaTester ? 1 : 0,
+            activeUsers24h: 1,
+            activeUsers7d: 1,
+            totalWorkspaces: workspaces.count,
+            totalConversations: usage.conversationsCreated,
+            totalMessages: usage.messagesSent,
+            totalMemories: usage.memoriesCreated,
+            totalFeedback: allFeedback.count,
+            pendingFeedback: allFeedback.filter { $0.status == .new }.count,
+            reviewedFeedback: allFeedback.filter { $0.status == .reviewed }.count,
+            resolvedFeedback: allFeedback.filter { $0.status == .resolved }.count,
+            approvalsCreated: activity.approvalsCreated,
+            approvalsCompleted: activity.approvalsCompleted,
+            executionsCompleted: activity.executionsCompleted,
+            generatedAt: ISO8601DateFormatter().string(from: Date())
+        )
+    }
+
+    /// Mirrors `AdminService.aggregatePlatformActivity`'s approval/execution breakdown (total vs. completed)
+    /// that `aggregateUsage()` doesn't compute — that one only needs approved-count and raw execution-count.
+    private func aggregatePlatformActivity() -> (approvalsCreated: Int, approvalsCompleted: Int, executionsCompleted: Int) {
+        var approvalsCreated = 0
+        var approvalsCompleted = 0
+        var executionsCompleted = 0
+        for workspace in workspaces {
+            let approvals = approvalsByWorkspace[workspace.id] ?? []
+            approvalsCreated += approvals.count
+            approvalsCompleted += approvals.filter { $0.status != .pending }.count
+            executionsCompleted += (executionsByWorkspace[workspace.id] ?? []).filter { $0.status == .succeeded }.count
+        }
+        return (approvalsCreated, approvalsCompleted, executionsCompleted)
+    }
+
     private func aggregateUsage() -> AdminUsageSummary {
         var total = AdminUsageSummary(conversationsCreated: 0, messagesSent: 0, memoriesCreated: 0, integrationsConnected: 0, approvalsUsed: 0, executionsUsed: 0)
         for workspace in workspaces {

@@ -122,4 +122,7 @@ public protocol APIClient: Sendable {
     /// Toggles `betaTester` and/or records `adminNotes`/`adminTags` — any subset of the three, matching
     /// `UpdateBetaTesterRequest`'s optional fields.
     func updateBetaTesterStatus(userId: String, request: UpdateBetaTesterRequest) async throws -> AdminUserSummary
+
+    /// Founder Analytics Dashboard sprint: platform-wide totals for the founder dashboard's metric cards.
+    func fetchAdminAnalytics() async throws -> AdminAnalytics
 }

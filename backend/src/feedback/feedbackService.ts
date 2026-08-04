@@ -58,6 +58,18 @@ export class FeedbackService {
     return Number(result.rows[0].count);
   }
 
+  /** Founder Analytics Dashboard sprint: platform-wide totals by status — `listAllFeedback` is capped at `limit` and unsuitable for an accurate count. */
+  async countByStatus(): Promise<Record<FeedbackStatus, number>> {
+    const result = await this.db.query<{ status: FeedbackStatus; count: string }>(
+      `SELECT status, COUNT(*)::text AS count FROM feedback GROUP BY status`,
+    );
+    const counts: Record<FeedbackStatus, number> = { new: 0, reviewed: 0, resolved: 0 };
+    for (const row of result.rows) {
+      counts[row.status] = Number(row.count);
+    }
+    return counts;
+  }
+
   /** The admin Feedback Dashboard's "latest submissions" feed — every workspace, newest first, capped at `limit`. */
   async listAllFeedback(limit = 50): Promise<Feedback[]> {
     const result = await this.db.query(

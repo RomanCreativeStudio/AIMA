@@ -25,6 +25,7 @@ struct AdminView: View {
                         .foregroundStyle(.red)
                 }
 
+                founderDashboardSection
                 betaUsersSection
                 manageUsersSection
                 feedbackSection
@@ -42,6 +43,40 @@ struct AdminView: View {
             await viewModel.load()
             await viewModel.loadAllUsers()
         }
+    }
+
+    /// Founder Analytics Dashboard sprint: platform-wide totals as plain metric cards, above every other
+    /// section — no charts yet, just the numbers `AdminService.getPlatformAnalytics` already computes.
+    private var founderDashboardSection: some View {
+        SectionCard(title: "Founder Dashboard") {
+            if let analytics = viewModel.analytics {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 130), spacing: 12)], spacing: 12) {
+                    metricCard("Users", analytics.totalUsers)
+                    metricCard("Beta Users", analytics.betaUsers)
+                    metricCard("24h Active", analytics.activeUsers24h)
+                    metricCard("7d Active", analytics.activeUsers7d)
+                    metricCard("Messages", analytics.totalMessages)
+                    metricCard("Memories", analytics.totalMemories)
+                    metricCard("Feedback", analytics.totalFeedback)
+                    metricCard("Approvals", analytics.approvalsCreated)
+                    metricCard("Executions", analytics.executionsCompleted)
+                }
+            } else if !viewModel.isLoading {
+                Text("No analytics available yet.").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// Mirrors `SectionCard`'s own background/corner styling at a smaller scale — this screen's one design
+    /// system, reused rather than a second one invented for metric cards.
+    private func metricCard(_ label: String, _ value: Int) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("\(value)").font(.title2).fontWeight(.bold)
+            Text(label).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var betaUsersSection: some View {
