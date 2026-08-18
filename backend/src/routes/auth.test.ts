@@ -1,0 +1,986 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
+import { Pool } from 'pg';
+import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
+import { createApp } from '../app';
+import { MockAuthProvider, mockPasswordFor, mockSubjectIdFor } from '../auth/mockAuthProvider';
+import { SessionService } from '../auth/sessionService';
+import type { AuthProvider } from '../auth/types';
+import { authRateLimitConfigFromEnv, RateLimiter, type AuthRateLimiters } from '../middleware/rateLimit';
+import { authHeader } from '../testUtils/auth';
+import { ActionLogger } from '../actionLog/logger';
+import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
+import { ExecutionRegistry } from '../execution/registry';
+import { ExecutionService } from '../execution/executionService';
+import { GmailSaveDraftExecutor } from '../execution/executors/gmailSaveDraftExecutor';
+import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExecutor';
+import { GitHubCreateIssueExecutor } from '../execution/executors/githubCreateIssueExecutor';
+import { GitHubCreatePullRequestExecutor } from '../execution/executors/githubCreatePullRequestExecutor';
+import { BriefingService } from '../insights/briefingService';
+import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
+import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
+import { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
+import { ApprovalEngine } from '../approval/approvalEngine';
+import { AimaCoreService } from '../core/aimaCoreService';
+import { DraftService } from '../drafts/draftService';
+import { StubCalendarConnector } from '../integrations/connectors/calendarConnector';
+import { StubGitHubConnector } from '../integrations/connectors/githubConnector';
+import { StubGmailConnector } from '../integrations/connectors/gmailConnector';
+import type { IntegrationConnector } from '../integrations/connectors/types';
+import { AesGcmCredentialEncryptor } from '../integrations/encryption';
+import { IntegrationService } from '../integrations/integrationService';
+import { IntegrationRegistry } from '../integrations/registry';
+import { OAuthService } from '../oauth/oauthService';
+import type { IntegrationProvider } from '../integrations/types';
+import { CreateGithubIssueDraftWorkflowHandler } from '../workflows/handlers/createGithubIssueDraftWorkflow';
+import { DailyWorkspaceBriefingWorkflowHandler } from '../workflows/handlers/dailyWorkspaceBriefingWorkflow';
+import { DraftEmailReplyWorkflowHandler } from '../workflows/handlers/draftEmailReplyWorkflow';
+import { SummarizeUnreadEmailWorkflowHandler } from '../workflows/handlers/summarizeUnreadEmailWorkflow';
+import type { WorkflowHandler } from '../workflows/handlers/types';
+import { WorkflowRegistry } from '../workflows/registry';
+import type { WorkflowKey } from '../workflows/types';
+import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
+import { WorkflowService } from '../workflows/workflowService';
+import { ContextManager } from '../core/contextManager';
+import { ConversationService } from '../conversation/conversationService';
+import { VoiceService } from '../voice/voiceService';
+import { IntentEngine } from '../intent/intentEngine';
+import { DocumentService } from '../knowledge/documentService';
+import { MemoryService } from '../memory/memoryService';
+import { PreferenceService } from '../preferences/preferenceService';
+import { CapabilityRegistry } from '../permissions/registry';
+import { PermissionEngine } from '../permissions/engine';
+import { TaskService } from '../tasks/taskService';
+import { HealthService } from '../health/healthService';
+import { InvitationService } from '../invitations/invitationService';
+import { UserService } from '../users/userService';
+import { WorkspaceService } from '../workspaces/workspaceService';
+
+const TEST_DATABASE_URL =
+  process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
+const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
+
+function defaultAuthRateLimiters(): AuthRateLimiters {
+  const config = authRateLimitConfigFromEnv();
+  return {
+    loginEmail: new RateLimiter(config.loginByEmail),
+    loginIp: new RateLimiter(config.loginByIp),
+    refreshIp: new RateLimiter(config.refreshByIp),
+  };
+}
+
+async function withTestServer(
+  fn: (baseUrl: string, pool: Pool) => Promise<void>,
+  authRateLimiters: AuthRateLimiters = defaultAuthRateLimiters(),
+  authProviderOverride?: AuthProvider,
+): Promise<void> {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const registry = new CapabilityRegistry();
+  const permissionEngine = new PermissionEngine(registry);
+  const actionLogger = new ActionLogger(pool);
+  const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
+  const documentService = new DocumentService(pool, new MockEmbeddingProvider());
+  const taskService = new TaskService(pool);
+  const draftService = new DraftService(pool);
+  const integrationRegistry = new IntegrationRegistry();
+  const credentialEncryptor = new AesGcmCredentialEncryptor(TEST_CREDENTIAL_ENCRYPTION_KEY);
+  const gmailConnector = new StubGmailConnector();
+  const githubConnector = new StubGitHubConnector();
+  const connectors: Record<IntegrationProvider, IntegrationConnector> = {
+    gmail: gmailConnector,
+    github: githubConnector,
+    calendar: new StubCalendarConnector(),
+  };
+  const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
+  const oauthService = new OAuthService(pool, {}, integrationService);
+  const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
+  const aiProvider = createAIProvider({ provider: 'mock' });
+  const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const preferenceService = new PreferenceService(pool);
+  const workspaceService = new WorkspaceService(pool);
+  const userService = new UserService(pool);
+  const invitationService = new InvitationService(pool, userService);
+  const authProvider = authProviderOverride ?? new MockAuthProvider();
+  const sessionService = new SessionService(pool, authProvider);
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+  const approvalEngine = new ApprovalEngine(pool, permissionEngine);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
+  const workflowRegistry = new WorkflowRegistry();
+  const workflowHandlers: Record<WorkflowKey, WorkflowHandler> = {
+    draft_email_reply: new DraftEmailReplyWorkflowHandler(
+      workflowRegistry.get('draft_email_reply')!,
+      aiProvider,
+      draftService,
+    ),
+    create_github_issue_draft: new CreateGithubIssueDraftWorkflowHandler(
+      workflowRegistry.get('create_github_issue_draft')!,
+      aiProvider,
+      draftService,
+    ),
+    summarize_unread_email: new SummarizeUnreadEmailWorkflowHandler(
+      workflowRegistry.get('summarize_unread_email')!,
+      aiProvider,
+      integrationService,
+      gmailConnector,
+    ),
+    daily_workspace_briefing: new DailyWorkspaceBriefingWorkflowHandler(
+      workflowRegistry.get('daily_workspace_briefing')!,
+      aiProvider,
+      taskService,
+      approvalEngine,
+      healthService,
+    ),
+  };
+  const workflowService = new WorkflowService(pool, workflowRegistry, workflowHandlers, approvalEngine);
+  const workflowIntentMatcher = new WorkflowIntentMatcher(workflowRegistry);
+  const executionRegistry = new ExecutionRegistry([
+    new GmailSendEmailExecutor(gmailConnector),
+    new GmailSaveDraftExecutor(gmailConnector),
+    new GitHubCreateIssueExecutor(githubConnector),
+    new GitHubCreatePullRequestExecutor(githubConnector),
+  ]);
+  const executionService = new ExecutionService(pool, executionRegistry, integrationService, approvalEngine, permissionEngine);
+  const executionIntentMatcher = new ExecutionIntentMatcher(executionRegistry);
+  const conversationService = new ConversationService({
+    db: pool,
+    aimaCoreService,
+    actionLogger,
+    permissionEngine,
+    workflowIntentMatcher,
+    executionIntentMatcher,
+  });
+  const voiceService = new VoiceService(pool, conversationService, new MockSpeechToTextProvider(), new MockTextToSpeechProvider());
+
+  const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
+  const taskIntelligenceService = new TaskIntelligenceService(taskService);
+  const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
+  const workspaceInsightsService = new WorkspaceInsightsService(
+    workspaceService,
+    actionLogger,
+    workflowService,
+    approvalEngine,
+    taskService,
+  );
+
+  const app = createApp({
+    pool,
+    registry,
+    authProvider,
+    sessionService,
+    authRateLimiters,
+    permissionEngine,
+    actionLogger,
+    integrationService,
+    integrationRegistry,
+    oauthService,
+    workflowService,
+    workflowRegistry,
+    memoryService,
+    documentService,
+    taskService,
+    draftService,
+    preferenceService,
+    workspaceService,
+    userService,
+    invitationService,
+    approvalEngine,
+    healthService,
+    conversationService,
+    briefingService,
+    taskIntelligenceService,
+    conversationIntelligenceService,
+    workspaceInsightsService,
+    executionService,
+    voiceService,
+    aiProvider,
+    corsOrigins: [],
+  });
+
+  const server: Server = app.listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    await fn(baseUrl, pool);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await pool.end();
+  }
+}
+
+/** Seeds a `users` row whose id is `mockSubjectIdFor(email)`, so `MockAuthProvider.signInWithPassword` resolves to a real, pre-existing local user (mirrors the FK `auth_sessions.user_id` -> `users.id` requires). */
+async function seedLoginableUser(pool: Pool): Promise<{ email: string; password: string; userId: string }> {
+  const email = `auth-route-test-${randomUUID()}@example.com`;
+  const userId = mockSubjectIdFor(email);
+  await pool.query('INSERT INTO users (id, email) VALUES ($1, $2)', [userId, email]);
+  return { email, password: mockPasswordFor(email), userId };
+}
+
+async function cleanupUser(pool: Pool, userId: string): Promise<void> {
+  await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+}
+
+test('POST /api/auth/login succeeds with valid credentials and creates a session', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, deviceLabel: 'Test Device' }),
+      });
+
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as {
+        tokens: { accessToken: string; refreshToken: string };
+        session: { id: string; userId: string; deviceLabel: string | null };
+      };
+      assert.ok(body.tokens.accessToken);
+      assert.ok(body.tokens.refreshToken);
+      assert.equal(body.session.userId, userId);
+      assert.equal(body.session.deviceLabel, 'Test Device');
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login rejects an unknown email with 401', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'nobody@example.com', password: 'irrelevant' }),
+    });
+    assert.equal(response.status, 401);
+  });
+});
+
+test('POST /api/auth/login rejects a wrong password with 401', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, userId } = await seedLoginableUser(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'definitely-wrong' }),
+      });
+      assert.equal(response.status, 401);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login rejects a malformed email with 400', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'not-an-email', password: 'x' }),
+    });
+    assert.equal(response.status, 400);
+  });
+});
+
+// Auto-provisioning (ADR-0022 v1.1, EPIC-006 Sprint 6.4): a verified
+// Supabase Auth identity with no matching public.users row yet — the real
+// production gap this sprint fixes — gets a profile created transparently
+// on first login instead of a misleading 401. These tests deliberately do
+// NOT call seedLoginableUser(); the whole point is that no pre-existing
+// row is required.
+
+test('POST /api/auth/login auto-provisions a public.users profile on first login', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `auto-provision-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      const before = await pool.query('SELECT 1 FROM users WHERE id = $1', [userId]);
+      assert.equal(before.rows.length, 0, 'precondition: no profile exists yet');
+
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+      const body = (await response.json()) as { session: { userId: string } };
+      assert.equal(body.session.userId, userId);
+
+      const after = await pool.query('SELECT id, email, display_name FROM users WHERE id = $1', [userId]);
+      assert.equal(after.rows.length, 1);
+      assert.equal(after.rows[0].email, email);
+      assert.equal(after.rows[0].display_name, null);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login existing-user login continues exactly as today (no re-provisioning, no email overwrite)', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 1);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login auto-provisioning is idempotent across repeated logins by the same first-time user', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `auto-provision-repeat-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      for (let i = 0; i < 3; i++) {
+        const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        assert.equal(response.status, 201);
+      }
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 1);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login auto-provisioning is race-safe under concurrent first logins for the same new user', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `auto-provision-race-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+      const responses = await Promise.all([attempt(), attempt(), attempt()]);
+      for (const response of responses) {
+        assert.equal(response.status, 201);
+      }
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 1, 'exactly one profile row must exist despite the concurrent race');
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+// Invitation Acceptance & Lifecycle sprint: a matching pending invitation is consumed exactly when a
+// first-time signup happens (isNewProfile), never on a returning user's login.
+
+async function cleanupInvitation(pool: Pool, invitationId: string): Promise<void> {
+  await pool.query('DELETE FROM invitations WHERE id = $1', [invitationId]);
+}
+
+test('POST /api/auth/login signup consumes a matching pending invitation and promotes the new profile to betaTester', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `invitee-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    const inviter = await seedLoginableUser(pool);
+    const invitationService = new InvitationService(pool, new UserService(pool));
+    const invitation = await invitationService.createInvitation({ email, invitedBy: inviter.userId });
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      const invitationRow = await pool.query('SELECT status FROM invitations WHERE id = $1', [invitation.id]);
+      assert.equal(invitationRow.rows[0].status, 'accepted');
+
+      const userRow = await pool.query<{ preferences: { betaTester?: boolean } }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.equal(userRow.rows[0].preferences.betaTester, true);
+    } finally {
+      await cleanupUser(pool, userId);
+      await cleanupUser(pool, inviter.userId);
+    }
+  });
+});
+
+test('POST /api/auth/login signup with no matching invitation is unaffected', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `no-invitation-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      const userRow = await pool.query<{ preferences: Record<string, unknown> }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.deepEqual(userRow.rows[0].preferences, {});
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/login existing user with a later pending invitation for their email is unaffected on login', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    const inviter = await seedLoginableUser(pool);
+    const invitationService = new InvitationService(pool, new UserService(pool));
+    const invitation = await invitationService.createInvitation({ email, invitedBy: inviter.userId });
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(response.status, 201);
+
+      // isNewProfile is false for a returning user's login — the invitation must stay untouched and the
+      // account must not be silently promoted just because someone re-invited an already-registered address.
+      const invitationRow = await pool.query('SELECT status FROM invitations WHERE id = $1', [invitation.id]);
+      assert.equal(invitationRow.rows[0].status, 'pending');
+
+      const userRow = await pool.query<{ preferences: Record<string, unknown> }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.equal(userRow.rows[0].preferences.betaTester, undefined);
+    } finally {
+      await cleanupUser(pool, userId);
+      await cleanupUser(pool, inviter.userId);
+      await cleanupInvitation(pool, invitation.id);
+    }
+  });
+});
+
+test('POST /api/auth/login concurrent first-time signups against the same invited email accept the invitation exactly once', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `invitee-race-${randomUUID()}@example.com`;
+    const password = mockPasswordFor(email);
+    const userId = mockSubjectIdFor(email);
+    const inviter = await seedLoginableUser(pool);
+    const invitationService = new InvitationService(pool, new UserService(pool));
+    const invitation = await invitationService.createInvitation({ email, invitedBy: inviter.userId });
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+      const responses = await Promise.all([attempt(), attempt(), attempt()]);
+      for (const response of responses) {
+        assert.equal(response.status, 201);
+      }
+
+      const invitationRow = await pool.query('SELECT status FROM invitations WHERE id = $1', [invitation.id]);
+      assert.equal(invitationRow.rows[0].status, 'accepted');
+
+      const userRow = await pool.query<{ preferences: { betaTester?: boolean } }>(
+        'SELECT preferences FROM users WHERE id = $1',
+        [userId],
+      );
+      assert.equal(userRow.rows[0].preferences.betaTester, true);
+    } finally {
+      await cleanupUser(pool, userId);
+      await cleanupUser(pool, inviter.userId);
+    }
+  });
+});
+
+test('POST /api/auth/login rejects with 401 when the freshly issued token fails verification (invalid JWT)', async () => {
+  const mock = new MockAuthProvider();
+  const signsButNeverVerifies: AuthProvider = {
+    signInWithPassword: (email, password) => mock.signInWithPassword(email, password),
+    verifyAccessToken: async () => null,
+    refreshSession: (refreshToken) => mock.refreshSession(refreshToken),
+    revokeSession: () => mock.revokeSession(),
+  };
+
+  await withTestServer(
+    async (baseUrl, pool) => {
+      const { email, password, userId } = await seedLoginableUser(pool);
+      try {
+        const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        assert.equal(response.status, 401);
+
+        // Confirms this 401 is genuinely the verification failure, not a
+        // side effect that also auto-provisioned/duplicated a profile.
+        const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+        assert.equal(rows.rows[0].count, 1);
+      } finally {
+        await cleanupUser(pool, userId);
+      }
+    },
+    undefined,
+    signsButNeverVerifies,
+  );
+});
+
+test('POST /api/auth/login still rejects invalid credentials with 401 and does not create a profile', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const email = `invalid-credentials-${randomUUID()}@example.com`;
+    const userId = mockSubjectIdFor(email);
+    try {
+      const response = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'definitely-wrong' }),
+      });
+      assert.equal(response.status, 401);
+
+      const rows = await pool.query('SELECT count(*)::int AS count FROM users WHERE id = $1', [userId]);
+      assert.equal(rows.rows[0].count, 0, 'a rejected login must never provision a profile');
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/refresh returns a rotated token pair for a valid refresh token', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const { tokens } = (await loginResponse.json()) as { tokens: { refreshToken: string } };
+
+      const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+
+      assert.equal(refreshResponse.status, 200);
+      const refreshed = (await refreshResponse.json()) as { tokens: { refreshToken: string; accessToken: string } };
+      assert.notEqual(refreshed.tokens.refreshToken, tokens.refreshToken);
+      assert.ok(refreshed.tokens.accessToken);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/refresh detects reuse of an already-rotated refresh token', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const { tokens } = (await loginResponse.json()) as { tokens: { refreshToken: string } };
+
+      await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+
+      const reuseResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+
+      assert.equal(reuseResponse.status, 401);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/refresh rejects an unrecognized refresh token with 401', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken: 'garbage' }),
+    });
+    assert.equal(response.status, 401);
+  });
+});
+
+test('POST /api/auth/logout revokes the session so its refresh token can no longer be used', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const { tokens } = (await loginResponse.json()) as { tokens: { accessToken: string; refreshToken: string } };
+
+      const logoutResponse = await fetch(`${baseUrl}/api/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokens.accessToken}` },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+      assert.equal(logoutResponse.status, 204);
+
+      const refreshAfterLogout = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+      assert.equal(refreshAfterLogout.status, 401);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('POST /api/auth/logout does not revoke other sessions unless allSessions is explicitly requested', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const loginA = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, deviceLabel: 'Device A' }),
+      });
+      const { tokens: tokensA } = (await loginA.json()) as { tokens: { accessToken: string; refreshToken: string } };
+
+      const loginB = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, deviceLabel: 'Device B' }),
+      });
+      const { tokens: tokensB } = (await loginB.json()) as { tokens: { refreshToken: string } };
+
+      const logoutResponse = await fetch(`${baseUrl}/api/auth/logout`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tokensA.accessToken}` },
+        body: JSON.stringify({ refreshToken: tokensA.refreshToken }),
+      });
+      assert.equal(logoutResponse.status, 204);
+
+      const refreshB = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokensB.refreshToken }),
+      });
+      assert.equal(refreshB.status, 200);
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  });
+});
+
+test('GET /api/auth/sessions lists only the authenticated caller\'s sessions', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedLoginableUser(pool);
+    const b = await seedLoginableUser(pool);
+    try {
+      await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: a.email, password: a.password }),
+      });
+      await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: b.email, password: b.password }),
+      });
+
+      const response = await fetch(`${baseUrl}/api/auth/sessions`, { headers: authHeader(a.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { sessions: Array<{ userId: string }> };
+      assert.equal(body.sessions.length, 1);
+      assert.equal(body.sessions[0].userId, a.userId);
+    } finally {
+      await cleanupUser(pool, a.userId);
+      await cleanupUser(pool, b.userId);
+    }
+  });
+});
+
+test('GET /api/auth/sessions returns 401 with no Authorization header', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/sessions`);
+    assert.equal(response.status, 401);
+  });
+});
+
+test('DELETE /api/auth/sessions/:sessionId returns 404 for a session owned by a different user', async () => {
+  await withTestServer(async (baseUrl, pool) => {
+    const owner = await seedLoginableUser(pool);
+    const intruder = await seedLoginableUser(pool);
+    try {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: owner.email, password: owner.password }),
+      });
+      const { session } = (await loginResponse.json()) as { session: { id: string } };
+
+      const response = await fetch(`${baseUrl}/api/auth/sessions/${session.id}`, {
+        method: 'DELETE',
+        headers: authHeader(intruder.userId),
+      });
+      assert.equal(response.status, 404);
+
+      const ownerResponse = await fetch(`${baseUrl}/api/auth/sessions/${session.id}`, {
+        method: 'DELETE',
+        headers: authHeader(owner.userId),
+      });
+      assert.equal(ownerResponse.status, 204);
+    } finally {
+      await cleanupUser(pool, owner.userId);
+      await cleanupUser(pool, intruder.userId);
+    }
+  });
+});
+
+test('DELETE /api/auth/sessions/:sessionId returns 400 for a non-UUID sessionId', async () => {
+  await withTestServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/auth/sessions/not-a-uuid`, {
+      method: 'DELETE',
+      headers: authHeader('00000000-0000-0000-0000-000000000001'),
+    });
+    assert.equal(response.status, 400);
+  });
+});
+
+// Rate limiting (EPIC-004 Sprint 4.7, ADR-0023, REQ-001 criterion 5) —
+// small, test-local limiter configs so these run instantly rather than
+// waiting out a real 15-minute window. Every test above this point uses
+// `defaultAuthRateLimiters()` (production-shaped, generous thresholds),
+// so their continued passing is itself the "no regression to existing
+// auth flows" coverage this sprint requires.
+
+function testRateLimiters(overrides: Partial<AuthRateLimiters> = {}): AuthRateLimiters {
+  return {
+    loginEmail: overrides.loginEmail ?? new RateLimiter({ windowMs: 60_000, max: 100 }),
+    loginIp: overrides.loginIp ?? new RateLimiter({ windowMs: 60_000, max: 100 }),
+    refreshIp: overrides.refreshIp ?? new RateLimiter({ windowMs: 60_000, max: 100 }),
+  };
+}
+
+test('POST /api/auth/login succeeds for every request under the per-email limit', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 5 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      for (let i = 0; i < 3; i++) {
+        const response = await fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+        assert.equal(response.status, 201);
+      }
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/login returns 429 once the per-email limit is exceeded, blocking even a correct password', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: 'wrong-password' }),
+        });
+
+      assert.equal((await attempt()).status, 401);
+      assert.equal((await attempt()).status, 401);
+
+      // Third attempt is over budget — rejected with 429 before credentials
+      // are even checked, even though this one uses the correct password.
+      const third = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      assert.equal(third.status, 429);
+      assert.ok(third.headers.get('retry-after'));
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/login rate limiting isolates different accounts from each other', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 1 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const a = await seedLoginableUser(pool);
+    const b = await seedLoginableUser(pool);
+    try {
+      // Exhaust A's budget with one failed attempt.
+      await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: a.email, password: 'wrong-password' }),
+      });
+      const aBlocked = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: a.email, password: a.password }),
+      });
+      assert.equal(aBlocked.status, 429);
+
+      // B's bucket is untouched by A's exhausted one.
+      const bResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: b.email, password: b.password }),
+      });
+      assert.equal(bResponse.status, 201);
+    } finally {
+      await cleanupUser(pool, a.userId);
+      await cleanupUser(pool, b.userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/login resets the per-email counter on a successful login', async () => {
+  const limiters = testRateLimiters({ loginEmail: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const wrongAttempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password: 'wrong-password' }),
+        });
+      const rightAttempt = () =>
+        fetch(`${baseUrl}/api/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        });
+
+      assert.equal((await wrongAttempt()).status, 401); // 1 of 2
+      assert.equal((await rightAttempt()).status, 201); // 2 of 2, then reset to 0 on success
+
+      // If the counter had not been reset, this would already be over
+      // budget (a 3rd attempt against a max of 2). It isn't — proving the
+      // successful login cleared the bucket.
+      assert.equal((await wrongAttempt()).status, 401); // 1 of 2, fresh
+      assert.equal((await wrongAttempt()).status, 401); // 2 of 2, fresh
+      assert.equal((await wrongAttempt()).status, 429); // 3rd since reset
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/refresh succeeds for every request under the per-IP limit', async () => {
+  const limiters = testRateLimiters({ refreshIp: new RateLimiter({ windowMs: 60_000, max: 5 }) });
+  await withTestServer(async (baseUrl) => {
+    for (let i = 0; i < 3; i++) {
+      const response = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: 'garbage' }),
+      });
+      assert.equal(response.status, 401);
+    }
+  }, limiters);
+});
+
+test('POST /api/auth/refresh returns 429 once the per-IP limit is exceeded', async () => {
+  const limiters = testRateLimiters({ refreshIp: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl) => {
+    const attempt = () =>
+      fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: 'garbage' }),
+      });
+
+    assert.equal((await attempt()).status, 401);
+    assert.equal((await attempt()).status, 401);
+
+    const third = await attempt();
+    assert.equal(third.status, 429);
+    assert.ok(third.headers.get('retry-after'));
+  }, limiters);
+});
+
+test('POST /api/auth/refresh resets the per-IP counter on a successful refresh', async () => {
+  const limiters = testRateLimiters({ refreshIp: new RateLimiter({ windowMs: 60_000, max: 2 }) });
+  await withTestServer(async (baseUrl, pool) => {
+    const { email, password, userId } = await seedLoginableUser(pool);
+    try {
+      const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const { tokens } = (await loginResponse.json()) as { tokens: { refreshToken: string } };
+
+      // Successful refresh: 1 of 2, then reset to 0 on success.
+      const refreshResponse = await fetch(`${baseUrl}/api/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+      });
+      assert.equal(refreshResponse.status, 200);
+
+      const garbageAttempt = () =>
+        fetch(`${baseUrl}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: 'garbage' }),
+        });
+
+      // If the counter had not been reset, this would already be over
+      // budget. It isn't — proving the successful refresh cleared the
+      // bucket.
+      assert.equal((await garbageAttempt()).status, 401); // 1 of 2, fresh
+      assert.equal((await garbageAttempt()).status, 401); // 2 of 2, fresh
+      assert.equal((await garbageAttempt()).status, 429); // 3rd since reset
+    } finally {
+      await cleanupUser(pool, userId);
+    }
+  }, limiters);
+});

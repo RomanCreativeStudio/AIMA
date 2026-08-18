@@ -1,0 +1,942 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
+import type { Server } from 'node:http';
+import { Pool } from 'pg';
+import { createAIProvider, MockEmbeddingProvider, MockSpeechToTextProvider, MockTextToSpeechProvider, RuleBasedIntentClassifier } from '@aima/ai-engine';
+import { createApp } from '../app';
+import { MockAuthProvider } from '../auth/mockAuthProvider';
+import { authHeader } from '../testUtils/auth';
+import { AdminService } from '../admin/adminService';
+import { ActionLogger } from '../actionLog/logger';
+import { ExecutionIntentMatcher } from '../execution/executionIntentMatcher';
+import { ExecutionRegistry } from '../execution/registry';
+import { ExecutionService } from '../execution/executionService';
+import { GmailSaveDraftExecutor } from '../execution/executors/gmailSaveDraftExecutor';
+import { GmailSendEmailExecutor } from '../execution/executors/gmailSendEmailExecutor';
+import { GitHubCreateIssueExecutor } from '../execution/executors/githubCreateIssueExecutor';
+import { GitHubCreatePullRequestExecutor } from '../execution/executors/githubCreatePullRequestExecutor';
+import { FeedbackService } from '../feedback/feedbackService';
+import { InvitationService } from '../invitations/invitationService';
+import type { NotificationService } from '../notifications/types';
+import type { Invitation } from '../invitations/types';
+import { BriefingService } from '../insights/briefingService';
+import { ConversationIntelligenceService } from '../insights/conversationIntelligenceService';
+import { TaskIntelligenceService } from '../insights/taskIntelligenceService';
+import { UsageMetricsService } from '../insights/usageMetricsService';
+import { WorkspaceInsightsService } from '../insights/workspaceInsightsService';
+import { ApprovalEngine } from '../approval/approvalEngine';
+import { SessionService } from '../auth/sessionService';
+import { AimaCoreService } from '../core/aimaCoreService';
+import { DraftService } from '../drafts/draftService';
+import { StubCalendarConnector } from '../integrations/connectors/calendarConnector';
+import { StubGitHubConnector } from '../integrations/connectors/githubConnector';
+import { StubGmailConnector } from '../integrations/connectors/gmailConnector';
+import type { IntegrationConnector } from '../integrations/connectors/types';
+import { AesGcmCredentialEncryptor } from '../integrations/encryption';
+import { IntegrationService } from '../integrations/integrationService';
+import { IntegrationRegistry } from '../integrations/registry';
+import { OAuthService } from '../oauth/oauthService';
+import type { IntegrationProvider } from '../integrations/types';
+import { CreateGithubIssueDraftWorkflowHandler } from '../workflows/handlers/createGithubIssueDraftWorkflow';
+import { DailyWorkspaceBriefingWorkflowHandler } from '../workflows/handlers/dailyWorkspaceBriefingWorkflow';
+import { DraftEmailReplyWorkflowHandler } from '../workflows/handlers/draftEmailReplyWorkflow';
+import { SummarizeUnreadEmailWorkflowHandler } from '../workflows/handlers/summarizeUnreadEmailWorkflow';
+import type { WorkflowHandler } from '../workflows/handlers/types';
+import { WorkflowRegistry } from '../workflows/registry';
+import type { WorkflowKey } from '../workflows/types';
+import { WorkflowIntentMatcher } from '../workflows/workflowIntentMatcher';
+import { WorkflowService } from '../workflows/workflowService';
+import { ContextManager } from '../core/contextManager';
+import { ConversationService } from '../conversation/conversationService';
+import { VoiceService } from '../voice/voiceService';
+import { IntentEngine } from '../intent/intentEngine';
+import { DocumentService } from '../knowledge/documentService';
+import { MemoryService } from '../memory/memoryService';
+import { PreferenceService } from '../preferences/preferenceService';
+import { CapabilityRegistry } from '../permissions/registry';
+import { PermissionEngine } from '../permissions/engine';
+import { TaskService } from '../tasks/taskService';
+import { HealthService } from '../health/healthService';
+import type { UpdateUserProfileInput } from '../users/types';
+import { UserService } from '../users/userService';
+import { WorkspaceService } from '../workspaces/workspaceService';
+
+const TEST_DATABASE_URL =
+  process.env.TEST_DATABASE_URL ?? 'postgresql://postgres:postgres@127.0.0.1:5432/aima_test';
+const TEST_CREDENTIAL_ENCRYPTION_KEY = 'MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTIzNDU2Nzg5MDE=';
+
+interface SeededWorkspace {
+  userId: string;
+  workspaceId: string;
+}
+
+interface WithTestServerOptions {
+  /** Beta Invitations & Notifications sprint: omit to test the "no invitationService configured" case — `/api/admin/invitations` simply isn't mounted, mirroring how `adminUserIds` gates the rest of `adminRouter`. Defaults to a real `InvitationService` so most tests get the routes for free. */
+  mountInvitations?: boolean;
+  /** Injected into `InvitationService` so tests can observe/control notification behavior without a real webhook endpoint. */
+  notificationService?: NotificationService;
+}
+
+/** `adminUserIds` undefined mounts the app with no admin surface at all (mirrors an environment that never configured one); an array (including empty) mounts `/api/admin/*` gated to exactly those ids. */
+async function withTestServer(
+  adminUserIds: string[] | undefined,
+  fn: (baseUrl: string, pool: Pool) => Promise<void>,
+  options: WithTestServerOptions = {},
+): Promise<void> {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const registry = new CapabilityRegistry();
+  const permissionEngine = new PermissionEngine(registry);
+  const actionLogger = new ActionLogger(pool);
+  const memoryService = new MemoryService(pool, new MockEmbeddingProvider());
+  const documentService = new DocumentService(pool, new MockEmbeddingProvider());
+  const taskService = new TaskService(pool);
+  const draftService = new DraftService(pool);
+  const feedbackService = new FeedbackService(pool);
+  const integrationRegistry = new IntegrationRegistry();
+  const credentialEncryptor = new AesGcmCredentialEncryptor(TEST_CREDENTIAL_ENCRYPTION_KEY);
+  const gmailConnector = new StubGmailConnector();
+  const githubConnector = new StubGitHubConnector();
+  const connectors: Record<IntegrationProvider, IntegrationConnector> = {
+    gmail: gmailConnector,
+    github: githubConnector,
+    calendar: new StubCalendarConnector(),
+  };
+  const integrationService = new IntegrationService(pool, integrationRegistry, connectors, credentialEncryptor);
+  const oauthService = new OAuthService(pool, {}, integrationService);
+  const healthService = new HealthService(pool, createAIProvider({ provider: 'mock' }));
+  const aiProvider = createAIProvider({ provider: 'mock' });
+  const intentEngine = new IntentEngine(new RuleBasedIntentClassifier(), permissionEngine);
+  const preferenceService = new PreferenceService(pool);
+  const workspaceService = new WorkspaceService(pool);
+  const userService = new UserService(pool);
+  const sessionService = new SessionService(pool, new MockAuthProvider());
+  const contextManager = new ContextManager(memoryService, documentService, preferenceService);
+  const approvalEngine = new ApprovalEngine(pool, permissionEngine);
+  const aimaCoreService = new AimaCoreService(contextManager, aiProvider, intentEngine, approvalEngine, workspaceService);
+  const workflowRegistry = new WorkflowRegistry();
+  const workflowHandlers: Record<WorkflowKey, WorkflowHandler> = {
+    draft_email_reply: new DraftEmailReplyWorkflowHandler(
+      workflowRegistry.get('draft_email_reply')!,
+      aiProvider,
+      draftService,
+    ),
+    create_github_issue_draft: new CreateGithubIssueDraftWorkflowHandler(
+      workflowRegistry.get('create_github_issue_draft')!,
+      aiProvider,
+      draftService,
+    ),
+    summarize_unread_email: new SummarizeUnreadEmailWorkflowHandler(
+      workflowRegistry.get('summarize_unread_email')!,
+      aiProvider,
+      integrationService,
+      gmailConnector,
+    ),
+    daily_workspace_briefing: new DailyWorkspaceBriefingWorkflowHandler(
+      workflowRegistry.get('daily_workspace_briefing')!,
+      aiProvider,
+      taskService,
+      approvalEngine,
+      healthService,
+    ),
+  };
+  const workflowService = new WorkflowService(pool, workflowRegistry, workflowHandlers, approvalEngine);
+  const workflowIntentMatcher = new WorkflowIntentMatcher(workflowRegistry);
+  const executionRegistry = new ExecutionRegistry([
+    new GmailSendEmailExecutor(gmailConnector),
+    new GmailSaveDraftExecutor(gmailConnector),
+    new GitHubCreateIssueExecutor(githubConnector),
+    new GitHubCreatePullRequestExecutor(githubConnector),
+  ]);
+  const executionService = new ExecutionService(pool, executionRegistry, integrationService, approvalEngine, permissionEngine);
+  const executionIntentMatcher = new ExecutionIntentMatcher(executionRegistry);
+  const conversationService = new ConversationService({
+    db: pool,
+    aimaCoreService,
+    actionLogger,
+    permissionEngine,
+    workflowIntentMatcher,
+    executionIntentMatcher,
+  });
+  const voiceService = new VoiceService(pool, conversationService, new MockSpeechToTextProvider(), new MockTextToSpeechProvider());
+
+  const briefingService = new BriefingService(workspaceService, taskService, approvalEngine, workflowService, actionLogger);
+  const taskIntelligenceService = new TaskIntelligenceService(taskService);
+  const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
+  const workspaceInsightsService = new WorkspaceInsightsService(
+    workspaceService,
+    actionLogger,
+    workflowService,
+    approvalEngine,
+    taskService,
+  );
+  const usageMetricsService = new UsageMetricsService(workspaceService, conversationService, memoryService, integrationService, sessionService);
+  const adminService = new AdminService(
+    userService,
+    workspaceService,
+    feedbackService,
+    usageMetricsService,
+    workspaceInsightsService,
+    executionService,
+    sessionService,
+  );
+  const invitationService = new InvitationService(pool, userService, options.notificationService);
+
+  const app = createApp({
+    pool,
+    registry,
+    authProvider: new MockAuthProvider(),
+    permissionEngine,
+    actionLogger,
+    integrationService,
+    integrationRegistry,
+    oauthService,
+    workflowService,
+    workflowRegistry,
+    memoryService,
+    documentService,
+    taskService,
+    draftService,
+    feedbackService,
+    preferenceService,
+    workspaceService,
+    userService,
+    approvalEngine,
+    healthService,
+    conversationService,
+    briefingService,
+    taskIntelligenceService,
+    conversationIntelligenceService,
+    workspaceInsightsService,
+    usageMetricsService,
+    ...(adminUserIds ? { adminService, adminUserIds } : {}),
+    ...(adminUserIds && options.mountInvitations !== false ? { invitationService } : {}),
+    executionService,
+    voiceService,
+    aiProvider,
+    corsOrigins: [],
+  });
+
+  const server: Server = app.listen(0);
+  await new Promise<void>((resolve) => server.once('listening', resolve));
+  const { port } = server.address() as AddressInfo;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  try {
+    await fn(baseUrl, pool);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await pool.end();
+  }
+}
+
+async function seedWorkspace(pool: Pool): Promise<SeededWorkspace> {
+  const email = `admin-route-test-${randomUUID()}@example.com`;
+  const userResult = await pool.query<{ id: string }>('INSERT INTO users (email) VALUES ($1) RETURNING id', [
+    email,
+  ]);
+  const userId = userResult.rows[0].id;
+
+  const workspaceResult = await pool.query<{ id: string }>(
+    'INSERT INTO workspaces (user_id, slug, name) VALUES ($1, $2, $3) RETURNING id',
+    [userId, 'rcs', 'rcs'],
+  );
+
+  return { userId, workspaceId: workspaceResult.rows[0].id };
+}
+
+async function markAsBetaTester(pool: Pool, userId: string): Promise<void> {
+  const update: UpdateUserProfileInput = { preferences: { betaTester: true } };
+  await new UserService(pool).updateProfile(userId, update);
+}
+
+async function setDisplayName(pool: Pool, userId: string, displayName: string): Promise<void> {
+  await new UserService(pool).updateProfile(userId, { displayName });
+}
+
+async function cleanupWorkspace(pool: Pool, userId: string): Promise<void> {
+  await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+}
+
+test('GET /api/admin/beta-users is not mounted at all when no admin is configured', async () => {
+  await withTestServer(undefined, async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/beta-users`, { headers: authHeader(userId) });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/beta-users rejects a non-admin authenticated caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/beta-users`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/beta-users rejects a request with no Authorization header with 401', async () => {
+  await withTestServer([], async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/admin/beta-users`);
+    assert.equal(response.status, 401);
+  });
+});
+
+test('GET /api/admin/beta-users and /api/admin/feedback succeed for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const betaSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      await markAsBetaTester(poolForServer, betaSeed.userId);
+      const feedbackService = new FeedbackService(poolForServer);
+      await feedbackService.createFeedback({
+        workspaceId: betaSeed.workspaceId,
+        userId: betaSeed.userId,
+        message: 'from the beta tester',
+      });
+
+      const usersResponse = await fetch(`${baseUrl}/api/admin/beta-users`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(usersResponse.status, 200);
+      const usersBody = (await usersResponse.json()) as { users: Array<{ userId: string; feedbackCount: number }> };
+      const betaSummary = usersBody.users.find((u) => u.userId === betaSeed.userId);
+      assert.ok(betaSummary, 'expected the seeded beta tester in the response');
+      assert.equal(betaSummary?.feedbackCount, 1);
+
+      const feedbackResponse = await fetch(`${baseUrl}/api/admin/feedback`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(feedbackResponse.status, 200);
+      const feedbackBody = (await feedbackResponse.json()) as { feedback: Array<{ workspaceId: string; userEmail: string }> };
+      assert.ok(feedbackBody.feedback.some((f) => f.workspaceId === betaSeed.workspaceId));
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, betaSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id advances the status for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      const feedback = await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'needs review',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback/${feedback.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reviewed' }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { feedback: { status: string; userEmail: string } };
+      assert.equal(body.feedback.status, 'reviewed');
+      assert.ok(body.feedback.userEmail);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects an invalid transition with 409', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      const feedback = await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'x',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback/${feedback.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'resolved' }),
+      });
+
+      assert.equal(response.status, 409);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects an unknown feedback id with 404', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/feedback/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reviewed' }),
+      });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects an invalid status value with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      const feedback = await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'x',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback/${feedback.id}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'archived' }),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/feedback/:id rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/feedback/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'reviewed' }),
+      });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/feedback respects the limit query parameter', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      await feedbackService.createFeedback({ workspaceId: submitter.workspaceId, userId: submitter.userId, message: 'one' });
+      await feedbackService.createFeedback({ workspaceId: submitter.workspaceId, userId: submitter.userId, message: 'two' });
+
+      const response = await fetch(`${baseUrl}/api/admin/feedback?limit=1`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { feedback: unknown[] };
+      assert.equal(body.feedback.length, 1);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('GET /api/admin/beta-users respects the query parameter', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const betaA = await seedWorkspace(pool);
+  const betaB = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      await markAsBetaTester(poolForServer, betaA.userId);
+      await markAsBetaTester(poolForServer, betaB.userId);
+      await setDisplayName(poolForServer, betaA.userId, 'Unique Candidate');
+
+      const response = await fetch(`${baseUrl}/api/admin/beta-users?query=unique`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { users: Array<{ userId: string }> };
+      assert.equal(body.users.length, 1);
+      assert.equal(body.users[0].userId, betaA.userId);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, betaA.userId);
+      await cleanupWorkspace(poolForServer, betaB.userId);
+    }
+  });
+});
+
+test('GET /api/admin/users returns every account for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const regularSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { users: Array<{ userId: string; betaTester: boolean }> };
+      const ids = body.users.map((u) => u.userId);
+      assert.ok(ids.includes(adminSeed.userId));
+      assert.ok(ids.includes(regularSeed.userId));
+      assert.equal(body.users.find((u) => u.userId === regularSeed.userId)?.betaTester, false);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, regularSeed.userId);
+    }
+  });
+});
+
+test('GET /api/admin/users rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id toggles betaTester for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: true }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { user: { betaTester: boolean } };
+      assert.equal(body.user.betaTester, true);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id records adminNotes and adminTags', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminNotes: 'Invited via Discord', adminTags: ['design-partner'] }),
+      });
+
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { user: { adminNotes: string | null; adminTags: string[] } };
+      assert.equal(body.user.adminNotes, 'Invited via Discord');
+      assert.deepEqual(body.user.adminTags, ['design-partner']);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects a non-boolean betaTester with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: 'yes' }),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects an empty body with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const targetSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/${targetSeed.userId}`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, targetSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects an unknown userId with 404', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: true }),
+      });
+
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});
+
+test('PATCH /api/admin/users/:id rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/users/00000000-0000-0000-0000-000000000000`, {
+        method: 'PATCH',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ betaTester: true }),
+      });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/analytics is not mounted at all when no admin is configured', async () => {
+  await withTestServer(undefined, async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/analytics`, { headers: authHeader(userId) });
+      assert.equal(response.status, 404);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/analytics rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/analytics`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/analytics returns platform totals for a properly configured admin', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const submitter = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const feedbackService = new FeedbackService(poolForServer);
+      await feedbackService.createFeedback({
+        workspaceId: submitter.workspaceId,
+        userId: submitter.userId,
+        message: 'x',
+      });
+
+      const response = await fetch(`${baseUrl}/api/admin/analytics`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(response.status, 200);
+      const body = (await response.json()) as { analytics: { totalUsers: number; totalFeedback: number; generatedAt: string } };
+      // An absolute lower bound, not a before/after delta: other test files run concurrently against the
+      // same real database via their own Pools (not a rolled-back transaction) and both create *and delete*
+      // rows, so a "before" snapshot isn't a stable baseline to diff against — it can end up higher than
+      // "after" purely from unrelated concurrent cleanup. The one row this test itself just created can't be
+      // touched by anything else (nothing else knows its randomly-generated id), so its presence is safe to
+      // assert directly.
+      assert.ok(body.analytics.totalFeedback >= 1);
+      assert.ok(body.analytics.totalUsers >= 1);
+      assert.ok(body.analytics.generatedAt);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, submitter.userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations is not mounted at all when no invitationService is configured', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+          method: 'POST',
+          headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'prospect@example.com' }),
+        });
+        assert.equal(response.status, 404);
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { mountInvitations: false },
+  );
+});
+
+test('POST /api/admin/invitations rejects a request with no Authorization header with 401', async () => {
+  await withTestServer([], async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'prospect@example.com' }),
+    });
+    assert.equal(response.status, 401);
+  });
+});
+
+test('POST /api/admin/invitations rejects a non-admin authenticated caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'prospect@example.com' }),
+      });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations rejects a malformed email with 400', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'not-an-email' }),
+      });
+      assert.equal(response.status, 400);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations creates a pending invitation attributed to the admin caller, notifying the configured NotificationService', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  const notified: Invitation[] = [];
+  const notificationService: NotificationService = {
+    async notifyInvitationCreated(invitation) {
+      notified.push(invitation);
+    },
+  };
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+          method: 'POST',
+          headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'prospect@example.com' }),
+        });
+
+        assert.equal(response.status, 201);
+        const body = (await response.json()) as { invitation: Invitation };
+        assert.equal(body.invitation.email, 'prospect@example.com');
+        assert.equal(body.invitation.invitedBy, adminSeed.userId);
+        assert.equal(body.invitation.status, 'pending');
+        assert.equal(notified.length, 1);
+        assert.equal(notified[0].id, body.invitation.id);
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { notificationService },
+  );
+});
+
+test('POST /api/admin/invitations rejects an email already belonging to an active beta tester with 409', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  const betaSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      await markAsBetaTester(poolForServer, betaSeed.userId);
+      const betaUser = await new UserService(poolForServer).getUser(betaSeed.userId);
+
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: betaUser.email }),
+      });
+
+      assert.equal(response.status, 409);
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+      await cleanupWorkspace(poolForServer, betaSeed.userId);
+    }
+  });
+});
+
+test('POST /api/admin/invitations still creates the invitation when the webhook notification fails', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  const failingNotificationService: NotificationService = {
+    async notifyInvitationCreated() {
+      throw new Error('webhook unreachable');
+    },
+  };
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, {
+          method: 'POST',
+          headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'still-created@example.com' }),
+        });
+
+        assert.equal(response.status, 201);
+        const body = (await response.json()) as { invitation: Invitation };
+        assert.equal(body.invitation.email, 'still-created@example.com');
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { notificationService: failingNotificationService },
+  );
+});
+
+test('GET /api/admin/invitations is not mounted at all when no invitationService is configured', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer(
+    [adminSeed.userId],
+    async (baseUrl, poolForServer) => {
+      try {
+        const response = await fetch(`${baseUrl}/api/admin/invitations`, { headers: authHeader(adminSeed.userId) });
+        assert.equal(response.status, 404);
+      } finally {
+        await cleanupWorkspace(poolForServer, adminSeed.userId);
+      }
+    },
+    { mountInvitations: false },
+  );
+});
+
+test('GET /api/admin/invitations rejects a non-admin caller with 403', async () => {
+  await withTestServer([], async (baseUrl, pool) => {
+    const { userId } = await seedWorkspace(pool);
+    try {
+      const response = await fetch(`${baseUrl}/api/admin/invitations`, { headers: authHeader(userId) });
+      assert.equal(response.status, 403);
+    } finally {
+      await cleanupWorkspace(pool, userId);
+    }
+  });
+});
+
+test('GET /api/admin/invitations lists an invitation this test just created', async () => {
+  const pool = new Pool({ connectionString: TEST_DATABASE_URL });
+  const adminSeed = await seedWorkspace(pool);
+  await pool.end();
+
+  await withTestServer([adminSeed.userId], async (baseUrl, poolForServer) => {
+    try {
+      const createResponse = await fetch(`${baseUrl}/api/admin/invitations`, {
+        method: 'POST',
+        headers: { ...authHeader(adminSeed.userId), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'list-me@example.com' }),
+      });
+      assert.equal(createResponse.status, 201);
+      const created = ((await createResponse.json()) as { invitation: Invitation }).invitation;
+
+      const listResponse = await fetch(`${baseUrl}/api/admin/invitations`, { headers: authHeader(adminSeed.userId) });
+      assert.equal(listResponse.status, 200);
+      const body = (await listResponse.json()) as { invitations: Invitation[] };
+      // listInvitations() is platform-wide, not scoped to this test's own rows — other test files' invitations
+      // (and unrelated concurrent activity against the same real, un-transacted database) may also be present,
+      // so only assert that the row this test itself created shows up, never an exact count.
+      assert.ok(body.invitations.some((i) => i.id === created.id));
+    } finally {
+      await cleanupWorkspace(poolForServer, adminSeed.userId);
+    }
+  });
+});

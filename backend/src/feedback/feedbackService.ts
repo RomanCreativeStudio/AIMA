@@ -1,0 +1,141 @@
+import type { Queryable } from '../db/queryable';
+import { WorkspaceNotFoundError } from '../types/errors';
+import { FeedbackNotFoundError, InvalidFeedbackStatusTransitionError } from './errors';
+import type { CreateFeedbackInput, Feedback, FeedbackStatus, FeedbackType } from './types';
+
+/** The only forward steps `updateStatus` allows — mirrors the workflow/voice modules' allowed-transition maps. `resolved` is terminal. */
+const ALLOWED_STATUS_TRANSITIONS: Record<FeedbackStatus, readonly FeedbackStatus[]> = {
+  new: ['reviewed'],
+  reviewed: ['resolved'],
+  resolved: [],
+};
+
+/**
+ * Beta Tester Infrastructure sprint: the minimum storage needed to collect feedback/bug reports/feature
+ * requests from beta testers. Workspace-scoped and isolated the same way TaskService is — every method
+ * requires a workspaceId and every query filters by it — reusing the existing
+ * requireWorkspaceOwnership middleware already wired for `/api/workspaces/:workspaceId/*` rather than a
+ * new authorization mechanism.
+ *
+ * `countFeedbackForUser`/`listAllFeedback` (Internal Operator Dashboard sprint) are the deliberate
+ * exceptions — they read across every workspace by design. Both are only ever called from `AdminService`,
+ * which sits behind `requireAdmin`, never from a workspace-scoped route.
+ */
+export class FeedbackService {
+  constructor(private readonly db: Queryable) {}
+
+  async createFeedback(input: CreateFeedbackInput): Promise<Feedback> {
+    await this.assertWorkspaceExists(input.workspaceId);
+
+    const result = await this.db.query(
+      `INSERT INTO feedback (workspace_id, user_id, type, message)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, workspace_id, user_id, type, status, message, created_at`,
+      [input.workspaceId, input.userId, input.type ?? 'general', input.message],
+    );
+
+    return mapFeedbackRow(result.rows[0]);
+  }
+
+  async listFeedback(workspaceId: string): Promise<Feedback[]> {
+    await this.assertWorkspaceExists(workspaceId);
+
+    const result = await this.db.query(
+      `SELECT id, workspace_id, user_id, type, status, message, created_at
+       FROM feedback WHERE workspace_id = $1 ORDER BY sequence DESC`,
+      [workspaceId],
+    );
+
+    return result.rows.map(mapFeedbackRow);
+  }
+
+  /** Total submissions by this user across every workspace they've ever submitted from — the "feedback count" column on the admin Beta User Overview. */
+  async countFeedbackForUser(userId: string): Promise<number> {
+    const result = await this.db.query<{ count: string }>(
+      `SELECT COUNT(*)::text AS count FROM feedback WHERE user_id = $1`,
+      [userId],
+    );
+    return Number(result.rows[0].count);
+  }
+
+  /** Founder Analytics Dashboard sprint: platform-wide totals by status — `listAllFeedback` is capped at `limit` and unsuitable for an accurate count. */
+  async countByStatus(): Promise<Record<FeedbackStatus, number>> {
+    const result = await this.db.query<{ status: FeedbackStatus; count: string }>(
+      `SELECT status, COUNT(*)::text AS count FROM feedback GROUP BY status`,
+    );
+    const counts: Record<FeedbackStatus, number> = { new: 0, reviewed: 0, resolved: 0 };
+    for (const row of result.rows) {
+      counts[row.status] = Number(row.count);
+    }
+    return counts;
+  }
+
+  /** The admin Feedback Dashboard's "latest submissions" feed — every workspace, newest first, capped at `limit`. */
+  async listAllFeedback(limit = 50): Promise<Feedback[]> {
+    const result = await this.db.query(
+      `SELECT id, workspace_id, user_id, type, status, message, created_at
+       FROM feedback ORDER BY sequence DESC LIMIT $1`,
+      [limit],
+    );
+    return result.rows.map(mapFeedbackRow);
+  }
+
+  /** Feedback Triage Workflow sprint: advances a submission one step along new -> reviewed -> resolved. Rejects any other transition (skipping a step, going backward, or moving off `resolved`) with `InvalidFeedbackStatusTransitionError`. */
+  async updateStatus(feedbackId: string, targetStatus: FeedbackStatus): Promise<Feedback> {
+    const current = await this.getFeedbackById(feedbackId);
+    if (!ALLOWED_STATUS_TRANSITIONS[current.status].includes(targetStatus)) {
+      throw new InvalidFeedbackStatusTransitionError(current.status, targetStatus);
+    }
+
+    const result = await this.db.query(
+      `UPDATE feedback SET status = $2 WHERE id = $1
+       RETURNING id, workspace_id, user_id, type, status, message, created_at`,
+      [feedbackId, targetStatus],
+    );
+    return mapFeedbackRow(result.rows[0]);
+  }
+
+  private async getFeedbackById(feedbackId: string): Promise<Feedback> {
+    const result = await this.db.query(
+      `SELECT id, workspace_id, user_id, type, status, message, created_at FROM feedback WHERE id = $1`,
+      [feedbackId],
+    );
+    if (result.rows.length === 0) {
+      throw new FeedbackNotFoundError(feedbackId);
+    }
+    return mapFeedbackRow(result.rows[0]);
+  }
+
+  private async assertWorkspaceExists(workspaceId: string): Promise<void> {
+    const result = await this.db.query('SELECT 1 FROM workspaces WHERE id = $1', [workspaceId]);
+    if (result.rows.length === 0) {
+      throw new WorkspaceNotFoundError(workspaceId);
+    }
+  }
+}
+
+interface FeedbackRow {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  type: FeedbackType;
+  status: FeedbackStatus;
+  message: string;
+  created_at: Date | string;
+}
+
+function mapFeedbackRow(row: FeedbackRow): Feedback {
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    userId: row.user_id,
+    type: row.type,
+    status: row.status,
+    message: row.message,
+    createdAt: toIso(row.created_at),
+  };
+}
+
+function toIso(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}

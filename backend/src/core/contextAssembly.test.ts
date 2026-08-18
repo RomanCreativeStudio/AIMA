@@ -1,0 +1,267 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildSystemPrompt } from './contextAssembly';
+import { buildEffectiveProfile, getAssistantProfile } from './assistantProfiles';
+import type { RankedDocumentChunkResult } from '../knowledge/types';
+import type { MemoryRecord, RankedMemoryResult } from '../memory/types';
+import type { Preference } from '../preferences/types';
+import type { Task } from '../tasks/types';
+import type { Workspace } from '../workspaces/types';
+
+function preference(overrides: Partial<Preference> = {}): Preference {
+  return {
+    id: 'pref-1',
+    workspaceId: 'ws-1',
+    category: 'writing_style',
+    key: 'tone',
+    value: 'formal',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function workspace(overrides: Partial<Workspace> = {}): Workspace {
+  return {
+    id: 'ws-1',
+    userId: 'user-1',
+    slug: 'rcs',
+    name: 'Roman Creative Studio',
+    type: 'business',
+    instructions: null,
+    assistantBehavior: {},
+    metadata: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function memory(overrides: Partial<RankedMemoryResult> = {}): RankedMemoryResult {
+  return {
+    id: 'mem-1',
+    workspaceId: 'ws-1',
+    scope: 'workspace',
+    content: 'The client prefers email over phone calls.',
+    source: null,
+    conversationId: null,
+    projectKey: null,
+    metadata: {},
+    createdAt: new Date().toISOString(),
+    importanceScore: 0.5,
+    confidenceScore: 1.0,
+    memoryType: 'long_term',
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
+    score: 0.9,
+    ...overrides,
+  };
+}
+
+function task(overrides: Partial<Task> = {}): Task {
+  return {
+    id: 'task-1',
+    workspaceId: 'ws-1',
+    title: 'Ship the release',
+    description: null,
+    status: 'todo',
+    priority: 'high',
+    dueDate: null,
+    source: null,
+    metadata: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
+function decision(overrides: Partial<MemoryRecord> = {}): MemoryRecord {
+  return {
+    id: 'mem-decision-1',
+    workspaceId: 'ws-1',
+    scope: 'workspace',
+    content: "We've decided to ship on Friday.",
+    source: 'auto_extracted',
+    conversationId: null,
+    projectKey: null,
+    metadata: { category: 'decision' },
+    createdAt: new Date().toISOString(),
+    importanceScore: 0.5,
+    confidenceScore: 1,
+    memoryType: 'long_term',
+    lastAccessedAt: null,
+    expiresAt: null,
+    archivedAt: null,
+    ...overrides,
+  };
+}
+
+function documentChunk(overrides: Partial<RankedDocumentChunkResult> = {}): RankedDocumentChunkResult {
+  return {
+    id: 'chunk-1',
+    documentId: 'doc-1',
+    workspaceId: 'ws-1',
+    chunkIndex: 0,
+    section: null,
+    content: 'Run npm install to set up the project.',
+    createdAt: new Date().toISOString(),
+    documentTitle: 'Setup Guide',
+    score: 0.8,
+    ...overrides,
+  };
+}
+
+test('buildSystemPrompt names the correct workspace for each slug', () => {
+  const rcsPrompt = buildSystemPrompt(getAssistantProfile('rcs'), []);
+  const mfsPrompt = buildSystemPrompt(getAssistantProfile('mfs'), []);
+  assert.match(rcsPrompt, /Roman Creative Studio/);
+  assert.match(mfsPrompt, /Mythic Forge Studios/);
+});
+
+test('buildSystemPrompt includes workspace-specific response instructions', () => {
+  const rcsPrompt = buildSystemPrompt(getAssistantProfile('rcs'), []);
+  const mfsPrompt = buildSystemPrompt(getAssistantProfile('mfs'), []);
+  assert.match(rcsPrompt, /needs approval before it is ever sent/);
+  assert.match(mfsPrompt, /narrative and character consistency/);
+});
+
+test('buildSystemPrompt notes when no relevant memory was found', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('personal'), []);
+  assert.match(prompt, /No relevant stored memory was found/);
+});
+
+test('buildSystemPrompt includes memory content and scope, ranked in order', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('mfs'), [
+    memory({ content: 'Kestrel is the protagonist.', scope: 'project' }),
+    memory({ content: 'Season 1 ends on a cliffhanger.', scope: 'workspace' }),
+  ]);
+
+  assert.match(prompt, /1\. \(project\) Kestrel is the protagonist\./);
+  assert.match(prompt, /2\. \(workspace\) Season 1 ends on a cliffhanger\./);
+});
+
+test('buildSystemPrompt truncates an overly long memory snippet', () => {
+  const longContent = 'x'.repeat(1000);
+  const prompt = buildSystemPrompt(getAssistantProfile('development'), [memory({ content: longContent })]);
+
+  assert.ok(!prompt.includes(longContent), 'the full 1000-character memory should not appear verbatim');
+  assert.match(prompt, /x{500}…/);
+});
+
+test('buildSystemPrompt always states AIMA never acts without approval', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('personal'), []);
+  assert.match(prompt, /never send external communication|without explicit user approval/);
+});
+
+test('buildSystemPrompt omits the documentation section when there are no chunks', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [memory()], []);
+  assert.doesNotMatch(prompt, /Relevant documentation/);
+});
+
+test('buildSystemPrompt includes document chunk content with document title and section', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('development'),
+    [],
+    [documentChunk({ documentTitle: 'Onboarding Guide', section: 'Step 1', content: 'Create an account.' })],
+  );
+
+  assert.match(prompt, /Relevant documentation for this workspace/);
+  assert.match(prompt, /\[Onboarding Guide — Step 1\] Create an account\./);
+});
+
+test('buildSystemPrompt truncates an overly long document chunk', () => {
+  const longContent = 'y'.repeat(1000);
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [documentChunk({ content: longContent })]);
+
+  assert.ok(!prompt.includes(longContent));
+  assert.match(prompt, /y{500}…/);
+});
+
+test('buildSystemPrompt omits the preferences section when there are none', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [], []);
+  assert.doesNotMatch(prompt, /Workspace preferences/);
+});
+
+test('buildSystemPrompt includes preferences by category and key/value', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [],
+    [],
+    [preference({ category: 'writing_style', key: 'tone', value: 'formal' })],
+  );
+
+  assert.match(prompt, /Workspace preferences to follow/);
+  assert.match(prompt, /\[writing_style\] tone: formal/);
+});
+
+test('buildSystemPrompt omits the tasks/decisions sections when there are none', () => {
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [], []);
+  assert.doesNotMatch(prompt, /Open tasks for this workspace/);
+  assert.doesNotMatch(prompt, /Recent decisions for this workspace/);
+});
+
+test('buildSystemPrompt includes open tasks with priority and due date', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [],
+    [],
+    [],
+    [task({ title: 'Ship the release', priority: 'high', dueDate: '2026-01-01T00:00:00.000Z' })],
+  );
+
+  assert.match(prompt, /Open tasks for this workspace/);
+  assert.match(prompt, /1\. \[high\] Ship the release \(due 2026-01-01T00:00:00\.000Z\)/);
+});
+
+test('buildSystemPrompt includes recent decisions', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [],
+    [],
+    [],
+    [],
+    [decision({ content: "We've decided to ship on Friday." })],
+  );
+
+  assert.match(prompt, /Recent decisions for this workspace/);
+  assert.match(prompt, /1\. We've decided to ship on Friday\./);
+});
+
+test('buildSystemPrompt truncates an overly long decision snippet', () => {
+  const longContent = 'z'.repeat(1000);
+  const prompt = buildSystemPrompt(getAssistantProfile('rcs'), [], [], [], [], [decision({ content: longContent })]);
+
+  assert.ok(!prompt.includes(longContent));
+  assert.match(prompt, /z{500}…/);
+});
+
+test('buildEffectiveProfile keeps the static base instructions when the workspace has no overrides', () => {
+  const profile = buildEffectiveProfile(workspace());
+  assert.equal(profile.responseInstructions, getAssistantProfile('rcs').responseInstructions);
+});
+
+test('buildEffectiveProfile appends workspace-specific instructions to the static base', () => {
+  const profile = buildEffectiveProfile(workspace({ instructions: 'Always mention the project deadline.' }));
+  assert.match(profile.responseInstructions, /needs approval before it is ever sent/);
+  assert.match(profile.responseInstructions, /Always mention the project deadline\./);
+});
+
+test('buildEffectiveProfile renders assistantBehavior entries into the instructions', () => {
+  const profile = buildEffectiveProfile(workspace({ assistantBehavior: { tone: 'formal', verbosity: 'concise' } }));
+  assert.match(profile.responseInstructions, /tone: formal/);
+  assert.match(profile.responseInstructions, /verbosity: concise/);
+});
+
+test('buildSystemPrompt can render both memory and documentation sections together', () => {
+  const prompt = buildSystemPrompt(
+    getAssistantProfile('rcs'),
+    [memory({ content: 'Client prefers formal tone.' })],
+    [documentChunk({ content: 'Proposal template lives in docs/proposal.md.' })],
+  );
+
+  assert.match(prompt, /Relevant memory for this workspace/);
+  assert.match(prompt, /Relevant documentation for this workspace/);
+  assert.match(prompt, /Client prefers formal tone\./);
+  assert.match(prompt, /Proposal template lives in docs\/proposal\.md\./);
+});

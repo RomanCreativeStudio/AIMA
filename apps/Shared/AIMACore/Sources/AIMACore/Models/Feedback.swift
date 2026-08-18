@@ -1,0 +1,81 @@
+import Foundation
+
+/// Mirrors `backend/src/feedback/types.ts#FeedbackType`.
+public enum FeedbackType: String, Codable, CaseIterable, Identifiable, Sendable {
+    case bug
+    case feature
+    case general
+
+    public var id: String { rawValue }
+
+    /// The display label used by the feedback form (Beta Tester Infrastructure sprint).
+    public var displayName: String {
+        switch self {
+        case .bug: return "Bug Report"
+        case .feature: return "Feature Request"
+        case .general: return "General Feedback"
+        }
+    }
+}
+
+/// Mirrors `backend/src/feedback/types.ts#FeedbackStatus`. Every submission starts `.new`; the Feedback
+/// Triage Workflow sprint added `APIClient.updateFeedbackStatus` to advance it one step at a time
+/// (new -> reviewed -> resolved).
+public enum FeedbackStatus: String, Codable, CaseIterable, Identifiable, Sendable {
+    case new
+    case reviewed
+    case resolved
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .new: return "New"
+        case .reviewed: return "Reviewed"
+        case .resolved: return "Resolved"
+        }
+    }
+}
+
+/// Mirrors `backend/src/feedback/types.ts#Feedback` (Beta Tester Infrastructure sprint) — a single feedback/
+/// bug-report/feature-request submission, workspace-scoped like every other resource in this package.
+public struct Feedback: Codable, Identifiable, Equatable, Sendable {
+    public let id: String
+    public let workspaceId: String
+    public let userId: String
+    public let type: FeedbackType
+    public let status: FeedbackStatus
+    public let message: String
+    public let createdAt: String
+
+    public init(id: String, workspaceId: String, userId: String, type: FeedbackType, status: FeedbackStatus, message: String, createdAt: String) {
+        self.id = id
+        self.workspaceId = workspaceId
+        self.userId = userId
+        self.type = type
+        self.status = status
+        self.message = message
+        self.createdAt = createdAt
+    }
+}
+
+/// Mirrors `backend/src/feedback/types.ts#CreateFeedbackInput`'s client-facing subset — `workspaceId`/
+/// `userId` are path/auth-derived on the backend, never sent by the client.
+public struct CreateFeedbackRequest: Encodable, Sendable {
+    public var type: FeedbackType?
+    public var message: String
+
+    public init(type: FeedbackType? = nil, message: String) {
+        self.type = type
+        self.message = message
+    }
+}
+
+/// Mirrors the PATCH `/api/admin/feedback/:id` body — the only field this route accepts.
+public struct UpdateFeedbackStatusRequest: Encodable, Sendable {
+    public var status: FeedbackStatus
+
+    public init(status: FeedbackStatus) {
+        self.status = status
+    }
+}
