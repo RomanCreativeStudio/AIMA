@@ -25,6 +25,11 @@ public final class WorkspaceViewModel {
     /// never fetched or triggered automatically.
     public private(set) var lastReindexResult: ReindexWorkspaceResult?
     public private(set) var isReindexing = false
+    /// Cross-Workspace Daily Digest sprint: one row per workspace the user owns, so the Dashboard can show what
+    /// needs attention everywhere without switching `activeWorkspaceId`. Fetched only on explicit request
+    /// (`loadDigest`), same posture as `activitySummary` — never automatic.
+    public private(set) var digest: [WorkspaceDigestEntry] = []
+    public private(set) var isLoadingDigest = false
 
     private let apiClient: APIClient
     private let userId: String
@@ -86,6 +91,23 @@ public final class WorkspaceViewModel {
         errorMessage = nil
         do {
             activitySummary = try await apiClient.getWorkspaceInsights(workspaceId: workspaceId)
+        } catch let error as APIError {
+            errorMessage = error.userMessage
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    /// Fetches the cross-workspace digest — a plain read, never automatic. Scoped entirely server-side by the
+    /// caller's own bearer token (`APIClient.getWorkspaceDigest` takes no `userId`), so this never risks showing
+    /// another user's workspaces regardless of what `self.userId` holds.
+    public func loadDigest() async {
+        isLoadingDigest = true
+        errorMessage = nil
+        defer { isLoadingDigest = false }
+
+        do {
+            digest = try await apiClient.getWorkspaceDigest()
         } catch let error as APIError {
             errorMessage = error.userMessage
         } catch {

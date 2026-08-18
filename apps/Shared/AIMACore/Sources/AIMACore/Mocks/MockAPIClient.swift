@@ -986,6 +986,36 @@ public actor MockAPIClient: APIClient {
         )
     }
 
+    /// Cross-Workspace Daily Digest sprint: mirrors `DashboardViewModel.nudgeSuggestionSources` — kept in sync
+    /// manually, the same way this same source set is already duplicated between the backend and AIMACore.
+    private static let nudgeSuggestionSources: Set<String> = [
+        "missed_deadline_pattern",
+        "blocked_task_stale_pattern",
+        "decision_without_followup_pattern",
+    ]
+
+    /// Mirrors `WorkspaceDigestService.getDigest` — one `getDailyBriefing` call per workspace `user` owns,
+    /// with `nudgeCount`/`topSuggestion` derived from its `suggestedNextActions`, no separate computation.
+    public func getWorkspaceDigest() async throws -> [WorkspaceDigestEntry] {
+        var entries: [WorkspaceDigestEntry] = []
+        for workspace in workspaces where workspace.userId == user.id {
+            let briefing = try await getDailyBriefing(workspaceId: workspace.id)
+            entries.append(
+                WorkspaceDigestEntry(
+                    workspaceId: briefing.workspaceId,
+                    workspaceName: briefing.workspaceName,
+                    nudgeCount: briefing.suggestedNextActions.filter { Self.nudgeSuggestionSources.contains($0.source) }.count,
+                    topSuggestion: briefing.suggestedNextActions.first,
+                    pendingApprovalCount: briefing.pendingApprovalCount,
+                    greeting: briefing.greeting,
+                    overdueTaskCount: briefing.overdueTasks.count,
+                    blockedItemCount: briefing.blockedItems.count
+                )
+            )
+        }
+        return entries
+    }
+
     /// Mirrors the backend's `briefingService.ts#buildGreeting` — same deterministic, time-of-day rule.
     private static func buildGreeting(workspaceName: String, now: Date) -> String {
         let hour = Calendar.current.component(.hour, from: now)

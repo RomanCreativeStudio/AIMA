@@ -84,6 +84,10 @@ public protocol APIClient: Sendable {
     func archiveMemory(workspaceId: String, memoryId: String) async throws -> MemoryRecord
     func deleteMemory(workspaceId: String, memoryId: String) async throws
 
+    /// Cross-Workspace Daily Digest sprint: one row per workspace the authenticated caller owns — scoped
+    /// entirely by the bearer token server-side, so this deliberately takes no `userId` parameter (there is
+    /// nothing to spoof).
+    func getWorkspaceDigest() async throws -> [WorkspaceDigestEntry]
     func getProactivePatterns(workspaceId: String) async throws -> [Pattern]
     func getProactiveSuggestions(workspaceId: String) async throws -> [Suggestion]
     /// Nudge Learning Loop sprint: advisory only — records that Alex dismissed a nudge so the backend suppresses

@@ -19,6 +19,7 @@ import type { BriefingService } from './insights/briefingService';
 import type { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
 import type { TaskIntelligenceService } from './insights/taskIntelligenceService';
 import type { UsageMetricsService } from './insights/usageMetricsService';
+import type { WorkspaceDigestService } from './insights/workspaceDigestService';
 import type { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import type { IntegrationService } from './integrations/integrationService';
 import type { IntegrationRegistry } from './integrations/registry';
@@ -67,6 +68,7 @@ import { workflowsRouter } from './routes/workflows';
 import { tasksRouter } from './routes/tasks';
 import { usersRouter } from './routes/users';
 import { workspacesRouter } from './routes/workspaces';
+import { digestRouter } from './routes/digest';
 import { voiceRouter } from './routes/voice';
 import { createErrorHandler } from './middleware/errorHandler';
 
@@ -122,6 +124,8 @@ export interface AppDependencies {
   adminUserIds?: readonly string[];
   /** Beta Invitations & Notifications sprint: optional for the same reason as `adminService` — `POST/GET /api/admin/invitations` are simply not mounted when this is omitted (requires `adminService`/`adminUserIds` too, since they gate the whole `adminRouter`). `index.ts` always supplies a real one; `notificationService` inside it is itself optional (only built when `WEBHOOK_URL` is configured). */
   invitationService?: InvitationService;
+  /** Cross-Workspace Daily Digest sprint: optional for the same reason as `feedbackService` — `GET /api/digest` is simply not mounted when this is omitted. `index.ts`, the one real production call site, always supplies a real one. */
+  workspaceDigestService?: WorkspaceDigestService;
 }
 
 /**
@@ -278,6 +282,9 @@ export function createApp(deps: AppDependencies): Application {
   app.use('/api', voiceRouter({ voiceService: deps.voiceService }));
   if (deps.proactiveIntelligenceService) {
     app.use('/api', proactiveRouter({ proactiveIntelligenceService: deps.proactiveIntelligenceService }));
+  }
+  if (deps.workspaceDigestService) {
+    app.use('/api', digestRouter({ workspaceDigestService: deps.workspaceDigestService }));
   }
   if (deps.retrievalService) {
     app.use(

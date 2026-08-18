@@ -122,6 +122,51 @@ final class WorkspaceViewModelTests: XCTestCase {
         XCTAssertEqual(viewModel.activeWorkspaceId, "ws-1")
     }
 
+    // MARK: - Cross-Workspace Daily Digest sprint
+
+    func testDigestStartsEmptyBeforeLoadDigestIsCalled() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        await viewModel.load()
+
+        XCTAssertTrue(viewModel.digest.isEmpty, "loadDigest is an explicit fetch, never automatic")
+    }
+
+    func testLoadDigestPopulatesOneEntryPerWorkspace() async {
+        let apiClient = MockAPIClient()
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+        await viewModel.load()
+
+        await viewModel.loadDigest()
+
+        XCTAssertEqual(Set(viewModel.digest.map(\.workspaceId)), Set(viewModel.workspaces.map(\.id)))
+        XCTAssertFalse(viewModel.isLoadingDigest)
+        XCTAssertNil(viewModel.errorMessage)
+    }
+
+    func testLoadDigestIsScopedByTheAuthenticatedCallerNotTheViewModelsOwnUserId() async {
+        let apiClient = MockAPIClient()
+        // A userId with no matching seeded workspace still gets every workspace MockAPIClient's one
+        // authenticated user owns — mirrors the backend's `GET /digest`, which takes no userId param at all.
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "brand-new-user")
+
+        await viewModel.loadDigest()
+
+        XCTAssertEqual(viewModel.digest.count, 4)
+    }
+
+    func testLoadDigestSurfacesAPIErrorsAsUserFacingMessages() async {
+        let apiClient = MockAPIClient()
+        await apiClient.setShouldFail(true)
+        let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")
+
+        await viewModel.loadDigest()
+
+        XCTAssertTrue(viewModel.digest.isEmpty)
+        XCTAssertNotNil(viewModel.errorMessage)
+        XCTAssertFalse(viewModel.isLoadingDigest)
+    }
+
     func testSwitchWorkspaceClearsTheStaleReindexResult() async {
         let apiClient = MockAPIClient()
         let viewModel = WorkspaceViewModel(apiClient: apiClient, userId: "mock-user")

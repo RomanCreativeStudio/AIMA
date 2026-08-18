@@ -71,6 +71,29 @@ export interface DailyBriefing {
   generatedAt: string;
 }
 
+/**
+ * Cross-Workspace Daily Digest sprint: one compact row per workspace the caller owns — everything a founder
+ * needs to decide whether a workspace needs a look, without switching into it. Every field is read directly off
+ * a `DailyBriefing` (`WorkspaceDigestService` calls `BriefingService.getDailyBriefing` once per workspace); no
+ * new pattern detection or aggregation logic exists here.
+ */
+export interface WorkspaceDigestEntry {
+  workspaceId: string;
+  workspaceName: string;
+  /** How many of `DailyBriefing.suggestedNextActions` are nudge-derived (source is `missed_deadline_pattern`,
+   * `blocked_task_stale_pattern`, or `decision_without_followup_pattern` — see `NUDGE_SUGGESTION_SOURCES` in
+   * `workspaceDigestService.ts`, mirroring AIMACore's `DashboardViewModel.nudgeSuggestionSources`). Bounded by
+   * the same top-3 cap `suggestedNextActions` already has, so this is intentionally consistent with — not wider
+   * than — what that workspace's own Daily Briefing card would show. */
+  nudgeCount: number;
+  /** `suggestedNextActions[0]`, i.e. the single highest-confidence suggestion — `null` when the workspace has none. */
+  topSuggestion: Suggestion | null;
+  pendingApprovalCount: number;
+  greeting: string;
+  overdueTaskCount: number;
+  blockedItemCount: number;
+}
+
 /** One deterministic grouping of open tasks that share a significant keyword in their title (Phase 2.5, item 2). */
 export interface RelatedTaskGroup {
   keyword: string;

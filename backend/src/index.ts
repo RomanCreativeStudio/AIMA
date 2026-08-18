@@ -38,6 +38,7 @@ import { BriefingService } from './insights/briefingService';
 import { ConversationIntelligenceService } from './insights/conversationIntelligenceService';
 import { TaskIntelligenceService } from './insights/taskIntelligenceService';
 import { UsageMetricsService } from './insights/usageMetricsService';
+import { WorkspaceDigestService } from './insights/workspaceDigestService';
 import { WorkspaceInsightsService } from './insights/workspaceInsightsService';
 import { IntentEngine } from './intent/intentEngine';
 import { PatternDetectionService } from './proactive/patternDetectionService';
@@ -253,6 +254,7 @@ async function main(): Promise<void> {
     proactiveIntelligenceService,
     integrationService,
   );
+  const workspaceDigestService = new WorkspaceDigestService(workspaceService, briefingService);
   const taskIntelligenceService = new TaskIntelligenceService(taskService);
   const conversationIntelligenceService = new ConversationIntelligenceService(conversationService, memoryService, aiProvider);
   const workspaceInsightsService = new WorkspaceInsightsService(
@@ -311,6 +313,7 @@ async function main(): Promise<void> {
     conversationIntelligenceService,
     workspaceInsightsService,
     proactiveIntelligenceService,
+    workspaceDigestService,
     executionService,
     voiceService,
     retrievalService,

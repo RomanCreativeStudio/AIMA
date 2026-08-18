@@ -39,6 +39,7 @@ struct WorkspaceSwitcherView: View {
             }
 
             if !viewModel.workspaces.isEmpty {
+                digestSection
                 activitySummarySection
             }
         }
@@ -65,6 +66,63 @@ struct WorkspaceSwitcherView: View {
         .task(id: viewModel.activeWorkspaceId) {
             await viewModel.loadActivitySummary()
         }
+        .task {
+            await viewModel.loadDigest()
+        }
+    }
+
+    /// Cross-Workspace Daily Digest sprint: what needs attention across every workspace the caller owns, without
+    /// switching `activeWorkspaceId` — reuses `SuggestionRow` for each workspace's top suggestion, same as the
+    /// Dashboard's "Needs Attention"/"Recommendations" sections.
+    @ViewBuilder
+    private var digestSection: some View {
+        Section("All Workspaces") {
+            if viewModel.isLoadingDigest && viewModel.digest.isEmpty {
+                ProgressView()
+            } else if viewModel.digest.isEmpty {
+                Text("No digest available yet.").foregroundStyle(.secondary)
+            } else {
+                ForEach(viewModel.digest) { entry in
+                    digestRow(entry)
+                }
+            }
+        }
+    }
+
+    private func digestRow(_ entry: WorkspaceDigestEntry) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(entry.workspaceName).fontWeight(.medium)
+                Spacer()
+                if entry.nudgeCount > 0 {
+                    Label("\(entry.nudgeCount) needs attention", systemImage: "bell.badge.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+            Text(entry.greeting)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                if entry.pendingApprovalCount > 0 {
+                    Label("\(entry.pendingApprovalCount) approval(s)", systemImage: "checkmark.seal")
+                }
+                if entry.overdueTaskCount > 0 {
+                    Label("\(entry.overdueTaskCount) overdue", systemImage: "clock.badge.exclamationmark")
+                }
+                if entry.blockedItemCount > 0 {
+                    Label("\(entry.blockedItemCount) blocked", systemImage: "hand.raised")
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+
+            if let topSuggestion = entry.topSuggestion {
+                SuggestionRow(suggestion: topSuggestion)
+            }
+        }
+        .padding(.vertical, 4)
     }
 
     /// Activity Summary (Phase 3.5, item 8) — reuses the existing Phase 2.5 `WorkspaceInsights` read, refreshed

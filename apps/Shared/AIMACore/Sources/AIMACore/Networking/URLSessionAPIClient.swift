@@ -463,6 +463,10 @@ public final class URLSessionAPIClient: APIClient, @unchecked Sendable {
         _ = try await send("DELETE", "/api/workspaces/\(workspaceId)/memories/\(memoryId)") as DeletedEnvelope
     }
 
+    public func getWorkspaceDigest() async throws -> [WorkspaceDigestEntry] {
+        try await send("GET", "/api/digest", envelope: DigestEnvelope.self).digest
+    }
+
     public func getProactivePatterns(workspaceId: String) async throws -> [Pattern] {
         try await send("GET", "/api/workspaces/\(workspaceId)/proactive/patterns", envelope: PatternsEnvelope.self).patterns
     }
@@ -715,6 +719,7 @@ private struct VoiceTurnsEnvelope: Decodable { let turns: [VoiceTurn] }
 private struct MemoryEnvelope: Decodable { let memory: MemoryRecord }
 private struct MemoriesEnvelope: Decodable { let memories: [MemoryRecord] }
 private struct MemorySearchResultsEnvelope: Decodable { let results: [RankedMemoryResult] }
+private struct DigestEnvelope: Decodable { let digest: [WorkspaceDigestEntry] }
 private struct PatternsEnvelope: Decodable { let patterns: [Pattern] }
 private struct SuggestionsEnvelope: Decodable { let suggestions: [Suggestion] }
 private struct RecordedEnvelope: Decodable { let recorded: Bool }

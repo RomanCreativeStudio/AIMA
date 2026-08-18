@@ -657,6 +657,38 @@ final class ModelDecodingTests: XCTestCase {
         XCTAssertEqual(suggestion.source, "frequent_workflow_pattern")
     }
 
+    func testDecodesWorkspaceDigestEntry() throws {
+        let json = """
+        {"workspaceId":"w1","workspaceName":"rcs","nudgeCount":2,
+         "topSuggestion":{"id":"task:missed-deadlines","workspaceId":"w1","type":"task","title":"Review overdue tasks",
+           "explanation":"1 open task(s) are past their due date.","confidence":0.5,"source":"missed_deadline_pattern",
+           "timestamp":"2026-01-01T00:00:00.000Z","payload":{}},
+         "pendingApprovalCount":1,"greeting":"Good morning! Here's what's happening in rcs.",
+         "overdueTaskCount":1,"blockedItemCount":1}
+        """.data(using: .utf8)!
+
+        let entry = try decoder.decode(WorkspaceDigestEntry.self, from: json)
+        XCTAssertEqual(entry.workspaceId, "w1")
+        XCTAssertEqual(entry.workspaceName, "rcs")
+        XCTAssertEqual(entry.nudgeCount, 2)
+        XCTAssertEqual(entry.topSuggestion?.source, "missed_deadline_pattern")
+        XCTAssertEqual(entry.pendingApprovalCount, 1)
+        XCTAssertEqual(entry.overdueTaskCount, 1)
+        XCTAssertEqual(entry.blockedItemCount, 1)
+        XCTAssertEqual(entry.id, "w1")
+    }
+
+    func testDecodesWorkspaceDigestEntryWithNoTopSuggestion() throws {
+        let json = """
+        {"workspaceId":"w2","workspaceName":"personal","nudgeCount":0,"topSuggestion":null,
+         "pendingApprovalCount":0,"greeting":"Good evening! Here's what's happening in personal.",
+         "overdueTaskCount":0,"blockedItemCount":0}
+        """.data(using: .utf8)!
+
+        let entry = try decoder.decode(WorkspaceDigestEntry.self, from: json)
+        XCTAssertNil(entry.topSuggestion)
+    }
+
     func testDecodesPattern() throws {
         let json = """
         {"workspaceId":"w1","type":"repeated_task","description":"2 tasks share a keyword.",
