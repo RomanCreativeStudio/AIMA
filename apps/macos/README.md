@@ -1,6 +1,6 @@
 # AIMA — macOS App
 
-Status: **Live Integration Providers built (Phase 2.7).** Not yet usable end-to-end without a Mac + Xcode to build it — see "Known limitation" below.
+Status: **Alpha Launch sprint: backend URL now persists across relaunches (`APIConfiguration.resolved`/`save`), so Settings-configured LAN/production addresses survive a restart.** Not yet usable end-to-end without a Mac + Xcode to build it — see "Known limitation" below.
 
 A native SwiftUI application built with Swift Package Manager (no `.xcodeproj` — open this folder's `Package.swift` directly in Xcode via **File > Open...**; Xcode treats a `swift-tools-version` manifest as a first-class project). Talks only to `backend/`'s API — no direct database or AI provider access, per the thin-client rule in `docs/TECHNICAL_ARCHITECTURE.md` §2.
 
@@ -40,6 +40,28 @@ This target `import`s SwiftUI/AppKit and can only be built, run, or previewed wi
 - **Phase 3.6 likewise hit no exception:** `SearchViewModel`'s manual search/context/reindex, and `ChatViewModel`/`WorkspaceViewModel`'s retrieved-context/reindex-result state, are ordinary Swift/Foundation and fully covered by `AIMACoreTests` against `MockAPIClient`'s seeded search fixtures. Only the views (`SearchView`/`RetrievedContextSectionView`/`RetrievedContextCardView`) share the general SwiftUI-on-Linux limitation. `swift build` for this target on Linux still fails with exactly the same single distinct error class as every prior phase.
 
 Whoever next opens this repo on a Mac should: open `apps/macos/Package.swift` in Xcode, build and run the `AIMA` scheme, and confirm the `#Preview` blocks in each view render against `MockAPIClient`. That verification step is still owed and is called out explicitly rather than assumed.
+
+## Producing a runnable `.app` (Alpha Launch sprint audit)
+
+This sprint's own instruction was to make this target "produce a runnable `.app`" and "fix actual runtime/
+packaging blockers only" — not to invent packaging work that isn't needed. The audit found none beyond the
+Xcode/macOS requirement already documented above:
+
+- Xcode's **Run** on a SwiftUI `App`-declaring executable target already builds and launches a `.app` bundle in
+  `DerivedData` with no extra configuration — this comes from the target being a plain SwiftPM executable with an
+  `@main App` type, not from anything specific to this package. There is no missing product declaration, no
+  missing `Info.plist` requirement for a debug run, and no separate packaging step to add.
+- No `.entitlements` file exists in this repo (confirmed by a repo-wide search), which means this app runs
+  **unsandboxed** by default — outbound networking (talking to `backend/`) requires no
+  `com.apple.security.network.client` entitlement in that state. Adding App Sandbox later (e.g. for eventual Mac
+  App Store distribution) would need that entitlement added at the same time; it is out of scope for an Alpha
+  build meant to run directly from Xcode.
+- A distributable, double-clickable `.app` outside Xcode (**Product > Archive**, notarization, code signing for
+  distribution) is a distinct, later concern from "runs via Xcode's Run button" — the sprint's own scope is an
+  Alpha build usable by its own team, which Xcode's Run already provides once opened on a Mac.
+
+Net finding: there was no code-level packaging blocker to fix. The one real blocker remains needing a Mac with
+Xcode to build it at all, which is a tooling requirement, not a fixable code defect.
 
 ## Running against a real backend
 

@@ -26,7 +26,7 @@ final class DependencyContainer {
     /// `AIMA_USE_MOCK_API=1` runs the app entirely against `MockAPIClient`/`MockAuthClient` — useful for
     /// demoing the UI without a running backend (sign in with `MockAuthClient.seededEmail`/`seededPassword`).
     init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        let configuration = APIConfiguration.fromEnvironment(environment)
+        let configuration = APIConfiguration.resolved(environment: environment)
         self.configuration = configuration
         self.userId = environment["AIMA_USER_ID"] ?? "mock-user"
 
@@ -50,9 +50,14 @@ final class DependencyContainer {
     /// `sessionStore(for:)`), so this never reads or overwrites a session that belongs to a different backend —
     /// pointing at a backend this app hasn't signed into before starts genuinely signed out, and pointing back
     /// at one it has restores that backend's own session correctly.
+    ///
+    /// Alpha Launch sprint: also persists `url` via `APIConfiguration.save(baseURL:)`, so the next launch's
+    /// `resolved(...)` picks it back up instead of reverting to `developmentDefault` — without this, a physical
+    /// iPhone pointed at its Mac's LAN address would lose that address on every relaunch.
     func updateBackendURL(_ url: URL) {
         let newConfiguration = APIConfiguration(baseURL: url, requestTimeout: configuration.requestTimeout)
         configuration = newConfiguration
+        APIConfiguration.save(baseURL: url)
         if apiClient is URLSessionAPIClient {
             let newAuthClient = BackendAuthClient(configuration: newConfiguration, sessionStore: Self.sessionStore(for: newConfiguration))
             authClient = newAuthClient

@@ -67,6 +67,22 @@ npm run dev             # from repo root: npm run dev --workspace=backend
 
 Running in production? See `docs/PRODUCTION_SETUP.md` (Phase 3.1) for `NODE_ENV=production`, database TLS/pooling, logging, error monitoring, and a Docker build — `backend/.env.production.example` is the production environment template.
 
+### Connecting from another device on the LAN (Alpha Launch sprint)
+
+`app.listen(config.port, ...)` (`src/index.ts`) is called with no host argument, so Node binds it to every network
+interface by default — `npm run dev` is already reachable from other devices on the same Wi-Fi network, not just
+`127.0.0.1`. This is what lets a physical iPhone (`apps/ios/`) reach a Mac running this backend without any server
+config change:
+
+1. Start the backend as above.
+2. Find the Mac's LAN IP: `ipconfig getifaddr en0` (or `en1`).
+3. Point the client at `http://<mac-lan-ip>:4000` — on macOS via `AIMA_API_BASE_URL`, on iOS via the Settings tab
+   (`apps/ios/README.md`'s "Networking" section) or the same environment variable in an Xcode scheme.
+
+This binds a plaintext HTTP port to your local network — fine for development on a trusted home/office Wi-Fi
+network, not something to do on an untrusted network or expose beyond the LAN. Production deployments use HTTPS
+(`docs/PRODUCTION_SETUP.md`), which every client already supports via the same configurable base URL.
+
 ## Testing
 
 ```bash
